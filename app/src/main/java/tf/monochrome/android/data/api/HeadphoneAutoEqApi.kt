@@ -48,11 +48,8 @@ class HeadphoneAutoEqApi {
     suspend fun fetchHeadphones(): Result<List<Headphone>> = withContext(Dispatchers.IO) {
         try {
             if (isCacheValid()) {
-                Log.d(TAG, "Using cached headphone list (${cachedHeadphones?.size} items)")
                 return@withContext Result.success(cachedHeadphones ?: emptyList())
             }
-
-            Log.d(TAG, "Fetching full repo tree from GitHub API...")
             val url = URL(TREE_URL)
             val connection = (url.openConnection() as java.net.HttpURLConnection).apply {
                 connectTimeout = 15000
@@ -129,11 +126,9 @@ class HeadphoneAutoEqApi {
             cachedHeadphones = headphones
             lastFetchTime = System.currentTimeMillis()
 
-            Log.d(TAG, "Fetched ${headphones.size} unique headphones from ${entries.size} entries")
             Result.success(headphones)
 
         } catch (e: Exception) {
-            Log.e(TAG, "Error fetching headphones: ${e.message}", e)
             Result.failure(e)
         }
     }
@@ -162,7 +157,6 @@ class HeadphoneAutoEqApi {
                             val rawUrl = "$RAW_BASE/$basePath/$fileName"
                             val csvData = fetchUrl(rawUrl)
                             if (csvData != null) {
-                                Log.d(TAG, "Found measurement at $rawUrl")
                                 return@withContext Result.success(csvData)
                             }
                         } catch (_: Exception) { }
@@ -181,7 +175,6 @@ class HeadphoneAutoEqApi {
                     try {
                         val csvData = fetchUrl(url)
                         if (csvData != null) {
-                            Log.d(TAG, "Found measurement via fallback: $url")
                             return@withContext Result.success(csvData)
                         }
                     } catch (_: Exception) { }
@@ -189,7 +182,6 @@ class HeadphoneAutoEqApi {
 
                 Result.failure(Exception("No measurement data found for $headphoneId"))
             } catch (e: Exception) {
-                Log.e(TAG, "Error fetching measurement: ${e.message}", e)
                 Result.failure(e)
             }
         }
@@ -207,7 +199,6 @@ class HeadphoneAutoEqApi {
     fun clearCache() {
         cachedHeadphones = null
         lastFetchTime = 0L
-        Log.d(TAG, "Cache cleared")
     }
 
     private fun isCacheValid(): Boolean =

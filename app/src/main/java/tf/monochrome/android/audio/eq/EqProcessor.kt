@@ -43,7 +43,6 @@ class EqProcessor(
             equalizer = Equalizer(0, audioSessionId).apply {
                 enabled = false
             }
-            Log.i(TAG, "System EQ initialized with ${equalizer?.numberOfBands} bands")
         } catch (e: Exception) {
             Log.w(TAG, "System EQ not available: ${e.message}")
             equalizer = null
@@ -68,7 +67,6 @@ class EqProcessor(
         } else {
             // Fall back to custom DSP (store for later use)
             customDspBands = bands
-            Log.d(TAG, "Using custom DSP mode with ${bands.size} bands")
         }
 
         // Apply preamp gain separately if needed
@@ -109,8 +107,6 @@ class EqProcessor(
                 }
             }
 
-            Log.d(TAG, "System EQ has $numBands bands at: $bandFrequencies Hz")
-
             // For each system band, calculate gain from our bands
             for (bandIdx in 0 until numBands) {
                 val sysFreq = bandFrequencies[bandIdx]
@@ -138,10 +134,7 @@ class EqProcessor(
             }
 
             eq.enabled = true
-            Log.d(TAG, "Applied ${bands.size} bands to system EQ")
-
-        } catch (e: Exception) {
-            Log.e(TAG, "Error applying bands to system EQ: ${e.message}")
+        } catch (_: Exception) {
         }
     }
 
@@ -200,7 +193,6 @@ class EqProcessor(
     private fun applyPreamp(preamp: Float) {
         // In a real implementation, this could adjust the output volume
         // or apply to all bands uniformly
-        Log.d(TAG, "Applying preamp: $preamp dB")
         // Note: Actual implementation depends on integration point
     }
 
@@ -210,7 +202,6 @@ class EqProcessor(
     fun enable() {
         isEnabled = true
         equalizer?.enabled = true
-        Log.d(TAG, "EQ enabled")
     }
 
     /**
@@ -219,7 +210,6 @@ class EqProcessor(
     fun disable() {
         isEnabled = false
         equalizer?.enabled = false
-        Log.d(TAG, "EQ disabled")
     }
 
     /**
@@ -232,9 +222,7 @@ class EqProcessor(
                     eq.setBandLevel(i.toShort(), 0)
                 }
             }
-            Log.d(TAG, "EQ reset to flat")
-        } catch (e: Exception) {
-            Log.e(TAG, "Error resetting EQ: ${e.message}")
+        } catch (_: Exception) {
         }
     }
 
@@ -259,9 +247,7 @@ class EqProcessor(
         try {
             equalizer?.release()
             equalizer = null
-            Log.d(TAG, "Audio effects released")
-        } catch (e: Exception) {
-            Log.e(TAG, "Error releasing audio effects: ${e.message}")
+        } catch (_: Exception) {
         }
     }
 

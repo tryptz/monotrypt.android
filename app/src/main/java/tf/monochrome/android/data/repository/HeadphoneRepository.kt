@@ -1,6 +1,5 @@
 package tf.monochrome.android.data.repository
 
-import android.util.Log
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import tf.monochrome.android.data.api.HeadphoneAutoEqApi
@@ -21,10 +20,6 @@ import javax.inject.Singleton
 class HeadphoneRepository @Inject constructor(
     private val autoEqApi: HeadphoneAutoEqApi
 ) {
-    companion object {
-        private const val TAG = "HeadphoneRepository"
-    }
-
     /**
      * Get all available headphones as a Flow
      *
@@ -34,14 +29,11 @@ class HeadphoneRepository @Inject constructor(
         try {
             val result = autoEqApi.fetchHeadphones()
             result.onSuccess { headphones ->
-                Log.d(TAG, "Emitting ${headphones.size} headphones")
                 emit(headphones)
-            }.onFailure { error ->
-                Log.e(TAG, "Error fetching headphones: ${error.message}")
+            }.onFailure {
                 emit(emptyList())
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in getAllHeadphones: ${e.message}")
+        } catch (_: Exception) {
             emit(emptyList())
         }
     }
@@ -60,14 +52,11 @@ class HeadphoneRepository @Inject constructor(
 
             val result = autoEqApi.searchHeadphones(query)
             result.onSuccess { headphones ->
-                Log.d(TAG, "Found ${headphones.size} headphones matching '$query'")
                 emit(headphones)
-            }.onFailure { error ->
-                Log.e(TAG, "Error searching headphones: ${error.message}")
+            }.onFailure {
                 emit(emptyList())
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in searchHeadphones: ${e.message}")
+        } catch (_: Exception) {
             emit(emptyList())
         }
     }
@@ -81,14 +70,11 @@ class HeadphoneRepository @Inject constructor(
         try {
             val result = autoEqApi.getHeadphonesByType(type)
             result.onSuccess { headphones ->
-                Log.d(TAG, "Found ${headphones.size} ${type} headphones")
                 emit(headphones)
-            }.onFailure { error ->
-                Log.e(TAG, "Error fetching ${type} headphones: ${error.message}")
+            }.onFailure {
                 emit(emptyList())
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in getHeadphonesByType: ${e.message}")
+        } catch (_: Exception) {
             emit(emptyList())
         }
     }
@@ -100,11 +86,9 @@ class HeadphoneRepository @Inject constructor(
      */
     fun loadHeadphoneMeasurement(headphoneId: String): Flow<Result<String>> = flow {
         try {
-            Log.d(TAG, "Loading measurement for $headphoneId...")
             val result = autoEqApi.fetchHeadphoneMeasurement(headphoneId)
             emit(result)
         } catch (e: Exception) {
-            Log.e(TAG, "Error loading measurement: ${e.message}")
             emit(Result.failure(e))
         }
     }
@@ -115,7 +99,6 @@ class HeadphoneRepository @Inject constructor(
      * Forces a fresh fetch from GitHub on next request.
      */
     fun refreshCache() {
-        Log.d(TAG, "Refreshing headphone cache")
         autoEqApi.clearCache()
     }
 }

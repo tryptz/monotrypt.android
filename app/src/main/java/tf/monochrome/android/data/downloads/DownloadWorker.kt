@@ -2,7 +2,6 @@ package tf.monochrome.android.data.downloads
 
 import android.content.Context
 import android.net.Uri
-import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
@@ -128,10 +127,8 @@ class DownloadWorker @AssistedInject constructor(
                             val lrcFile = File(downloadsDir, "$trackId.lrc")
                             lrcFile.writeText(lrcContent.toString())
                         }
-                        Log.d("DownloadWorker", "Saved lyrics for $trackId")
                     }
-                } catch (le: Exception) {
-                    Log.e("DownloadWorker", "Failed to save lyrics for $trackId", le)
+                } catch (_: Exception) {
                 }
             }
 
@@ -151,10 +148,8 @@ class DownloadWorker @AssistedInject constructor(
                 )
             )
 
-            Log.d("DownloadWorker", "Downloaded track $trackId ($fileName, ${audioData.size} bytes)")
             Result.success()
-        } catch (e: Exception) {
-            Log.e("DownloadWorker", "Failed to download $trackId", e)
+        } catch (_: Exception) {
             if (runAttemptCount < 3) Result.retry() else Result.failure()
         }
     }
