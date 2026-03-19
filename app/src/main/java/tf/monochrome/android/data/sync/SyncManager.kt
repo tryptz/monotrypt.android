@@ -1,6 +1,5 @@
 package tf.monochrome.android.data.sync
 
-import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -42,10 +41,6 @@ class SyncManager @Inject constructor(
     private val pocketBaseClient: PocketBaseClient,
     private val json: Json
 ) {
-    companion object {
-        private const val TAG = "SyncManager"
-    }
-
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var isSyncing = false
 
@@ -65,11 +60,7 @@ class SyncManager @Inject constructor(
         isSyncing = true
 
         try {
-            Log.d(TAG, "Starting cloud sync for user: $uid")
-            val cloudData = pocketBaseClient.getUserData(uid) ?: run {
-                Log.e(TAG, "Could not fetch cloud data")
-                return
-            }
+            val cloudData = pocketBaseClient.getUserData(uid) ?: return
 
             // Parse cloud data
             val cloudLibrary = safeParseObject(cloudData.library)
@@ -156,15 +147,11 @@ class SyncManager @Inject constructor(
             if (needsCloudUpdate) {
                 pocketBaseClient.updateUserField(uid, "library", json.encodeToString(JsonObject.serializer(), JsonObject(mergedLibrary)))
                 pocketBaseClient.updateUserField(uid, "history", json.encodeToString(JsonArray.serializer(), JsonArray(mergedHistoryList)))
-                Log.d(TAG, "Pushed merged data to cloud")
             }
 
             // Import cloud data into local DB
             importCloudToLocal(cloudTracks, cloudAlbums, cloudArtists, cloudHistory)
-
-            Log.d(TAG, "Sync completed successfully")
-        } catch (e: Exception) {
-            Log.e(TAG, "Sync error", e)
+        } catch (_: Exception) {
         } finally {
             isSyncing = false
         }
@@ -196,8 +183,7 @@ class SyncManager @Inject constructor(
                         addedAt = obj["addedAt"]?.jsonPrimitive?.longOrNull ?: System.currentTimeMillis()
                     ))
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to import cloud track", e)
+            } catch (_: Exception) {
             }
         }
 
@@ -219,8 +205,7 @@ class SyncManager @Inject constructor(
                         addedAt = obj["addedAt"]?.jsonPrimitive?.longOrNull ?: System.currentTimeMillis()
                     ))
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to import cloud album", e)
+            } catch (_: Exception) {
             }
         }
 
@@ -237,8 +222,7 @@ class SyncManager @Inject constructor(
                         addedAt = obj["addedAt"]?.jsonPrimitive?.longOrNull ?: System.currentTimeMillis()
                     ))
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to import cloud artist", e)
+            } catch (_: Exception) {
             }
         }
     }
