@@ -1,6 +1,5 @@
 package tf.monochrome.android.data.sync
 
-import android.util.Log
 import io.ktor.client.HttpClient
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
@@ -38,7 +37,6 @@ class PocketBaseClient @Inject constructor(
     private val json: Json
 ) {
     companion object {
-        private const val TAG = "PocketBaseClient"
         private const val BASE_URL = "https://data.samidy.xyz"
         private const val COLLECTION = "DB_users"
     }
@@ -75,12 +73,10 @@ class PocketBaseClient @Inject constructor(
                 val recordId = record["id"]?.jsonPrimitive?.content ?: return null
                 cachedRecordId = recordId
                 cachedUid = uid
-                Log.d(TAG, "Found existing DB_users record: $recordId")
                 return PocketBaseUserRecord(id = recordId, firebaseId = uid)
             }
 
             // Create new record
-            Log.d(TAG, "Creating new DB_users record for uid: $uid")
             val createResponse = httpClient.post("$BASE_URL/api/collections/$COLLECTION/records") {
                 contentType(ContentType.Application.Json)
                 setBody(json.encodeToString(JsonObject.serializer(), buildJsonObject {
@@ -98,7 +94,6 @@ class PocketBaseClient @Inject constructor(
                 val recordId = record["id"]?.jsonPrimitive?.content ?: return null
                 cachedRecordId = recordId
                 cachedUid = uid
-                Log.d(TAG, "Created DB_users record: $recordId")
                 PocketBaseUserRecord(id = recordId, firebaseId = uid)
             } else {
                 // Race condition: retry fetch
@@ -116,12 +111,10 @@ class PocketBaseClient @Inject constructor(
                     cachedUid = uid
                     PocketBaseUserRecord(id = recordId, firebaseId = uid)
                 } else {
-                    Log.e(TAG, "Failed to create or find user record")
                     null
                 }
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error getting user record", e)
+        } catch (_: Exception) {
             null
         }
     }
@@ -144,8 +137,7 @@ class PocketBaseClient @Inject constructor(
                 userPlaylists = safeParseField(obj["user_playlists"], "{}"),
                 userFolders = safeParseField(obj["user_folders"], "{}")
             )
-        } catch (e: Exception) {
-            Log.e(TAG, "Error getting user data", e)
+        } catch (_: Exception) {
             null
         }
     }
@@ -155,23 +147,14 @@ class PocketBaseClient @Inject constructor(
      * Mirrors syncManager._updateUserJSON() from the web reference.
      */
     suspend fun updateUserField(uid: String, field: String, data: String) {
-        val record = getUserRecord(uid) ?: run {
-            Log.e(TAG, "Cannot update: no user record found")
-            return
-        }
+        val record = getUserRecord(uid) ?: return
 
         try {
             val response = httpClient.patch("$BASE_URL/api/collections/$COLLECTION/records/${record.id}") {
                 contentType(ContentType.Application.Json)
                 setBody("{\"$field\":${json.encodeToString(JsonPrimitive.serializer(), JsonPrimitive(data))}}")
             }
-            if (!response.status.isSuccess()) {
-                Log.e(TAG, "Failed to sync $field: ${response.status}")
-            } else {
-                Log.d(TAG, "Synced $field successfully")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to sync $field", e)
+        } catch (_: Exception) {
         }
     }
 

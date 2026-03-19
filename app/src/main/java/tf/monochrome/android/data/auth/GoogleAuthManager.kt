@@ -3,7 +3,6 @@ package tf.monochrome.android.data.auth
 import android.app.Activity
 import androidx.activity.ComponentActivity
 import android.content.Context
-import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.appwrite.Client
 import io.appwrite.enums.OAuthProvider
@@ -45,18 +44,15 @@ class GoogleAuthManager @Inject constructor(
      * Check for an existing Appwrite session on startup
      */
     suspend fun initialize() {
-        Log.d("GoogleAuthManager", "initialize: Checking for existing session")
         try {
             val user = account.get()
-            Log.d("GoogleAuthManager", "initialize: Found user ${user.id} (${user.email})")
             _userProfile.value = UserProfile(
                 id = user.id,
                 displayName = user.name.ifBlank { null },
                 email = user.email.ifBlank { null },
                 photoUrl = null // Appwrite doesn't return a photo URL by default
             )
-        } catch (e: Exception) {
-            Log.d("GoogleAuthManager", "initialize: No existing session. Error: ${e.message}")
+        } catch (_: Exception) {
             _userProfile.value = null
         }
     }
@@ -65,7 +61,6 @@ class GoogleAuthManager @Inject constructor(
      * Sign in with Google via Appwrite OAuth2 (opens browser)
      */
     suspend fun signInWithGoogle(activity: ComponentActivity) {
-        Log.d("GoogleAuthManager", "signInWithGoogle: Starting OAuth flow")
         _isSigningIn.value = true
         _errorMessage.value = null
         try {
@@ -75,11 +70,9 @@ class GoogleAuthManager @Inject constructor(
                 success = "appwrite-callback-auth-for-monochrome://monochrome.tf",
                 failure = "appwrite-callback-auth-for-monochrome://monochrome.tf"
             )
-            Log.d("GoogleAuthManager", "signInWithGoogle: createOAuth2Token launched")
             // OAuth opens a browser — refreshUser() is called when the user
             // returns to ProfileScreen via LaunchedEffect
         } catch (e: Exception) {
-            Log.e("GoogleAuthManager", "signInWithGoogle: Failed launching OAuth", e)
             _errorMessage.value = "Google sign-in failed: ${e.message}"
         } finally {
             _isSigningIn.value = false
@@ -90,12 +83,10 @@ class GoogleAuthManager @Inject constructor(
      * Sign in with email and password
      */
     suspend fun signInWithEmail(email: String, password: String): Result<UserProfile> {
-        Log.d("GoogleAuthManager", "signInWithEmail: Attempting to sign in with email $email")
         _isSigningIn.value = true
         _errorMessage.value = null
         return try {
             account.createEmailPasswordSession(email, password)
-            Log.d("GoogleAuthManager", "signInWithEmail: Session created, fetching user info")
             val user = account.get()
             val profile = UserProfile(
                 id = user.id,
@@ -104,14 +95,11 @@ class GoogleAuthManager @Inject constructor(
                 photoUrl = null
             )
             _userProfile.value = profile
-            Log.d("GoogleAuthManager", "signInWithEmail: Success for user ${user.id}")
             Result.success(profile)
         } catch (e: AppwriteException) {
-            Log.e("GoogleAuthManager", "signInWithEmail: AppwriteException", e)
             _errorMessage.value = e.message ?: "Login failed"
             Result.failure(e)
         } catch (e: Exception) {
-            Log.e("GoogleAuthManager", "signInWithEmail: Exception", e)
             _errorMessage.value = e.message ?: "Login failed"
             Result.failure(e)
         } finally {
@@ -144,19 +132,16 @@ class GoogleAuthManager @Inject constructor(
      * Refresh user state (call after OAuth2 browser callback)
      */
     suspend fun refreshUser() {
-        Log.d("GoogleAuthManager", "refreshUser: Starting refresh")
         _isSigningIn.value = false
         try {
             val user = account.get()
-            Log.d("GoogleAuthManager", "refreshUser: Success for user ${user.id} (${user.email})")
             _userProfile.value = UserProfile(
                 id = user.id,
                 displayName = user.name.ifBlank { null },
                 email = user.email.ifBlank { null },
                 photoUrl = null
             )
-        } catch (e: Exception) {
-            Log.d("GoogleAuthManager", "refreshUser: Failed or not signed in. Error: ${e.message}")
+        } catch (_: Exception) {
             // Don't show an error message on refresh if not signed in
         }
     }

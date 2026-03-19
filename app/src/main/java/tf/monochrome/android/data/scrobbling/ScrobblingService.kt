@@ -1,6 +1,5 @@
 package tf.monochrome.android.data.scrobbling
 
-import android.util.Log
 import io.ktor.client.HttpClient
 import io.ktor.client.request.forms.FormDataContent
 import io.ktor.client.request.header
@@ -96,11 +95,7 @@ class ScrobblingService @Inject constructor(
                     params.forEach { (k, v) -> append(k, v) }
                 }))
             }
-            if (response.status.isSuccess()) {
-                Log.d("ScrobblingService", "Last.fm Now Playing updated for: ${track.title}")
-            }
-        } catch (e: Exception) {
-            Log.e("ScrobblingService", "Last.fm Now Playing error", e)
+        } catch (_: Exception) {
         }
     }
 
@@ -128,11 +123,7 @@ class ScrobblingService @Inject constructor(
                     params.forEach { (k, v) -> append(k, v) }
                 }))
             }
-            if (response.status.isSuccess()) {
-                Log.d("ScrobblingService", "Last.fm Scrobble success for: ${track.title}")
-            }
-        } catch (e: Exception) {
-            Log.e("ScrobblingService", "Last.fm Scrobble error", e)
+        } catch (_: Exception) {
         }
     }
 
@@ -159,11 +150,7 @@ class ScrobblingService @Inject constructor(
                 contentType(ContentType.Application.Json)
                 setBody(payload.toString())
             }
-            if (response.status.isSuccess()) {
-                Log.d("ScrobblingService", "ListenBrainz Submit ($listenType) success for: ${track.title}")
-            }
-        } catch (e: Exception) {
-            Log.e("ScrobblingService", "ListenBrainz error", e)
+        } catch (_: Exception) {
         }
     }
 }
