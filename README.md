@@ -1,258 +1,164 @@
-<p align="center">
-  <h1 align="center">MONOCHROME</h1>
-  <p align="center">
-    <strong>High-Fidelity Music Streaming — Native Android</strong><br/>
-    <em>A full native conversion of the Monochrome web app, with Industrial-Grade AutoEQ</em>
-  </p>
-</p>
+# Monochrome Android
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Platform-Android-3ddc84?logo=android&logoColor=white" alt="Android"/>
-  <img src="https://img.shields.io/badge/Min%20SDK-26%20(Oreo)-blue" alt="Min SDK 26"/>
-  <img src="https://img.shields.io/badge/Target%20SDK-36-blue" alt="Target SDK 36"/>
-  <img src="https://img.shields.io/badge/Kotlin-2.1.0-7f52ff?logo=kotlin&logoColor=white" alt="Kotlin"/>
-  <img src="https://img.shields.io/badge/Jetpack%20Compose-Material3-4285f4?logo=jetpackcompose&logoColor=white" alt="Compose"/>
-  <img src="https://img.shields.io/badge/Status-Alpha-orange" alt="Alpha"/>
-</p>
+Native Android music streaming client with a built-in parametric equalizer. Connects to TIDAL for lossless and hi-res playback. Alpha.
+
+[**Download APK**](monochrome-autoeq-alpha.apk) — sideload or install via ADB.
 
 ---
 
-> [!IMPORTANT]
-> **ALPHA RELEASE** — Monochrome Android is in active development. This is a full native Android conversion of the Monochrome web app. Core streaming and the AutoEQ engine are functional, but expect rough edges and ongoing changes.
+## Infrastructure
+
+### Audio Pipeline
+
+Playback runs through Media3/ExoPlayer with audio focus, wake lock, and gapless transitions. The player handles progressive HTTP streams and DASH manifests (base64-encoded MPD). Stream URLs are resolved per-track with quality selection — LOW (96 kbps), HIGH (320 kbps), LOSSLESS (FLAC), or HI_RES (24-bit FLAC). Quality switches automatically between WiFi and cellular based on user preference.
+
+ReplayGain is applied in the linear domain (`10^(dB/20)`) with peak protection to prevent clipping. Supports track mode, album mode, or off, with adjustable preamp.
+
+The queue is managed in-memory with Fisher-Yates shuffle (preserving the current track), three repeat modes, and drag-to-reorder. The next two tracks are pre-resolved to cut transition latency.
+
+### Networking
+
+API requests go through Ktor with an OkHttp engine. There's a 200-entry LRU cache with 30-minute TTL. The client runs an instance failover system — it pulls a list of available API endpoints from uptime workers, falls back to hardcoded instances if those are unreachable, and shuffles the pool on each request. Rate-limited responses (429) trigger rotation to the next instance. Instance lists are cached in DataStore with a 15-minute TTL.
+
+### Database
+
+Room v2 schema with nine tables:
+
+- `favorite_tracks`, `favorite_albums`, `favorite_artists` — local library
+- `history_tracks` — play history, indexed on timestamp
+- `user_playlists` + `playlist_tracks` — playlist management with cascade delete
+- `downloaded_tracks` — offline files, indexed on file path
+- `cached_lyrics` — lyrics JSON with sync flag, indexed on cache time
+- `eq_presets` — serialized EQ band arrays, preamp, target reference, custom flag
+
+All queries are Flow-based for reactive UI updates.
+
+### Downloads
+
+WorkManager dispatches download jobs on `Dispatchers.IO` with network constraints. Files are written to a user-selected folder via SAF (Storage Access Framework) or fall back to external app storage. Tracks are saved as FLAC with sanitized filenames (`{Artist} - {Title}.flac`). Lyrics optionally export as LRC with `[mm:ss.ms]` timecodes. Three retry attempts with exponential backoff.
+
+### Auth
+
+Authentication goes through Appwrite with Google OAuth. The OAuth callback redirects back into the app via a registered deep link scheme. Email/password auth is also supported. The Appwrite user ID maps to a PocketBase record for cloud sync — favorites, history, and playlists sync bidirectionally with deduplication by ID and latest-timestamp wins for history.
+
+### Scrobbling
+
+Dual scrobbling to Last.fm and ListenBrainz. Last.fm uses MD5-signed API requests. ListenBrainz uses token-based JSON POST. Now-playing updates fire on track start, scrobbles fire on track end.
+
+### DI & Navigation
+
+Full Hilt injection across the app — four modules (App, Network, Database, API) providing singletons. Navigation uses Jetpack Compose Navigation with three main tabs (Home, Search, Library) in a HorizontalPager, plus detail screens for albums, artists, playlists, and mixes. A mini player overlay persists across all screens except Now Playing.
 
 ---
 
-## What is Monochrome Android?
+## AutoEQ Engine
 
-Monochrome started as a web application — a precision music streaming client built around uncompromising audio fidelity. This repository is the **full native Android conversion**: every feature rebuilt from scratch using Android-native technologies, no webview, no wrappers.
+A 10-band fully parametric equalizer that generates headphone correction filters from frequency response measurements.
 
-It connects to TIDAL for lossless and hi-res streaming and layers on a precision equalization engine that surgically corrects your headphones to match reference target curves — all in real time, natively on your device.
+### Algorithm
 
----
+The engine runs a greedy iterative peak-finding loop. Given a headphone measurement and a target curve:
 
-## Download the Alpha
+1. **Normalize** — Calculate the offset between measurement and target over a 250–2500 Hz window (the perceptually critical midrange). Compute the initial error curve across the full spectrum.
 
-> [**Download monochrome-autoeq-alpha.apk**](monochrome-autoeq-alpha.apk)
->
-> Sideload via ADB or enable "Install from unknown sources" in your device settings.
+2. **Find the worst deviation** — Scan 20 Hz to 16 kHz. Apply 3-point smoothing to the error. Weight sub-50 Hz deviations by 1.2x. Find the frequency with the largest absolute error.
 
----
+3. **Calculate the correction filter** — Invert the deviation as gain. Clamp to ±12 dB (±8 dB above 8 kHz to avoid harsh treble boost). Estimate bandwidth by scanning outward from the peak until error drops below half the deviation. Convert bandwidth in octaves to Q factor: `Q = √(2^bw) / (2^bw - 1)`, clamped between 0.6 and 6.0.
 
-## Features
+4. **Update the error curve** — Compute the biquad frequency response of the new filter at every measurement point and subtract it from the remaining error. This accounts for the phase-coherent interaction of all previous filters.
 
-### Streaming & Playback
+5. **Repeat** for up to 10 bands. Terminate early if the largest remaining deviation is under 0.05 dB.
 
-| Feature | Details |
-|---------|---------|
-| **TIDAL Integration** | Low (96 kbps) · High (320 kbps) · Lossless FLAC · Hi-Res 24-bit FLAC |
-| **Gapless Playback** | Powered by Media3/ExoPlayer |
-| **ReplayGain** | Volume normalization across tracks and albums |
-| **Offline Mode** | Download tracks for playback without a connection |
-| **Android Auto** | Full car display integration via MediaBrowserService |
-| **Chromecast** | Cast audio to any Cast-enabled device |
-| **Queue Management** | Drag-to-reorder, shuffle, repeat modes |
-| **Variable Speed** | Adjustable playback speed |
+6. **Sort** the resulting bands by frequency.
 
-### Library & Discovery
+### Biquad Math
 
-- **Home Feed** — Curated content, mixes, and recommendations
-- **Search** — Tracks, albums, artists, and playlists
-- **Library** — Your playlists, downloads, favorites, and history
-- **Artist & Album Pages** — Rich detail views with full discographies
-- **Playlist Import** — Bulk import from other services
-- **Scrobbling** — Full listening history tracking
+Filter responses are calculated using the direct complex form of the transfer function at 64-bit (double) precision.
 
-### Interface
-
-- **Jetpack Compose + Material 3** — Entirely native, no webview
-- **Now Playing** — Cover Art, Lyrics, Queue, and Visualizer modes
-- **120Hz Optimized** — Smooth on high-refresh-rate displays
-- **Dark Theme** — Full dark mode
-- **Home Screen Widget** — Glance-powered Now Playing widget
-- **Deep Linking** — Opens `monochrome.tf` links directly in the app
-
----
-
-## The AutoEQ Engine
-
-The crown feature of Monochrome Android. A proprietary **Global Greedy Iterative Peaking** algorithm generates headphone correction filters with precision that doesn't exist in any other mobile EQ app.
-
-### How It Works
+For a peaking filter at frequency `f0` with gain `G` and quality `Q`:
 
 ```
-Your Headphone's FR  ──►  AutoEQ Engine  ──►  Correction Curve  ──►  Target Response
-     (measured)           (10 iterations)      (10 PEQ bands)         (what you hear)
+w0 = 2π × f0 / fs
+A  = 10^(G/40)
+α  = sin(w0) / (2Q)
+
+b0 = 1 + α×A       a0 = 1 + α/A
+b1 = -2×cos(w0)    a1 = -2×cos(w0)
+b2 = 1 - α×A       a2 = 1 - α/A
 ```
 
-**Scan** — Evaluate the entire 20 Hz – 20 kHz spectrum. Find the single largest deviation from the target curve.
+The magnitude response at frequency `f`:
 
-**Isolate** — Calculate the exact frequency, gain (dB), and Q-factor to surgically flatten that deviation with a peaking filter.
+```
+φ = 2π × f / fs
 
-**Refine** — Re-evaluate the full remaining error, accounting for the phase-coherent interactions of every previous filter. Repeat.
+       |b0 + b1·e^(-jφ) + b2·e^(-j2φ)|
+|H| =  ─────────────────────────────────
+       |a0 + a1·e^(-jφ) + a2·e^(-j2φ)|
 
-**Converge** — After 10 iterations, a tightly fitted correction that hugs the target with sub-dB accuracy.
+dB = 10 × log₁₀(|H|²)
+```
 
-### Why It's Different
+Low shelf and high shelf coefficients follow the standard cookbook forms with `√A` coupling terms. Stability guards catch denominator magnitudes below 1e-15, NaN, and Inf.
 
-| Standard Mobile EQ | Monochrome AutoEQ |
-|-------------------|-------------------|
-| 5–10 band graphic EQ, fixed frequencies | 10-band fully parametric EQ |
-| 32-bit float math | **64-bit double precision** — eliminates singularities at subsonic frequencies |
-| Fixed Q factors | **Adaptive Q up to 6.0** — catches narrow resonance peaks in IEMs and planars |
-| Manual slider guessing | **Automatic correction** from measurement data |
-| No target awareness | **10+ research-grade target curves** built in |
+### Target Curves
 
-### Built-In Target Curves
+Ten built-in targets, each defined as frequency/gain point pairs and linearly interpolated between points:
 
-384 frequency data points per curve for surgical correction:
+| Target | Points | Use |
+|--------|--------|-----|
+| Harman Over-Ear 2018 | 384 | Over-ear headphones |
+| Harman In-Ear 2019 | 32 | IEMs |
+| Diffuse Field | 27 | Flat at the eardrum |
+| Knowles | 27 | BA driver compensation |
+| Moondrop VDSF | 27 | Virtual diffuse sound field |
+| Hi-Fi Endgame 2026 | 27 | Modern preference target |
+| PEQdB Ultra | 27 | Parametric reference |
+| SEAP | 26 | Spectral error attenuation |
+| SEAP Bass | 26 | SEAP with bass shelf |
+| Flat | 10 | Bypass (constant 75 dB SPL) |
 
-| Target Curve | Description |
-|-------------|-------------|
-| **Harman Over-Ear 2018** | Industry standard for over-ear headphones (default) |
-| **Harman In-Ear 2019** | Optimized for IEMs with enhanced bass shelf |
-| **Diffuse Field** | Flat at the eardrum — the academic reference |
-| **Knowles** | BA driver compensation curve |
-| **Moondrop VDSF** | Virtual Diffuse Sound Field — popular in the IEM community |
-| **Hi-Fi Endgame 2026** | Cutting-edge target for modern audiophile preferences |
-| **PEQdB Ultra** | High-precision parametric reference |
-| **SEAP / SEAP Bass** | Spectral Error Attenuation Protocol variants |
-| **Flat** | Zero correction — bypass reference |
+Target data is embedded as raw strings, lazy-parsed on first access.
 
-### 4,000+ Headphone Profiles
+### Headphone Profiles
 
-Monochrome integrates directly with the [AutoEq GitHub repository](https://github.com/jaakkopasanen/AutoEq) — the largest open database of headphone frequency response measurements. Pick your headphone model from **4,000+ profiles** and get instant, one-tap correction. No measurement rig needed.
+Over 4,000 headphone measurements load from a remote repository. The parser handles CSV and TXT with automatic delimiter detection (comma, semicolon, tab, whitespace), header row detection, and European decimal format conversion. Users can also upload their own measurement files.
 
-### Custom Measurements
+### Audio Integration
 
-Own a measurement microphone? Upload your own frequency response data (CSV/TXT) through the built-in **Headphone Calibration** screen to generate custom correction curves for any transducer.
+The EQ processor wraps Android's system `Equalizer` AudioEffect, bound to the ExoPlayer audio session ID. Parametric bands are mapped to the device's fixed system bands using a Gaussian gain estimation model — for each system band frequency, the contribution of every parametric band is summed based on the distance in octaves from its center frequency, shaped by its Q. Gains are clamped to the device's hardware limits (reported in millibels).
 
-### EQ Interface
+EQ settings are stored as serialized JSON in DataStore and persist across sessions. Changes flow reactively — `combine(eqEnabled, eqBandsJson, eqPreamp)` triggers real-time updates without interrupting playback.
 
-- **10-Band Interactive Graph** — Drag bands directly on the frequency response canvas
-- **Spectral Color Coding** — Bands colored by frequency range (sub-bass, mids, highs)
-- **Real-Time Visualization** — See the correction curve update as you adjust
-- **120Hz UI** — No lag, no jitter on supported displays
-- **Preset Management** — Save, load, and delete custom EQ presets
-- **Preamp Control** — Global gain adjustment to prevent clipping
+Presets are stored in Room with the full band array serialized as JSON, plus preamp, target reference, and custom/built-in flag.
 
 ---
 
-## Architecture
+## Tech Stack
 
-Built from scratch as a proper native Android app — not a port, not a wrapper.
-
-```
-┌─────────────────────────────────────────────────┐
-│                   UI Layer                       │
-│         Jetpack Compose + Material 3             │
-│    Navigation Compose  ·  Glance Widgets         │
-├─────────────────────────────────────────────────┤
-│                Domain Layer                      │
-│          ViewModels  ·  Use Cases                │
-│        Kotlin Coroutines + Flow                  │
-├─────────────────────────────────────────────────┤
-│                 Data Layer                       │
-│   Room DB  ·  DataStore  ·  Ktor HTTP Client     │
-│   Appwrite Auth  ·  Google OAuth                 │
-├─────────────────────────────────────────────────┤
-│                Audio Layer                       │
-│   Media3/ExoPlayer  ·  AutoEQ Engine             │
-│   ReplayGain  ·  EQ Processor  ·  Chromecast     │
-├─────────────────────────────────────────────────┤
-│              Platform Layer                      │
-│   PlaybackService  ·  Android Auto               │
-│   WorkManager  ·  Notifications                  │
-└─────────────────────────────────────────────────┘
-```
-
-### Tech Stack
-
-| Component | Technology |
-|-----------|-----------|
+| | |
+|-|-|
 | Language | Kotlin 2.1.0 |
-| UI | Jetpack Compose + Material 3 (BOM 2024.12.01) |
+| UI | Jetpack Compose, Material 3 (BOM 2024.12.01) |
 | Audio | Media3 / ExoPlayer 1.5.1 |
 | Database | Room 2.7.1 |
 | Preferences | DataStore 1.1.1 |
-| Networking | Ktor 3.0.3 (OkHttp engine) |
+| Network | Ktor 3.0.3 (OkHttp) |
 | DI | Hilt 2.57.1 |
 | Serialization | Kotlinx Serialization 1.7.3 |
-| Auth | Appwrite 7.0.0 + Google Credentials API |
+| Auth | Appwrite 7.0.0, Google Credentials API |
 | Background | WorkManager 2.10.0 |
 | Widgets | Glance 1.1.1 |
-| Cast | Google Cast Framework 22.0.0 |
-| Build | AGP 9.0.0 + KSP 2.1.0 |
+| Build | AGP 9.0.0, KSP 2.1.0 |
 
----
+Android 8.0+ (API 26). Target SDK 36.
 
-## Requirements
-
-- Android 8.0+ (API 26)
-- Internet connection for streaming
-- A TIDAL account for music access
-
----
-
-## Build from Source
+## Build
 
 ```bash
 git clone https://github.com/tryptz/tf.monochrome.android.git
 cd tf.monochrome.android
-
 ./gradlew assembleRelease
-
-# Output:
-# app/build/outputs/apk/release/app-release.apk
 ```
 
-**Requires:** JDK 17+, Android SDK API 36
-
----
-
-## Project Structure
-
-```
-app/src/main/java/tf/monochrome/android/
-├── audio/eq/           # AutoEQ engine, target curves, EQ processor
-├── data/
-│   ├── api/            # TIDAL + AutoEq GitHub API clients
-│   ├── auth/           # Google OAuth, Appwrite auth
-│   ├── db/             # Room database, DAOs, entities
-│   ├── downloads/      # Offline download manager
-│   ├── preferences/    # DataStore preferences
-│   ├── repository/     # Data repositories
-│   ├── scrobbling/     # Listen history tracking
-│   └── sync/           # Cloud backup via PocketBase
-├── domain/model/       # Domain models
-├── player/             # PlaybackService, queue, ReplayGain
-├── auto/               # Android Auto integration
-├── di/                 # Hilt dependency injection modules
-└── ui/
-    ├── components/     # Shared UI components
-    ├── eq/             # Equalizer screens + frequency graph
-    ├── home/           # Home feed
-    ├── search/         # Search
-    ├── library/        # Library / playlists
-    ├── player/         # Now Playing screen
-    ├── detail/         # Album / Artist detail
-    ├── settings/       # Settings (9 tabs)
-    ├── profile/        # User profile
-    ├── theme/          # Material 3 theming
-    └── widget/         # Glance widget
-```
-
----
-
-## Acknowledgments
-
-- [AutoEq](https://github.com/jaakkopasanen/AutoEq) by Jaakko Pasanen — open headphone measurement database
-- [Media3 / ExoPlayer](https://developer.android.com/media/media3) — Android media playback
-- [Jetpack Compose](https://developer.android.com/compose) — declarative Android UI
-- The headphone measurement community for making reference-grade correction available to everyone
-
----
-
-<p align="center">
-  <strong>Monochrome Android</strong> — The web app, gone fully native.<br/>
-  <sub>Alpha · Android 8.0+ · Kotlin · Jetpack Compose · Media3 · AutoEQ</sub>
-</p>
+JDK 17+, Android SDK 36.
