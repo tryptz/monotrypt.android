@@ -26,6 +26,22 @@ class MainActivity : ComponentActivity() {
         installSplashScreen()
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        
+        // Force maximum available refresh rate (e.g. 120Hz)
+        window.attributes = window.attributes.apply {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                val displayModes = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                    display?.supportedModes ?: emptyArray()
+                } else {
+                    @Suppress("DEPRECATION")
+                    windowManager.defaultDisplay.supportedModes
+                }
+                
+                displayModes.maxByOrNull { it.refreshRate }?.let { bestMode ->
+                    preferredDisplayModeId = bestMode.modeId
+                }
+            }
+        }
 
         setContent {
             val themeName by preferences.theme.collectAsState(initial = "monochrome_dark")

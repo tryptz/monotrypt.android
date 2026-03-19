@@ -3,11 +3,13 @@ package tf.monochrome.android.data.db
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import tf.monochrome.android.data.db.dao.DownloadDao
+import tf.monochrome.android.data.db.dao.EqPresetDao
 import tf.monochrome.android.data.db.dao.FavoriteDao
 import tf.monochrome.android.data.db.dao.HistoryDao
 import tf.monochrome.android.data.db.dao.PlaylistDao
 import tf.monochrome.android.data.db.entity.CachedLyricsEntity
 import tf.monochrome.android.data.db.entity.DownloadedTrackEntity
+import tf.monochrome.android.data.db.entity.EqPresetEntity
 import tf.monochrome.android.data.db.entity.FavoriteAlbumEntity
 import tf.monochrome.android.data.db.entity.FavoriteArtistEntity
 import tf.monochrome.android.data.db.entity.FavoriteTrackEntity
@@ -24,9 +26,10 @@ import tf.monochrome.android.data.db.entity.UserPlaylistEntity
         UserPlaylistEntity::class,
         PlaylistTrackEntity::class,
         DownloadedTrackEntity::class,
-        CachedLyricsEntity::class
+        CachedLyricsEntity::class,
+        EqPresetEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class MusicDatabase : RoomDatabase() {
@@ -34,4 +37,5 @@ abstract class MusicDatabase : RoomDatabase() {
     abstract fun historyDao(): HistoryDao
     abstract fun playlistDao(): PlaylistDao
     abstract fun downloadDao(): DownloadDao
+    abstract fun eqPresetDao(): EqPresetDao
 }
