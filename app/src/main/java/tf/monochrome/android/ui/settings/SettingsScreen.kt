@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -71,8 +72,10 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import tf.monochrome.android.domain.model.AudioQuality
+import tf.monochrome.android.ui.eq.EqViewModel
+import tf.monochrome.android.domain.model.EqPreset
 
-private val settingsTabs = listOf("Appearance", "Interface", "Scrobbling", "Audio", "AI", "Downloads", "Instances", "System")
+private val settingsTabs = listOf("Appearance", "Interface", "Scrobbling", "Audio", "Equalizer", "AI", "Downloads", "Instances", "System")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -121,10 +124,52 @@ fun SettingsScreen(
             1 -> InterfaceTab(viewModel)
             2 -> ScrobblingTab(viewModel)
             3 -> AudioTab(viewModel)
-            4 -> AiTab(viewModel)
-            5 -> DownloadsTab(viewModel)
-            6 -> InstancesTab(viewModel)
-            7 -> SystemTab(viewModel)
+            4 -> EqualizerTab(navController)
+            5 -> AiTab(viewModel)
+            6 -> DownloadsTab(viewModel)
+            7 -> InstancesTab(viewModel)
+            8 -> SystemTab(viewModel)
+        }
+    }
+}
+
+// ─── Tab 4: Equalizer ──────────────────────────────────────────────────
+@Composable
+private fun EqualizerTab(navController: NavController, eqViewModel: EqViewModel = hiltViewModel()) {
+    val eqEnabled by eqViewModel.eqEnabled.collectAsState()
+    val selectedTarget by eqViewModel.selectedTarget.collectAsState()
+    val selectedHeadphone by eqViewModel.selectedHeadphone.collectAsState()
+
+    SettingsTabContent {
+        SettingsGroupHeader("Equalizer")
+        SettingSwitchItem(
+            title = "Enable Equalizer",
+            subtitle = "Apply EQ processing to playback",
+            checked = eqEnabled,
+            onCheckedChange = { eqViewModel.toggleEq() }
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        SettingItem(
+            title = "Target Curve",
+            subtitle = selectedTarget.label,
+            onClick = {}
+        )
+
+        SettingItem(
+            title = "Headphone",
+            subtitle = selectedHeadphone?.name ?: "None selected",
+            onClick = {}
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        OutlinedButton(
+            onClick = { navController.navigate("equalizer") },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Open Precision AutoEQ")
         }
     }
 }

@@ -24,9 +24,12 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
+import tf.monochrome.android.audio.eq.EqProcessor
 import tf.monochrome.android.data.preferences.PreferencesManager
 import tf.monochrome.android.data.repository.LibraryRepository
 import tf.monochrome.android.data.scrobbling.ScrobblingService
+import tf.monochrome.android.domain.model.EqBand
 import tf.monochrome.android.domain.model.ReplayGainValues
 import javax.inject.Inject
 
@@ -44,6 +47,7 @@ class PlaybackService : MediaSessionService() {
     private lateinit var player: ExoPlayer
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var currentReplayGain: ReplayGainValues? = null
+    private var eqProcessor: EqProcessor? = null
 
     @OptIn(UnstableApi::class)
     override fun onCreate() {
@@ -76,6 +80,7 @@ class PlaybackService : MediaSessionService() {
                     Player.STATE_READY -> {
                         applyReplayGain()
                         applyPlaybackSpeed()
+                        applyEq()
                     }
                 }
             }
@@ -98,6 +103,35 @@ class PlaybackService : MediaSessionService() {
 
         mediaSession = MediaSession.Builder(this, player)
             .build()
+
+        // Initialize EQ Processor with the player's audio session
+        eqProcessor = EqProcessor(player.audioSessionId)
+        eqProcessor?.initialize()
+
+        // Seamlessly apply playback speed when settings change
+        serviceScope.launch {
+            kotlinx.coroutines.flow.combine(
+                preferences.playbackSpeed,
+                preferences.preservePitch
+            ) { speed, preservePitch ->
+                Pair(speed, preservePitch)
+            }.collect { (speed, preservePitch) ->
+                player.playbackParameters = PlaybackParameters(speed, if (preservePitch) 1.0f else speed)
+            }
+        }
+
+        // Listen to EQ changes and apply them
+        serviceScope.launch {
+            kotlinx.coroutines.flow.combine(
+                preferences.eqEnabled,
+                preferences.eqBandsJson,
+                preferences.eqPreamp
+            ) { enabled, bandsJson, preamp ->
+                Triple(enabled, bandsJson, preamp)
+            }.collect { (enabled, bandsJson, preamp) ->
+                applyEqSettings(enabled, bandsJson, preamp)
+            }
+        }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
@@ -117,6 +151,7 @@ class PlaybackService : MediaSessionService() {
             release()
             mediaSession = null
         }
+        eqProcessor?.release()
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -253,6 +288,40 @@ class PlaybackService : MediaSessionService() {
                     // Preload failure is non-critical
                 }
             }
+        }
+    }
+
+    /**
+     * Apply current EQ settings from preferences
+     */
+    private fun applyEq() {
+        serviceScope.launch {
+            try {
+                val enabled = preferences.eqEnabled.first()
+                val bandsJson = preferences.eqBandsJson.first()
+                val preamp = preferences.eqPreamp.first()
+                applyEqSettings(enabled, bandsJson, preamp)
+            } catch (e: Exception) {
+                // EQ application non-critical
+            }
+        }
+    }
+
+    /**
+     * Apply EQ settings to the audio processor
+     */
+    private fun applyEqSettings(enabled: Boolean, bandsJson: String?, preamp: Double) {
+        try {
+            if (enabled && !bandsJson.isNullOrEmpty()) {
+                val json = Json { ignoreUnknownKeys = true }
+                val bands = json.decodeFromString<List<EqBand>>(bandsJson)
+                eqProcessor?.applyBands(bands, preamp.toFloat())
+                eqProcessor?.enable()
+            } else {
+                eqProcessor?.disable()
+            }
+        } catch (e: Exception) {
+            // Gracefully handle EQ application errors
         }
     }
 }

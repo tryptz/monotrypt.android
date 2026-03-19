@@ -132,3 +132,21 @@ data class CachedLyricsEntity(
     val isSynced: Boolean = false,
     val cachedAt: Long = System.currentTimeMillis()
 )
+
+@Entity(
+    tableName = "eq_presets",
+    indices = [Index("id"), Index("isCustom")]
+)
+@Serializable
+data class EqPresetEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    val description: String = "",
+    val bandsJson: String = "[]",  // Serialized List<EqBand>
+    val preamp: Float = 0f,
+    val targetId: String = "",
+    val targetName: String = "",
+    val isCustom: Boolean = false,
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis()
+)

@@ -91,6 +91,10 @@ class PlayerViewModel @Inject constructor(
     val romajiLyrics: StateFlow<Boolean> = preferences.romajiLyrics
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
+    // --- Playback Speed ---
+    val playbackSpeed: StateFlow<Float> = preferences.playbackSpeed
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 1.0f)
+
     // --- Global Favorites State ---
     val favoriteTrackIds: StateFlow<Set<Long>> = libraryRepository.getFavoriteTracks()
         .map { tracks -> tracks.map { it.id }.toSet() }
@@ -318,6 +322,10 @@ class PlayerViewModel @Inject constructor(
     fun skipToQueueIndex(index: Int) {
         queueManager.skipToIndex(index)
         resolveAndPlay()
+    }
+
+    fun setPlaybackSpeed(speed: Float) {
+        viewModelScope.launch { preferences.setPlaybackSpeed(speed) }
     }
 
     private fun resolveAndPlay() {

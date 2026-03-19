@@ -15,6 +15,8 @@ import tf.monochrome.android.data.repository.LibraryRepository
 import tf.monochrome.android.data.repository.MusicRepository
 import tf.monochrome.android.domain.model.AiFilter
 import tf.monochrome.android.domain.model.Track
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.encodeToString
 import javax.inject.Inject
 
 @HiltViewModel
@@ -50,13 +52,33 @@ class HomeViewModel @Inject constructor(
     private fun loadHome() {
         viewModelScope.launch {
             _isLoading.value = true
-            libraryRepository.getHistory().collect { tracks ->
+
+            // Load instantly from cache
+            try {
+                val cachedJson = preferences.homeRecommendationsCache.first()
+                if (!cachedJson.isNullOrBlank()) {
+                    val tracks = Json { ignoreUnknownKeys = true }.decodeFromString<List<Track>>(cachedJson)
+                    _recommendedTracks.value = tracks
+                }
+            } catch (_: Exception) {}
+
+            try {
+                val tracks = libraryRepository.getHistory().first()
                 _recentTracks.value = tracks.take(20)
                 _isLoading.value = false
 
                 // Auto-load recommendations from the first recent track if available
                 if (_recommendedTracks.value.isEmpty() && tracks.isNotEmpty()) {
                     loadRecommendations(tracks.first().id)
+                } else if (_recommendedTracks.value.isEmpty() && tracks.isEmpty()) {
+                    // Fallback for brand new user
+                    loadRecommendations()
+                }
+            } catch (e: Exception) {
+                // Fallback: show empty state with recommendations
+                _isLoading.value = false
+                if (_recommendedTracks.value.isEmpty()) {
+                    loadRecommendations()
                 }
             }
         }
@@ -109,6 +131,14 @@ class HomeViewModel @Inject constructor(
                     val tracks = musicRepository.getRecommendations(seed).getOrDefault(emptyList())
                     if (tracks.isNotEmpty()) {
                         _recommendedTracks.value = tracks
+                        preferences.setHomeRecommendationsCache(Json.encodeToString(tracks))
+                    }
+                } else {
+                    // Fallback for new user with empty history
+                    val tracks = musicRepository.searchTracks("pop").getOrDefault(emptyList())
+                    if (tracks.isNotEmpty()) {
+                        _recommendedTracks.value = tracks
+                        preferences.setHomeRecommendationsCache(Json.encodeToString(tracks))
                     }
                 }
             } catch (_: Exception) { }
@@ -135,6 +165,7 @@ class HomeViewModel @Inject constructor(
                     val tracks = result.getOrNull()
                     if (!tracks.isNullOrEmpty()) {
                         _recommendedTracks.value = tracks
+                        preferences.setHomeRecommendationsCache(Json.encodeToString(tracks))
                     } else {
                         // Fallback to regular recommendations without leaking the loading state.
                         loadRegularRecommendations(seedTrackId)

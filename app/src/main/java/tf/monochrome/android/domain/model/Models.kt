@@ -170,3 +170,70 @@ fun buildCoverUrl(coverId: String, size: Int): String {
     val formatted = coverId.replace("-", "/")
     return "https://resources.tidal.com/images/$formatted/${size}x${size}.jpg"
 }
+
+// ========== EQ / AutoEQ Models ==========
+
+enum class FilterType {
+    PEAKING, LOWSHELF, HIGHSHELF
+}
+
+@Serializable
+data class FrequencyPoint(
+    val freq: Float,
+    val gain: Float
+)
+
+@Serializable
+data class EqBand(
+    val id: Int,
+    val type: FilterType = FilterType.PEAKING,
+    val freq: Float,
+    val gain: Float,
+    val q: Float = 1.0f,
+    val enabled: Boolean = true
+)
+
+@Serializable
+data class EqPreset(
+    val id: String,
+    val name: String,
+    val description: String = "",
+    val bands: List<EqBand> = emptyList(),
+    val preamp: Float = 0f,
+    val targetId: String = "",
+    val targetName: String = "",
+    val isCustom: Boolean = false,
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
+@Serializable
+data class EqTarget(
+    val id: String,
+    val label: String,
+    val data: List<FrequencyPoint> = emptyList(),
+    val filename: String = ""
+)
+
+@Serializable
+data class Headphone(
+    val id: String,
+    val name: String,
+    val type: String = "over-ear", // "over-ear", "in-ear", "earbud"
+    val data: List<FrequencyPoint> = emptyList(),
+    val measurements: List<AutoEqMeasurement> = emptyList()
+)
+
+data class AutoEqEntry(
+    val name: String,
+    val type: String,
+    val measurements: List<AutoEqMeasurement> = emptyList()
+)
+
+@Serializable
+data class AutoEqMeasurement(
+    val source: String,
+    val target: String,
+    val path: String,
+    val fileName: String
+)

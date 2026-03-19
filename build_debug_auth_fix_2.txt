@@ -1,0 +1,63 @@
+
+> Configure project :app
+WARNING: The option setting 'android.builtInKotlin=false' is deprecated.
+The current default is 'true'.
+It will be removed in version 10.0 of the Android Gradle plugin.
+WARNING: The option setting 'android.newDsl=false' is deprecated.
+The current default is 'true'.
+It will be removed in version 10.0 of the Android Gradle plugin.
+
+> Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:generateDebugBuildConfig UP-TO-DATE
+> Task :app:generateDebugResources UP-TO-DATE
+> Task :app:packageDebugResources UP-TO-DATE
+> Task :app:processDebugNavigationResources UP-TO-DATE
+> Task :app:parseDebugLocalResources UP-TO-DATE
+> Task :app:generateDebugRFile UP-TO-DATE
+> Task :app:kspDebugKotlin
+
+> Task :app:compileDebugKotlin
+w: file:///S:/1_ACTIVE/Audio%20Projects/monochrome-android/app/src/main/java/tf/monochrome/android/data/auth/GoogleAuthManager.kt:29:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+- To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+- To keep applying to the value parameter only, use the '@param:' annotation target.
+
+See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+w: file:///S:/1_ACTIVE/Audio%20Projects/monochrome-android/app/src/main/java/tf/monochrome/android/data/downloads/DownloadManager.kt:17:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+- To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+- To keep applying to the value parameter only, use the '@param:' annotation target.
+
+See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+w: file:///S:/1_ACTIVE/Audio%20Projects/monochrome-android/app/src/main/java/tf/monochrome/android/data/downloads/DownloadWorker.kt:51:38 'suspend fun HttpResponse.readBytes(): ByteArray' is deprecated. This method was renamed to readRawBytes() to reflect what it does.
+w: file:///S:/1_ACTIVE/Audio%20Projects/monochrome-android/app/src/main/java/tf/monochrome/android/data/preferences/PreferencesManager.kt:26:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+- To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+- To keep applying to the value parameter only, use the '@param:' annotation target.
+
+See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+w: file:///S:/1_ACTIVE/Audio%20Projects/monochrome-android/app/src/main/java/tf/monochrome/android/data/repository/MusicRepository.kt:27:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+- To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+- To keep applying to the value parameter only, use the '@param:' annotation target.
+
+See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+w: file:///S:/1_ACTIVE/Audio%20Projects/monochrome-android/app/src/main/java/tf/monochrome/android/di/DatabaseModule.kt:28:11 'fun fallbackToDestructiveMigration(): RoomDatabase.Builder<MusicDatabase>' is deprecated. Replace by overloaded version with parameter to indicate if all tables should be dropped or not.
+w: file:///S:/1_ACTIVE/Audio%20Projects/monochrome-android/app/src/main/java/tf/monochrome/android/ui/components/AddToPlaylistSheet.kt:97:57 'val Icons.Filled.PlaylistPlay: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.PlaylistPlay.
+w: file:///S:/1_ACTIVE/Audio%20Projects/monochrome-android/app/src/main/java/tf/monochrome/android/ui/components/TrackContextMenu.kt:110:38 'val Icons.Filled.QueueMusic: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.QueueMusic.
+w: file:///S:/1_ACTIVE/Audio%20Projects/monochrome-android/app/src/main/java/tf/monochrome/android/ui/components/TrackContextMenu.kt:121:38 'val Icons.Filled.PlaylistAdd: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.PlaylistAdd.
+w: file:///S:/1_ACTIVE/Audio%20Projects/monochrome-android/app/src/main/java/tf/monochrome/android/ui/library/LibraryScreen.kt:287:65 'val Icons.Filled.PlaylistPlay: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.PlaylistPlay.
+w: file:///S:/1_ACTIVE/Audio%20Projects/monochrome-android/app/src/main/java/tf/monochrome/android/ui/player/NowPlayingScreen.kt:319:39 'val Icons.Filled.FormatAlignLeft: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.FormatAlignLeft.
+w: file:///S:/1_ACTIVE/Audio%20Projects/monochrome-android/app/src/main/java/tf/monochrome/android/ui/player/NowPlayingScreen.kt:330:39 'val Icons.Filled.QueueMusic: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.QueueMusic.
+w: file:///S:/1_ACTIVE/Audio%20Projects/monochrome-android/app/src/main/java/tf/monochrome/android/ui/player/PlayerViewModel.kt:39:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+- To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+- To keep applying to the value parameter only, use the '@param:' annotation target.
+
+See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+w: file:///S:/1_ACTIVE/Audio%20Projects/monochrome-android/app/src/main/java/tf/monochrome/android/ui/settings/SettingsViewModel.kt:34:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+- To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+- To keep applying to the value parameter only, use the '@param:' annotation target.
+
+See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+
+BUILD SUCCESSFUL in 21s
+8 actionable tasks: 2 executed, 6 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.1.0/userguide/configuration_cache_enabling.html

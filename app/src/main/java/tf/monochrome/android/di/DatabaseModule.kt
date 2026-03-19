@@ -9,6 +9,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import tf.monochrome.android.data.db.MusicDatabase
 import tf.monochrome.android.data.db.dao.DownloadDao
+import tf.monochrome.android.data.db.dao.EqPresetDao
 import tf.monochrome.android.data.db.dao.FavoriteDao
 import tf.monochrome.android.data.db.dao.HistoryDao
 import tf.monochrome.android.data.db.dao.PlaylistDao
@@ -39,4 +40,7 @@ object DatabaseModule {
 
     @Provides
     fun provideDownloadDao(db: MusicDatabase): DownloadDao = db.downloadDao()
+
+    @Provides
+    fun provideEqPresetDao(db: MusicDatabase): EqPresetDao = db.eqPresetDao()
 }

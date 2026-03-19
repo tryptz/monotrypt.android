@@ -7,10 +7,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -23,11 +25,16 @@ fun AlbumItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(
+    Surface(
         modifier = modifier
             .width(160.dp)
-            .clickable(onClick = onClick)
+            .bounceClick(onClick = onClick),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
     ) {
+        Column(
+            modifier = Modifier.padding(12.dp)
+        ) {
         CoverImage(
             url = album.coverUrl,
             contentDescription = album.title,
@@ -50,4 +57,5 @@ fun AlbumItem(
             overflow = TextOverflow.Ellipsis
         )
     }
+}
 }

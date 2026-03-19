@@ -1,0 +1,239 @@
+﻿
+> 03-11 23:38:00.279 18991 18991 E AndroidRuntime: FATAL EXCEPTION: main
+  03-11 23:38:00.279 18991 18991 E AndroidRuntime: Process: tf.monochrome.android, PID: 18991
+  03-11 23:38:00.279 18991 18991 E AndroidRuntime: java.lang.IllegalStateException: WorkManager is not initialized 
+properly.  You have explicitly disabled WorkManagerInitializer in your manifest, have not manually called 
+WorkManager#initialize at this point, and your Application does not implement Configuration.Provider.
+  03-11 23:38:00.279 18991 18991 E AndroidRuntime: 	at 
+t5.n.b(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:29)
+  03-11 23:38:00.279 18991 18991 E AndroidRuntime: 	at 
+yc.a.<init>(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:4)
+  03-11 23:38:00.279 18991 18991 E AndroidRuntime: 	at 
+sc.e.get(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:56)
+  03-11 23:38:00.279 18991 18991 E AndroidRuntime: 	at 
+r9.a.get(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:14)
+  03-11 23:38:00.279 18991 18991 E AndroidRuntime: 	at 
+sc.g.get(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:104)
+  03-11 23:38:00.279 18991 18991 E AndroidRuntime: 	at 
+n9.c.c(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:217)
+  03-11 23:38:00.279 18991 18991 E AndroidRuntime: 	at 
+n9.f.c(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:11)
+  03-11 23:38:00.279 18991 18991 E AndroidRuntime: 	at 
+androidx.lifecycle.s0.a(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:8)
+  03-11 23:38:00.279 18991 18991 E AndroidRuntime: 	at 
+b6.m.o(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:66)
+  03-11 23:38:00.279 18991 18991 E AndroidRuntime: 	at pa.a.x(Unknown Source:100)
+  03-11 23:38:00.279 18991 18991 E AndroidRuntime: 	at pa.a.O(Unknown Source:11)
+  03-11 23:38:00.279 18991 18991 E AndroidRuntime: 	at 
+kd.f.a(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:156)
+  03-11 23:38:00.279 18991 18991 E AndroidRuntime: 	at 
+id.b.invoke(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:1173)
+  03-11 23:38:00.279 18991 18991 E AndroidRuntime: 	at 
+x0.a.invoke(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:50)
+  03-11 23:38:00.279 18991 18991 E AndroidRuntime: 	at 
+m0.o5.invoke(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:159)
+  03-11 23:38:00.279 18991 18991 E AndroidRuntime: 	at 
+x0.a.invoke(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:50)
+  03-11 23:38:00.279 18991 18991 E AndroidRuntime: 	at 
+p0.d.b(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:148)
+  03-11 23:38:00.279 18991 18991 E AndroidRuntime: 	at 
+m0.q5.a(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:99)
+  03-11 23:38:00.279 18991 18991 E AndroidRuntime: 	at 
+id.b.invoke(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:1142)
+  03-11 23:38:00.279 18991 18991 E AndroidRuntime: 	at 
+x0.a.invoke(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:50)
+  03-11 23:38:00.279 18991 18991 E AndroidRuntime: 	at 
+p0.d.a(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:207)
+  03-11 23:38:00.279 18991 18991 E AndroidRuntime: 	at 
+m0.u6.a(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:71)
+  03-11 23:38:00.279 18991 18991 E AndroidRuntime: 	at 
+a2.a.invoke(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:1120)
+  03-11 23:38:00.279 18991 18991 E AndroidRuntime: 	at 
+x0.a.invoke(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:50)
+  03-11 23:38:00.279 18991 18991 E AndroidRuntime: 	at 
+p0.d.b(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:148)
+  03-11 23:38:00.279 18991 18991 E AndroidRuntime: 	at 
+m0.j1.a(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:214)
+  03-11 23:38:00.279 18991 18991 E AndroidRuntime: 	at 
+od.b.a(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:98)
+  03-11 23:38:00.279 18991 18991 E AndroidRuntime: 	at 
+db.x.invoke(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:403)
+> 03-11 23:38:09.730 19157 19157 E AndroidRuntime: FATAL EXCEPTION: main
+  03-11 23:38:09.730 19157 19157 E AndroidRuntime: Process: tf.monochrome.android, PID: 19157
+  03-11 23:38:09.730 19157 19157 E AndroidRuntime: java.lang.IllegalStateException: WorkManager is not initialized 
+properly.  You have explicitly disabled WorkManagerInitializer in your manifest, have not manually called 
+WorkManager#initialize at this point, and your Application does not implement Configuration.Provider.
+  03-11 23:38:09.730 19157 19157 E AndroidRuntime: 	at 
+t5.n.b(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:29)
+  03-11 23:38:09.730 19157 19157 E AndroidRuntime: 	at 
+yc.a.<init>(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:4)
+  03-11 23:38:09.730 19157 19157 E AndroidRuntime: 	at 
+sc.e.get(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:56)
+  03-11 23:38:09.730 19157 19157 E AndroidRuntime: 	at 
+r9.a.get(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:14)
+  03-11 23:38:09.730 19157 19157 E AndroidRuntime: 	at 
+sc.g.get(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:104)
+  03-11 23:38:09.730 19157 19157 E AndroidRuntime: 	at 
+n9.c.c(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:217)
+  03-11 23:38:09.730 19157 19157 E AndroidRuntime: 	at 
+n9.f.c(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:11)
+  03-11 23:38:09.730 19157 19157 E AndroidRuntime: 	at 
+androidx.lifecycle.s0.a(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:8)
+  03-11 23:38:09.730 19157 19157 E AndroidRuntime: 	at 
+b6.m.o(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:66)
+  03-11 23:38:09.730 19157 19157 E AndroidRuntime: 	at pa.a.x(Unknown Source:100)
+  03-11 23:38:09.730 19157 19157 E AndroidRuntime: 	at pa.a.O(Unknown Source:11)
+  03-11 23:38:09.730 19157 19157 E AndroidRuntime: 	at 
+kd.f.a(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:156)
+  03-11 23:38:09.730 19157 19157 E AndroidRuntime: 	at 
+id.b.invoke(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:1173)
+  03-11 23:38:09.730 19157 19157 E AndroidRuntime: 	at 
+x0.a.invoke(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:50)
+  03-11 23:38:09.730 19157 19157 E AndroidRuntime: 	at 
+m0.o5.invoke(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:159)
+  03-11 23:38:09.730 19157 19157 E AndroidRuntime: 	at 
+x0.a.invoke(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:50)
+  03-11 23:38:09.730 19157 19157 E AndroidRuntime: 	at 
+p0.d.b(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:148)
+  03-11 23:38:09.730 19157 19157 E AndroidRuntime: 	at 
+m0.q5.a(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:99)
+  03-11 23:38:09.730 19157 19157 E AndroidRuntime: 	at 
+id.b.invoke(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:1142)
+  03-11 23:38:09.730 19157 19157 E AndroidRuntime: 	at 
+x0.a.invoke(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:50)
+  03-11 23:38:09.730 19157 19157 E AndroidRuntime: 	at 
+p0.d.a(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:207)
+  03-11 23:38:09.730 19157 19157 E AndroidRuntime: 	at 
+m0.u6.a(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:71)
+  03-11 23:38:09.730 19157 19157 E AndroidRuntime: 	at 
+a2.a.invoke(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:1120)
+  03-11 23:38:09.730 19157 19157 E AndroidRuntime: 	at 
+x0.a.invoke(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:50)
+  03-11 23:38:09.730 19157 19157 E AndroidRuntime: 	at 
+p0.d.b(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:148)
+  03-11 23:38:09.730 19157 19157 E AndroidRuntime: 	at 
+m0.j1.a(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:214)
+  03-11 23:38:09.730 19157 19157 E AndroidRuntime: 	at 
+od.b.a(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:98)
+  03-11 23:38:09.730 19157 19157 E AndroidRuntime: 	at 
+db.x.invoke(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:403)
+> 03-11 23:38:12.505 19254 19254 E AndroidRuntime: FATAL EXCEPTION: main
+  03-11 23:38:12.505 19254 19254 E AndroidRuntime: Process: tf.monochrome.android, PID: 19254
+  03-11 23:38:12.505 19254 19254 E AndroidRuntime: java.lang.IllegalStateException: WorkManager is not initialized 
+properly.  You have explicitly disabled WorkManagerInitializer in your manifest, have not manually called 
+WorkManager#initialize at this point, and your Application does not implement Configuration.Provider.
+  03-11 23:38:12.505 19254 19254 E AndroidRuntime: 	at 
+t5.n.b(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:29)
+  03-11 23:38:12.505 19254 19254 E AndroidRuntime: 	at 
+yc.a.<init>(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:4)
+  03-11 23:38:12.505 19254 19254 E AndroidRuntime: 	at 
+sc.e.get(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:56)
+  03-11 23:38:12.505 19254 19254 E AndroidRuntime: 	at 
+r9.a.get(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:14)
+  03-11 23:38:12.505 19254 19254 E AndroidRuntime: 	at 
+sc.g.get(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:104)
+  03-11 23:38:12.505 19254 19254 E AndroidRuntime: 	at 
+n9.c.c(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:217)
+  03-11 23:38:12.505 19254 19254 E AndroidRuntime: 	at 
+n9.f.c(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:11)
+  03-11 23:38:12.505 19254 19254 E AndroidRuntime: 	at 
+androidx.lifecycle.s0.a(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:8)
+  03-11 23:38:12.505 19254 19254 E AndroidRuntime: 	at 
+b6.m.o(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:66)
+  03-11 23:38:12.505 19254 19254 E AndroidRuntime: 	at pa.a.x(Unknown Source:100)
+  03-11 23:38:12.505 19254 19254 E AndroidRuntime: 	at pa.a.O(Unknown Source:11)
+  03-11 23:38:12.505 19254 19254 E AndroidRuntime: 	at 
+kd.f.a(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:156)
+  03-11 23:38:12.505 19254 19254 E AndroidRuntime: 	at 
+id.b.invoke(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:1173)
+  03-11 23:38:12.505 19254 19254 E AndroidRuntime: 	at 
+x0.a.invoke(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:50)
+  03-11 23:38:12.505 19254 19254 E AndroidRuntime: 	at 
+m0.o5.invoke(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:159)
+  03-11 23:38:12.505 19254 19254 E AndroidRuntime: 	at 
+x0.a.invoke(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:50)
+  03-11 23:38:12.505 19254 19254 E AndroidRuntime: 	at 
+p0.d.b(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:148)
+  03-11 23:38:12.505 19254 19254 E AndroidRuntime: 	at 
+m0.q5.a(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:99)
+  03-11 23:38:12.505 19254 19254 E AndroidRuntime: 	at 
+id.b.invoke(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:1142)
+  03-11 23:38:12.505 19254 19254 E AndroidRuntime: 	at 
+x0.a.invoke(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:50)
+  03-11 23:38:12.505 19254 19254 E AndroidRuntime: 	at 
+p0.d.a(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:207)
+  03-11 23:38:12.505 19254 19254 E AndroidRuntime: 	at 
+m0.u6.a(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:71)
+  03-11 23:38:12.505 19254 19254 E AndroidRuntime: 	at 
+a2.a.invoke(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:1120)
+  03-11 23:38:12.505 19254 19254 E AndroidRuntime: 	at 
+x0.a.invoke(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:50)
+  03-11 23:38:12.505 19254 19254 E AndroidRuntime: 	at 
+p0.d.b(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:148)
+  03-11 23:38:12.505 19254 19254 E AndroidRuntime: 	at 
+m0.j1.a(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:214)
+  03-11 23:38:12.505 19254 19254 E AndroidRuntime: 	at 
+od.b.a(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:98)
+  03-11 23:38:12.505 19254 19254 E AndroidRuntime: 	at 
+db.x.invoke(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:403)
+> 03-11 23:38:16.258 19337 19337 E AndroidRuntime: FATAL EXCEPTION: main
+  03-11 23:38:16.258 19337 19337 E AndroidRuntime: Process: tf.monochrome.android, PID: 19337
+  03-11 23:38:16.258 19337 19337 E AndroidRuntime: java.lang.IllegalStateException: WorkManager is not initialized 
+properly.  You have explicitly disabled WorkManagerInitializer in your manifest, have not manually called 
+WorkManager#initialize at this point, and your Application does not implement Configuration.Provider.
+  03-11 23:38:16.258 19337 19337 E AndroidRuntime: 	at 
+t5.n.b(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:29)
+  03-11 23:38:16.258 19337 19337 E AndroidRuntime: 	at 
+yc.a.<init>(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:4)
+  03-11 23:38:16.258 19337 19337 E AndroidRuntime: 	at 
+sc.e.get(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:56)
+  03-11 23:38:16.258 19337 19337 E AndroidRuntime: 	at 
+r9.a.get(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:14)
+  03-11 23:38:16.258 19337 19337 E AndroidRuntime: 	at 
+sc.g.get(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:104)
+  03-11 23:38:16.258 19337 19337 E AndroidRuntime: 	at 
+n9.c.c(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:217)
+  03-11 23:38:16.258 19337 19337 E AndroidRuntime: 	at 
+n9.f.c(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:11)
+  03-11 23:38:16.258 19337 19337 E AndroidRuntime: 	at 
+androidx.lifecycle.s0.a(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:8)
+  03-11 23:38:16.258 19337 19337 E AndroidRuntime: 	at 
+b6.m.o(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:66)
+  03-11 23:38:16.258 19337 19337 E AndroidRuntime: 	at pa.a.x(Unknown Source:100)
+  03-11 23:38:16.258 19337 19337 E AndroidRuntime: 	at pa.a.O(Unknown Source:11)
+  03-11 23:38:16.258 19337 19337 E AndroidRuntime: 	at 
+kd.f.a(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:156)
+  03-11 23:38:16.258 19337 19337 E AndroidRuntime: 	at 
+id.b.invoke(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:1173)
+  03-11 23:38:16.258 19337 19337 E AndroidRuntime: 	at 
+x0.a.invoke(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:50)
+  03-11 23:38:16.258 19337 19337 E AndroidRuntime: 	at 
+m0.o5.invoke(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:159)
+  03-11 23:38:16.258 19337 19337 E AndroidRuntime: 	at 
+x0.a.invoke(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:50)
+  03-11 23:38:16.258 19337 19337 E AndroidRuntime: 	at 
+p0.d.b(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:148)
+  03-11 23:38:16.258 19337 19337 E AndroidRuntime: 	at 
+m0.q5.a(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:99)
+  03-11 23:38:16.258 19337 19337 E AndroidRuntime: 	at 
+id.b.invoke(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:1142)
+  03-11 23:38:16.258 19337 19337 E AndroidRuntime: 	at 
+x0.a.invoke(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:50)
+  03-11 23:38:16.258 19337 19337 E AndroidRuntime: 	at 
+p0.d.a(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:207)
+  03-11 23:38:16.258 19337 19337 E AndroidRuntime: 	at 
+m0.u6.a(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:71)
+  03-11 23:38:16.258 19337 19337 E AndroidRuntime: 	at 
+a2.a.invoke(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:1120)
+  03-11 23:38:16.258 19337 19337 E AndroidRuntime: 	at 
+x0.a.invoke(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:50)
+  03-11 23:38:16.258 19337 19337 E AndroidRuntime: 	at 
+p0.d.b(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:148)
+  03-11 23:38:16.258 19337 19337 E AndroidRuntime: 	at 
+m0.j1.a(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:214)
+  03-11 23:38:16.258 19337 19337 E AndroidRuntime: 	at 
+od.b.a(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:98)
+  03-11 23:38:16.258 19337 19337 E AndroidRuntime: 	at 
+db.x.invoke(r8-map-id-7bd46b4342ef2f340c575bdf5f08120090cb0496f46456f9cbd748ff24f82ac7:403)
+
+

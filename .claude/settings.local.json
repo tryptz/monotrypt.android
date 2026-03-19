@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./gradlew assembleDebug:*)",
+      "WebFetch(domain:ai.google.dev)",
+      "Bash(./gradlew assembleRelease:*)",
+      "Bash(./gradlew:*)",
+      "Bash(cd:*)",
+      "Bash(adb devices:*)",
+      "Bash(adb shell am start:*)",
+      "Bash(adb logcat:*)",
+      "Bash(adb shell dumpsys:*)",
+      "Bash(adb shell:*)",
+      "Bash(adb pull:*)",
+      "Bash(curl:*)",
+      "Bash(python3:*)"
+    ]
+  }
+}

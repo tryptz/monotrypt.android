@@ -1,7 +1,6 @@
 package tf.monochrome.android.ui.components
 
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -10,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Explicit
 import androidx.compose.material.icons.filled.Favorite
@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -42,15 +43,22 @@ fun TrackItem(
     onMoreClick: (() -> Unit)? = null,
     onAlbumClick: (() -> Unit)? = null
 ) {
-    Row(
+    Surface(
         modifier = modifier
             .fillMaxWidth()
-            .combinedClickable(
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .bounceCombinedClick(
                 onClick = onClick,
                 onLongClick = onLongClick
-            )
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
+            ),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
     ) {
         if (trackNumber != null) {
             Text(
@@ -164,4 +172,5 @@ fun TrackItem(
             }
         }
     }
+}
 }

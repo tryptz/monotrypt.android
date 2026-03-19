@@ -100,6 +100,15 @@ class PreferencesManager @Inject constructor(
         private val POCKETBASE_TOKEN = stringPreferencesKey("pocketbase_token")
         private val POCKETBASE_USER_ID = stringPreferencesKey("pocketbase_user_id")
         private val POCKETBASE_EMAIL = stringPreferencesKey("pocketbase_email")
+        // Home screen cache
+        private val HOME_RECOMMENDATIONS_CACHE = stringPreferencesKey("home_recommendations_cache")
+
+        // EQ / AutoEQ
+        private val EQ_ENABLED = booleanPreferencesKey("eq_enabled")
+        private val EQ_ACTIVE_PRESET_ID = stringPreferencesKey("eq_active_preset_id")
+        private val EQ_TARGET_ID = stringPreferencesKey("eq_target_id")
+        private val EQ_PREAMP = doublePreferencesKey("eq_preamp")
+        private val EQ_BANDS_JSON = stringPreferencesKey("eq_bands_json")
     }
 
     // Audio Quality
@@ -402,6 +411,16 @@ class PreferencesManager @Inject constructor(
         dataStore.edit { it[AI_RADIO_ENABLED] = enabled }
     }
 
+    // --- Home Screen Cache ---
+    val homeRecommendationsCache: Flow<String?> = dataStore.data.map { it[HOME_RECOMMENDATIONS_CACHE] }
+
+    suspend fun setHomeRecommendationsCache(json: String?) {
+        dataStore.edit {
+            if (json.isNullOrBlank()) it.remove(HOME_RECOMMENDATIONS_CACHE)
+            else it[HOME_RECOMMENDATIONS_CACHE] = json
+        }
+    }
+
     // --- PocketBase ---
     val pocketBaseToken: Flow<String?> = dataStore.data.map { it[POCKETBASE_TOKEN] }
     val pocketBaseUserId: Flow<String?> = dataStore.data.map { it[POCKETBASE_USER_ID] }
@@ -420,6 +439,45 @@ class PreferencesManager @Inject constructor(
             it.remove(POCKETBASE_TOKEN)
             it.remove(POCKETBASE_USER_ID)
             it.remove(POCKETBASE_EMAIL)
+        }
+    }
+
+    // --- EQ / AutoEQ ---
+    val eqEnabled: Flow<Boolean> = dataStore.data.map { it[EQ_ENABLED] ?: false }
+    val eqActivePresetId: Flow<String?> = dataStore.data.map { it[EQ_ACTIVE_PRESET_ID] }
+    val eqTargetId: Flow<String> = dataStore.data.map { it[EQ_TARGET_ID] ?: "harman_oe_2018" }
+    val eqPreamp: Flow<Double> = dataStore.data.map { it[EQ_PREAMP] ?: 0.0 }
+    val eqBandsJson: Flow<String?> = dataStore.data.map { it[EQ_BANDS_JSON] }
+
+    suspend fun setEqEnabled(enabled: Boolean) {
+        dataStore.edit { it[EQ_ENABLED] = enabled }
+    }
+
+    suspend fun setEqActivePreset(presetId: String?) {
+        dataStore.edit {
+            if (presetId != null) {
+                it[EQ_ACTIVE_PRESET_ID] = presetId
+            } else {
+                it.remove(EQ_ACTIVE_PRESET_ID)
+            }
+        }
+    }
+
+    suspend fun setEqTarget(targetId: String) {
+        dataStore.edit { it[EQ_TARGET_ID] = targetId }
+    }
+
+    suspend fun setEqPreamp(preamp: Double) {
+        dataStore.edit { it[EQ_PREAMP] = preamp }
+    }
+
+    suspend fun setEqBands(bandsJson: String?) {
+        dataStore.edit {
+            if (bandsJson != null) {
+                it[EQ_BANDS_JSON] = bandsJson
+            } else {
+                it.remove(EQ_BANDS_JSON)
+            }
         }
     }
 

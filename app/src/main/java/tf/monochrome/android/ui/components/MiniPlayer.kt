@@ -1,6 +1,6 @@
 package tf.monochrome.android.ui.components
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,9 +21,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import tf.monochrome.android.domain.model.Track
+import kotlin.math.abs
 
 @Composable
 fun MiniPlayer(
@@ -32,6 +34,7 @@ fun MiniPlayer(
     progress: Float,
     onPlayPauseClick: () -> Unit,
     onSkipNextClick: () -> Unit,
+    onSkipPreviousClick: () -> Unit,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -40,9 +43,25 @@ fun MiniPlayer(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        tonalElevation = 4.dp
+            .bounceClick(onClick = onClick)
+            .pointerInput(Unit) {
+                var totalDrag = 0f
+                detectHorizontalDragGestures(
+                    onDragStart = { totalDrag = 0f },
+                    onDragEnd = {
+                        if (totalDrag > 50f) {
+                            onSkipPreviousClick()
+                        } else if (totalDrag < -50f) {
+                            onSkipNextClick()
+                        }
+                    },
+                    onHorizontalDrag = { change, dragAmount ->
+                        change.consume()
+                        totalDrag += dragAmount
+                    }
+                )
+            },
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
     ) {
         Column {
             LinearProgressIndicator(

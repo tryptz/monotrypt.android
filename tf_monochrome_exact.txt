@@ -1,0 +1,4 @@
+03-17 23:33:43.293 10670 10670 E AndroidRuntime: Process: tf.monochrome.android, PID: 10670
+03-17 23:33:43.293 10670 10670 E AndroidRuntime: java.lang.RuntimeException: Unable to start activity ComponentInfo{tf.monochrome.android/io.appwrite.views.CallbackActivity}: io.appwrite.exceptions.AppwriteException: Authentication cookie missing!
+03-18 00:00:04.823  8948  8948 E AndroidRuntime: Process: tf.monochrome.android, PID: 8948
+03-18 00:00:04.823  8948  8948 E AndroidRuntime: java.lang.RuntimeException: Unable to start activity ComponentInfo{tf.monochrome.android/io.appwrite.views.CallbackActivity}: io.appwrite.exceptions.AppwriteException: Authentication cookie missing!

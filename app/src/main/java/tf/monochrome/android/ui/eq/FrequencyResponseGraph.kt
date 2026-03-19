@@ -115,6 +115,7 @@ fun FrequencyResponseGraph(
             }
             FrequencyPoint(point.freq, correctedGain)
         }
+        .filter { it.gain.isFinite() }
     }
 
     var draggedBandId by remember { mutableIntStateOf(-1) }
@@ -185,42 +186,78 @@ fun FrequencyResponseGraph(
             // EQ band dots
             eqBands.forEach { band ->
                 if (!band.enabled) return@forEach
-                // Find the corrected gain at this band's frequency
+                // Find normalized positions
+                val dotX = freqToX(band.freq, w)
                 val bandGain = if (correctedCurve.isNotEmpty()) {
                     interpolateGain(band.freq, correctedCurve)
                 } else {
                     var gainAtFreq = preamp + zeroOffset
-                    eqBands.forEach { b ->
-                        if (b.enabled) {
-                            gainAtFreq += AutoEqEngine.calculateBiquadResponse(band.freq, b, sampleRate)
-                        }
-                    }
+                    eqBands.forEach { b -> if (b.enabled) gainAtFreq += AutoEqEngine.calculateBiquadResponse(band.freq, b, sampleRate) }
                     gainAtFreq
                 }
-                val dotX = freqToX(band.freq, w)
                 val dotY = gainToY(bandGain, h, minGain, maxGain)
+
+                // Individual band contribution curve (Pro-Q style highlight)
+                if (draggedBandId == band.id) {
+                    val contributionPoints = originalCurve.map { p ->
+                        val biquad = AutoEqEngine.calculateBiquadResponse(p.freq, band, sampleRate)
+                        FrequencyPoint(p.freq, zeroOffset + biquad)
+                    }
+                    drawCurve(contributionPoints, Color.White.copy(alpha = 0.2f), w, h, minGain, maxGain, 1.5f)
+                    
+                    // Floating Tooltip
+                    val infoText = "${band.freq.toInt()}Hz  ${"%.1f".format(band.gain)}dB"
+                    val paint = android.graphics.Paint().apply {
+                        color = android.graphics.Color.WHITE
+                        textSize = 28f
+                        textAlign = android.graphics.Paint.Align.CENTER
+                        isFakeBoldText = true
+                    }
+                    val textWidth = paint.measureText(infoText)
+                    val tooltipPadding = 16f
+                    val rectTop = (dotY - 60f).coerceAtLeast(GRAPH_PADDING_TOP)
+                    
+                    drawContext.canvas.nativeCanvas.drawRoundRect(
+                        dotX - textWidth/2 - tooltipPadding, rectTop - 35f,
+                        dotX + textWidth/2 + tooltipPadding, rectTop + 10f,
+                        12f, 12f,
+                        android.graphics.Paint().apply { color = android.graphics.Color.argb(180, 20, 20, 20) }
+                    )
+                    drawContext.canvas.nativeCanvas.drawText(infoText, dotX, rectTop, paint)
+                }
+
+                // Dynamic color based on frequency (Rainbow/Spectrum)
+                val hue = ((log10(band.freq) - log10(20f)) / (log10(20000f) - log10(20f)) * 360f)
+                val bandColor = Color.hsl(hue, 0.7f, 0.6f)
 
                 // Glow for dragged band
                 if (draggedBandId == band.id) {
                     drawCircle(
-                        color = primary.copy(alpha = 0.3f),
-                        radius = 18f,
+                        color = bandColor.copy(alpha = 0.4f),
+                        radius = 24f,
                         center = Offset(dotX, dotY)
                     )
                 }
 
+                // Main dot shadow/border
+                drawCircle(
+                    color = Color.Black,
+                    radius = 11f,
+                    center = Offset(dotX, dotY)
+                )
+
                 // Main dot
                 drawCircle(
-                    color = Color.Red,
-                    radius = 7f,
+                    color = bandColor,
+                    radius = 9f,
                     center = Offset(dotX, dotY)
                 )
                 // White border
                 drawCircle(
-                    color = Color.White.copy(alpha = 0.8f),
-                    radius = 7f,
+                    color = Color.White,
+                    radius = 9f,
                     center = Offset(dotX, dotY),
-                    style = Stroke(width = 1.5f)
+                    style = Stroke(width = 2.5f)
                 )
             }
         }

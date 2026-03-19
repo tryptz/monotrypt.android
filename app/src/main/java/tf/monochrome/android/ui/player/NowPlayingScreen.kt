@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -29,9 +30,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -70,6 +73,9 @@ fun NowPlayingScreen(
     val viewMode by playerViewModel.nowPlayingViewMode.collectAsState()
     val visualizerSensitivity by playerViewModel.visualizerSensitivity.collectAsState()
     val visualizerBrightness by playerViewModel.visualizerBrightness.collectAsState()
+    
+    val playbackSpeed by playerViewModel.playbackSpeed.collectAsState()
+    var speedText by remember(playbackSpeed) { mutableStateOf(String.format("%.2f", playbackSpeed)) }
 
     var showLyricsSheet by remember { mutableStateOf(false) }
     var showQueueSheet by remember { mutableStateOf(false) }
@@ -306,7 +312,52 @@ fun NowPlayingScreen(
                 }
             }
             
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Playback speed control
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Slider(
+                    value = playbackSpeed,
+                    onValueChange = { newSpeed ->
+                        val rounded = (Math.round(newSpeed * 100) / 100f)
+                        speedText = String.format("%.2f", rounded)
+                        playerViewModel.setPlaybackSpeed(rounded)
+                    },
+                    valueRange = 0.25f..3.0f,
+                    modifier = Modifier.weight(1f),
+                    colors = SliderDefaults.colors(
+                        thumbColor = MaterialTheme.colorScheme.primary,
+                        activeTrackColor = MaterialTheme.colorScheme.primary,
+                        inactiveTrackColor = MaterialTheme.colorScheme.outline
+                    )
+                )
+                OutlinedTextField(
+                    value = speedText,
+                    onValueChange = { input ->
+                        speedText = input
+                        input.toFloatOrNull()?.let { parsed ->
+                            val clamped = parsed.coerceIn(0.01f, 100f)
+                            playerViewModel.setPlaybackSpeed(clamped)
+                        }
+                    },
+                    modifier = Modifier.width(80.dp),
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyMedium
+                )
+                Text("x", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+                TextButton(onClick = {
+                    playerViewModel.setPlaybackSpeed(1.0f)
+                    speedText = "1.00"
+                }) {
+                    Text("Reset")
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
             
             // Bottom actions (lyrics and queue)
             Row(
