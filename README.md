@@ -1,8 +1,8 @@
 <p align="center">
   <h1 align="center">MONOCHROME</h1>
   <p align="center">
-    <strong>High-Fidelity Music Streaming for Android</strong><br/>
-    <em>With Industrial-Grade AutoEQ Headphone Correction</em>
+    <strong>High-Fidelity Music Streaming — Native Android</strong><br/>
+    <em>A full native conversion of the Monochrome web app, with Industrial-Grade AutoEQ</em>
   </p>
 </p>
 
@@ -17,89 +17,98 @@
 
 ---
 
-> **ALPHA RELEASE** — Monochrome is under active development. Core streaming and the AutoEQ engine are functional, but expect rough edges, missing features, and breaking changes. We ship fast and iterate faster.
+> [!IMPORTANT]
+> **ALPHA RELEASE** — Monochrome Android is in active development. This is a full native Android conversion of the Monochrome web app. Core streaming and the AutoEQ engine are functional, but expect rough edges and ongoing changes.
 
 ---
 
-## What is Monochrome?
+## What is Monochrome Android?
 
-Monochrome is a music streaming client for Android built from the ground up with one obsession: **audio fidelity**. It connects to TIDAL for lossless and hi-res streaming, then layers on a precision equalization engine that can surgically correct your headphones to match reference target curves — all in real time, on your phone.
+Monochrome started as a web application — a precision music streaming client built around uncompromising audio fidelity. This repository is the **full native Android conversion**: every feature rebuilt from scratch using Android-native technologies, no webview, no wrappers.
 
-This isn't a toy EQ with 5 sliders. This is a **10-band parametric equalizer** powered by a custom **AutoEQ algorithm** that analyzes frequency response data and generates correction filters with 64-bit mathematical precision.
+It connects to TIDAL for lossless and hi-res streaming and layers on a precision equalization engine that surgically corrects your headphones to match reference target curves — all in real time, natively on your device.
 
 ---
 
-## Key Features
+## Download the Alpha
+
+> [**Download monochrome-autoeq-alpha.apk**](monochrome-autoeq-alpha.apk)
+>
+> Sideload via ADB or enable "Install from unknown sources" in your device settings.
+
+---
+
+## Features
 
 ### Streaming & Playback
 
 | Feature | Details |
 |---------|---------|
-| **TIDAL Integration** | Stream at Low (96 kbps), High (320 kbps), Lossless (FLAC), or Hi-Res (24-bit FLAC) |
-| **Gapless Playback** | Powered by Media3/ExoPlayer for seamless transitions |
-| **ReplayGain** | Automatic volume normalization across tracks and albums |
-| **Offline Mode** | Download tracks for offline listening |
-| **Android Auto** | Full integration with car displays via MediaBrowserService |
+| **TIDAL Integration** | Low (96 kbps) · High (320 kbps) · Lossless FLAC · Hi-Res 24-bit FLAC |
+| **Gapless Playback** | Powered by Media3/ExoPlayer |
+| **ReplayGain** | Volume normalization across tracks and albums |
+| **Offline Mode** | Download tracks for playback without a connection |
+| **Android Auto** | Full car display integration via MediaBrowserService |
 | **Chromecast** | Cast audio to any Cast-enabled device |
 | **Queue Management** | Drag-to-reorder, shuffle, repeat modes |
-| **Playback Speed** | Variable speed control |
+| **Variable Speed** | Adjustable playback speed |
 
 ### Library & Discovery
 
 - **Home Feed** — Curated content, mixes, and recommendations
-- **Search** — Find tracks, albums, artists, and playlists
+- **Search** — Tracks, albums, artists, and playlists
 - **Library** — Your playlists, downloads, favorites, and history
-- **Artist & Album Views** — Rich detail pages with discographies
+- **Artist & Album Pages** — Rich detail views with full discographies
 - **Playlist Import** — Bulk import from other services
-- **Scrobbling** — Track your listening history
+- **Scrobbling** — Full listening history tracking
 
-### The Interface
+### Interface
 
-- **Jetpack Compose + Material 3** — Modern, fluid UI built entirely in Compose
-- **Now Playing** — Multiple view modes: Cover Art, Lyrics, Queue, and Visualizer
-- **120Hz Optimized** — Butter-smooth on high-refresh displays
-- **Dark Theme** — Full dark mode support
+- **Jetpack Compose + Material 3** — Entirely native, no webview
+- **Now Playing** — Cover Art, Lyrics, Queue, and Visualizer modes
+- **120Hz Optimized** — Smooth on high-refresh-rate displays
+- **Dark Theme** — Full dark mode
 - **Home Screen Widget** — Glance-powered Now Playing widget
-- **Deep Linking** — Open `monochrome.tf` links directly in the app
+- **Deep Linking** — Opens `monochrome.tf` links directly in the app
 
 ---
 
 ## The AutoEQ Engine
 
-This is what sets Monochrome apart. The built-in AutoEQ engine uses a proprietary **Global Greedy Iterative Peaking** algorithm to generate headphone correction filters with clinical precision.
+The crown feature of Monochrome Android. A proprietary **Global Greedy Iterative Peaking** algorithm generates headphone correction filters with precision that doesn't exist in any other mobile EQ app.
 
 ### How It Works
 
 ```
-Your Headphone's FR  ──►  AutoEQ Engine  ──►  Correction Curve  ──►  Flat/Target Response
+Your Headphone's FR  ──►  AutoEQ Engine  ──►  Correction Curve  ──►  Target Response
      (measured)           (10 iterations)      (10 PEQ bands)         (what you hear)
 ```
 
-**Step 1 — Scan.** The engine evaluates the entire 20 Hz – 20 kHz spectrum and identifies the single largest deviation from the target curve.
+**Scan** — Evaluate the entire 20 Hz – 20 kHz spectrum. Find the single largest deviation from the target curve.
 
-**Step 2 — Isolate.** It calculates the optimal frequency, gain, and Q-factor to surgically flatten that deviation using a peaking filter.
+**Isolate** — Calculate the exact frequency, gain (dB), and Q-factor to surgically flatten that deviation with a peaking filter.
 
-**Step 3 — Refine.** After applying the filter, the engine re-evaluates the *entire* remaining error — accounting for the phase-coherent effects of every previous filter. Then it repeats.
+**Refine** — Re-evaluate the full remaining error, accounting for the phase-coherent interactions of every previous filter. Repeat.
 
-**Step 4 — Converge.** After 10 iterations, you get a tightly fitted correction curve that hugs your target with sub-dB accuracy.
+**Converge** — After 10 iterations, a tightly fitted correction that hugs the target with sub-dB accuracy.
 
 ### Why It's Different
 
-| Traditional Mobile EQ | Monochrome AutoEQ |
-|-----------------------|-------------------|
-| 5-band graphic EQ with fixed frequencies | 10-band fully parametric EQ |
+| Standard Mobile EQ | Monochrome AutoEQ |
+|-------------------|-------------------|
+| 5–10 band graphic EQ, fixed frequencies | 10-band fully parametric EQ |
 | 32-bit float math | **64-bit double precision** — eliminates singularities at subsonic frequencies |
 | Fixed Q factors | **Adaptive Q up to 6.0** — catches narrow resonance peaks in IEMs and planars |
 | Manual slider guessing | **Automatic correction** from measurement data |
-| No target curve awareness | **10+ research-grade target curves** built in |
+| No target awareness | **10+ research-grade target curves** built in |
 
 ### Built-In Target Curves
 
-Choose your reference. Every curve ships with 384 frequency data points for surgical precision:
+384 frequency data points per curve for surgical correction:
 
 | Target Curve | Description |
 |-------------|-------------|
-| **Harman Over-Ear 2018** | The industry standard for over-ear headphones (default) |
+| **Harman Over-Ear 2018** | Industry standard for over-ear headphones (default) |
 | **Harman In-Ear 2019** | Optimized for IEMs with enhanced bass shelf |
 | **Diffuse Field** | Flat at the eardrum — the academic reference |
 | **Knowles** | BA driver compensation curve |
@@ -111,17 +120,26 @@ Choose your reference. Every curve ships with 384 frequency data points for surg
 
 ### 4,000+ Headphone Profiles
 
-Monochrome integrates directly with the [AutoEq GitHub repository](https://github.com/jaakkopasanen/AutoEq) — the largest open database of headphone frequency response measurements. Select your headphone model from **4,000+ profiles** and get instant correction. No measurement rig required.
+Monochrome integrates directly with the [AutoEq GitHub repository](https://github.com/jaakkopasanen/AutoEq) — the largest open database of headphone frequency response measurements. Pick your headphone model from **4,000+ profiles** and get instant, one-tap correction. No measurement rig needed.
 
 ### Custom Measurements
 
-Own a measurement mic? Upload your own frequency response data (CSV/TXT) through the built-in **Headphone Calibration** screen and generate custom correction curves.
+Own a measurement microphone? Upload your own frequency response data (CSV/TXT) through the built-in **Headphone Calibration** screen to generate custom correction curves for any transducer.
+
+### EQ Interface
+
+- **10-Band Interactive Graph** — Drag bands directly on the frequency response canvas
+- **Spectral Color Coding** — Bands colored by frequency range (sub-bass, mids, highs)
+- **Real-Time Visualization** — See the correction curve update as you adjust
+- **120Hz UI** — No lag, no jitter on supported displays
+- **Preset Management** — Save, load, and delete custom EQ presets
+- **Preamp Control** — Global gain adjustment to prevent clipping
 
 ---
 
 ## Architecture
 
-Monochrome is built with modern Android architecture principles:
+Built from scratch as a proper native Android app — not a port, not a wrapper.
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -167,38 +185,27 @@ Monochrome is built with modern Android architecture principles:
 
 ---
 
-## Getting Started
-
-### Requirements
+## Requirements
 
 - Android 8.0+ (API 26)
 - Internet connection for streaming
 - A TIDAL account for music access
 
-### Download the Alpha
+---
 
-> [**Download monochrome-autoeq-alpha.apk**](monochrome-autoeq-alpha.apk)
->
-> This is an alpha build. Install at your own risk. We recommend sideloading via ADB or enabling "Install from unknown sources" in your device settings.
-
-### Build from Source
+## Build from Source
 
 ```bash
-# Clone the repository
-git clone https://github.com/user/tf.monochrome.android.git
+git clone https://github.com/tryptz/tf.monochrome.android.git
 cd tf.monochrome.android
 
-# Build the release APK
 ./gradlew assembleRelease
 
-# The APK will be at:
+# Output:
 # app/build/outputs/apk/release/app-release.apk
 ```
 
-**Build requirements:**
-- JDK 17+
-- Android SDK with API 36
-- Gradle (wrapper included)
+**Requires:** JDK 17+, Android SDK API 36
 
 ---
 
@@ -236,37 +243,16 @@ app/src/main/java/tf/monochrome/android/
 
 ---
 
-## Alpha Roadmap
-
-Monochrome is in **active alpha development**. Here's what's coming:
-
-- [ ] Public beta release on Google Play
-- [ ] Additional streaming service backends
-- [ ] Bluetooth codec detection and per-codec EQ profiles
-- [ ] Measurement microphone integration for in-situ correction
-- [ ] Crossfeed for headphone soundstage widening
-- [ ] Parametric EQ sharing and community profiles
-- [ ] Multi-device sync
-- [ ] Tablet and foldable layouts
-
----
-
-## Contributing
-
-Monochrome is in early alpha. If you're interested in contributing — especially in audio DSP, Android media internals, or Compose UI — open an issue or reach out.
-
----
-
 ## Acknowledgments
 
-- [AutoEq](https://github.com/jaakkopasanen/AutoEq) by Jaakko Pasanen — headphone measurement database
-- [Media3](https://developer.android.com/media/media3) — Android's modern media playback library
-- [Jetpack Compose](https://developer.android.com/compose) — declarative UI toolkit
-- The headphone measurement community for making audiophile-grade correction accessible to everyone
+- [AutoEq](https://github.com/jaakkopasanen/AutoEq) by Jaakko Pasanen — open headphone measurement database
+- [Media3 / ExoPlayer](https://developer.android.com/media/media3) — Android media playback
+- [Jetpack Compose](https://developer.android.com/compose) — declarative Android UI
+- The headphone measurement community for making reference-grade correction available to everyone
 
 ---
 
 <p align="center">
-  <strong>Monochrome</strong> — Built with obsession for audio fidelity and mathematical precision.<br/>
-  <sub>Alpha Release · Android 8.0+ · Kotlin · Jetpack Compose · Media3 · AutoEQ</sub>
+  <strong>Monochrome Android</strong> — The web app, gone fully native.<br/>
+  <sub>Alpha · Android 8.0+ · Kotlin · Jetpack Compose · Media3 · AutoEQ</sub>
 </p>
