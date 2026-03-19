@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Monochrome" parent="android:Theme.Material.NoActionBar">
+        <item name="android:colorBackground">#FF000000</item>
+        <item name="android:statusBarColor">#FF000000</item>
+        <item name="android:navigationBarColor">#FF000000</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+
+    <style name="Theme.Monochrome.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#FF000000</item>
+        <item name="postSplashScreenTheme">@style/Theme.Monochrome</item>
+    </style>
+</resources>

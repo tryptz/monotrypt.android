@@ -1,0 +1,258 @@
+package tf.monochrome.android.player
+
+import android.content.Intent
+import android.net.Uri
+import androidx.annotation.OptIn
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackParameters
+import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.dash.DashMediaSource
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import androidx.media3.session.MediaSession
+import androidx.media3.session.MediaSessionService
+import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import tf.monochrome.android.data.preferences.PreferencesManager
+import tf.monochrome.android.data.repository.LibraryRepository
+import tf.monochrome.android.data.scrobbling.ScrobblingService
+import tf.monochrome.android.domain.model.ReplayGainValues
+import javax.inject.Inject
+
+@AndroidEntryPoint
+class PlaybackService : MediaSessionService() {
+
+    @Inject lateinit var queueManager: QueueManager
+    @Inject lateinit var streamResolver: StreamResolver
+    @Inject lateinit var replayGainProcessor: ReplayGainProcessor
+    @Inject lateinit var preferences: PreferencesManager
+    @Inject lateinit var libraryRepository: LibraryRepository
+    @Inject lateinit var scrobblingService: ScrobblingService
+
+    private var mediaSession: MediaSession? = null
+    private lateinit var player: ExoPlayer
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private var currentReplayGain: ReplayGainValues? = null
+
+    @OptIn(UnstableApi::class)
+    override fun onCreate() {
+        super.onCreate()
+
+        player = ExoPlayer.Builder(this)
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(C.USAGE_MEDIA)
+                    .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+                    .build(),
+                /* handleAudioFocus = */ true
+            )
+            .setHandleAudioBecomingNoisy(true)
+            .setWakeMode(C.WAKE_MODE_LOCAL)
+            .build()
+
+        player.addListener(object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                when (playbackState) {
+                    Player.STATE_ENDED -> {
+                        val currentTrack = queueManager.currentTrack.value
+                        if (currentTrack != null) {
+                            serviceScope.launch {
+                                scrobblingService.scrobbleTrack(currentTrack)
+                            }
+                        }
+                        onTrackEnded()
+                    }
+                    Player.STATE_READY -> {
+                        applyReplayGain()
+                        applyPlaybackSpeed()
+                    }
+                }
+            }
+
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                if (mediaItem != null && reason != Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) {
+                    val trackId = mediaItem.mediaId.toLongOrNull()
+                    if (trackId != null) {
+                        val track = queueManager.currentQueue.find { it.id == trackId }
+                        if (track != null) {
+                            serviceScope.launch {
+                                libraryRepository.addToHistory(track)
+                                scrobblingService.updateNowPlaying(track)
+                            }
+                        }
+                    }
+                }
+            }
+        })
+
+        mediaSession = MediaSession.Builder(this, player)
+            .build()
+    }
+
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
+        return mediaSession
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        val player = mediaSession?.player
+        if (player == null || !player.playWhenReady || player.mediaItemCount == 0) {
+            stopSelf()
+        }
+    }
+
+    override fun onDestroy() {
+        mediaSession?.run {
+            player.release()
+            release()
+            mediaSession = null
+        }
+        serviceScope.cancel()
+        super.onDestroy()
+    }
+
+    fun playTrack(track: tf.monochrome.android.domain.model.Track) {
+        serviceScope.launch {
+            try {
+                val (mediaItem, trackStream) = streamResolver.resolveMediaItem(track)
+                currentReplayGain = trackStream?.replayGain
+
+                player.setMediaItem(mediaItem)
+                player.prepare()
+                player.play()
+
+                libraryRepository.addToHistory(track)
+            } catch (e: Exception) {
+                // Skip to next on error
+                onTrackEnded()
+            }
+        }
+    }
+
+    @OptIn(UnstableApi::class)
+    fun playQueue() {
+        val currentTrack = queueManager.currentTrack.value ?: return
+        serviceScope.launch {
+            try {
+                val (mediaItem, trackStream) = streamResolver.resolveMediaItem(currentTrack)
+                currentReplayGain = trackStream?.replayGain
+
+                val streamUrl = trackStream?.streamUrl
+                if (streamUrl != null && streamUrl.isNotBlank()) {
+                    val dataSourceFactory = DefaultDataSource.Factory(this@PlaybackService)
+
+                    val source = if (trackStream.isDash) {
+                        // Create DASH source from MPD XML string
+                        val mpdUri = Uri.parse("data:application/dash+xml;base64," +
+                            android.util.Base64.encodeToString(streamUrl.toByteArray(), android.util.Base64.NO_WRAP))
+                        DashMediaSource.Factory(dataSourceFactory)
+                            .createMediaSource(MediaItem.fromUri(mpdUri))
+                    } else {
+                        ProgressiveMediaSource.Factory(dataSourceFactory)
+                            .createMediaSource(mediaItem)
+                    }
+
+                    player.setMediaSource(source)
+                } else {
+                    player.setMediaItem(mediaItem)
+                }
+
+                player.prepare()
+                player.play()
+
+                libraryRepository.addToHistory(currentTrack)
+
+                // Preload next tracks
+                preloadNextTracks()
+            } catch (e: Exception) {
+                onTrackEnded()
+            }
+        }
+    }
+
+    fun skipToNext() {
+        val nextTrack = queueManager.next()
+        if (nextTrack != null) {
+            playQueue()
+        } else {
+            player.stop()
+        }
+    }
+
+    fun skipToPrevious() {
+        // If more than 3 seconds in, restart current track
+        if (player.currentPosition > 3000) {
+            player.seekTo(0)
+            return
+        }
+        val prevTrack = queueManager.previous()
+        if (prevTrack != null) {
+            playQueue()
+        }
+    }
+
+    fun seekTo(positionMs: Long) {
+        player.seekTo(positionMs)
+    }
+
+    fun togglePlayPause() {
+        if (player.isPlaying) {
+            player.pause()
+        } else {
+            player.play()
+        }
+    }
+
+    private fun onTrackEnded() {
+        val nextTrack = queueManager.next()
+        if (nextTrack != null) {
+            playQueue()
+        }
+    }
+
+    fun setPlaybackSpeed(speed: Float, preservePitch: Boolean) {
+        player.playbackParameters = PlaybackParameters(speed, if (preservePitch) 1.0f else speed)
+    }
+
+    private fun applyPlaybackSpeed() {
+        serviceScope.launch {
+            val speed = preferences.playbackSpeed.first()
+            val preservePitch = preferences.preservePitch.first()
+            player.playbackParameters = PlaybackParameters(speed, if (preservePitch) 1.0f else speed)
+        }
+    }
+
+    private fun applyReplayGain() {
+        serviceScope.launch {
+            val volume = preferences.volume.first().toFloat()
+            val adjustedVolume = replayGainProcessor.calculateVolume(volume, currentReplayGain)
+            player.volume = adjustedVolume
+        }
+    }
+
+    private suspend fun preloadNextTracks() {
+        // Preload metadata for next 2 tracks to reduce latency
+        val queue = queueManager.currentQueue
+        val currentIdx = queueManager.currentQueueIndex
+        for (i in 1..2) {
+            val nextIdx = currentIdx + i
+            if (nextIdx < queue.size) {
+                try {
+                    streamResolver.resolveMediaItem(queue[nextIdx])
+                } catch (_: Exception) {
+                    // Preload failure is non-critical
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,227 @@
+package tf.monochrome.android.ui.detail
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.navigation.NavController
+import tf.monochrome.android.ui.components.AddToPlaylistSheet
+import tf.monochrome.android.ui.components.CoverImage
+import tf.monochrome.android.ui.components.CreatePlaylistDialog
+import tf.monochrome.android.ui.components.ErrorScreen
+import tf.monochrome.android.ui.components.LoadingScreen
+import tf.monochrome.android.ui.components.TrackContextMenu
+import tf.monochrome.android.ui.components.TrackItem
+import tf.monochrome.android.ui.navigation.Screen
+import tf.monochrome.android.ui.player.PlayerViewModel
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AlbumDetailScreen(
+    navController: NavController,
+    playerViewModel: PlayerViewModel,
+    viewModel: AlbumDetailViewModel = hiltViewModel()
+) {
+    val albumDetail by viewModel.albumDetail.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
+    val error by viewModel.error.collectAsState()
+    val favoriteTrackIds by playerViewModel.favoriteTrackIds.collectAsState()
+    val playlists by playerViewModel.playlists.collectAsState()
+
+    var showContextMenuForTrack by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<tf.monochrome.android.domain.model.Track?>(null) }
+    var showAddToPlaylistForTrack by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<tf.monochrome.android.domain.model.Track?>(null) }
+    var showCreatePlaylistDialog by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+
+    showContextMenuForTrack?.let { track ->
+        TrackContextMenu(
+            track = track,
+            isLiked = favoriteTrackIds.contains(track.id),
+            onDismiss = { showContextMenuForTrack = null },
+            onPlayNext = { playerViewModel.playNext(track) },
+            onAddToQueue = { playerViewModel.addToQueue(listOf(track)) },
+            onToggleLike = { playerViewModel.toggleFavorite(track) },
+            onAddToPlaylist = { showAddToPlaylistForTrack = track },
+            onDownloadTrack = { playerViewModel.downloadTrack(track) },
+            onGoToAlbum = null, // Already here
+            onGoToArtist = track.artist?.id?.let { artistId ->
+                { navController.navigate(Screen.ArtistDetail.createRoute(artistId)) }
+            }
+        )
+    }
+
+    if (showCreatePlaylistDialog) {
+        CreatePlaylistDialog(
+            onDismiss = { showCreatePlaylistDialog = false },
+            onSubmit = { name, description ->
+                playerViewModel.createPlaylist(name, description)
+                showCreatePlaylistDialog = false
+            }
+        )
+    }
+
+    showAddToPlaylistForTrack?.let { track ->
+        AddToPlaylistSheet(
+            track = track,
+            playlists = playlists,
+            onDismiss = { showAddToPlaylistForTrack = null },
+            onPlaylistSelected = { playlist ->
+                playerViewModel.addTrackToPlaylist(playlist.id, track)
+                showAddToPlaylistForTrack = null
+            },
+            onCreateNew = {
+                showAddToPlaylistForTrack = null
+                showCreatePlaylistDialog = true
+            }
+        )
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        TopAppBar(
+            title = {},
+            navigationIcon = {
+                IconButton(onClick = { navController.popBackStack() }) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                }
+            },
+            colors = TopAppBarDefaults.topAppBarColors(
+                containerColor = MaterialTheme.colorScheme.background
+            )
+        )
+
+        when {
+            isLoading -> LoadingScreen()
+            error != null -> ErrorScreen(
+                message = error ?: "Unknown error",
+                onRetry = { viewModel.retry() }
+            )
+            albumDetail != null -> {
+                val detail = albumDetail!!
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = 80.dp)
+                ) {
+                    item {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            CoverImage(
+                                url = detail.album.coverUrl,
+                                contentDescription = detail.album.title,
+                                size = 240.dp,
+                                cornerRadius = 12.dp
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = detail.album.title,
+                                style = MaterialTheme.typography.headlineSmall,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = detail.album.displayArtist,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            detail.album.releaseYear?.let { year ->
+                                Text(
+                                    text = "${detail.album.type ?: "Album"} · $year",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                FilledIconButton(
+                                    onClick = { playerViewModel.playAll(detail.tracks) },
+                                    modifier = Modifier.size(48.dp),
+                                    colors = IconButtonDefaults.filledIconButtonColors(
+                                        containerColor = MaterialTheme.colorScheme.primary
+                                    )
+                                ) {
+                                    Icon(
+                                        Icons.Default.PlayArrow,
+                                        contentDescription = "Play",
+                                        tint = MaterialTheme.colorScheme.onPrimary
+                                    )
+                                }
+                                FilledIconButton(
+                                    onClick = { playerViewModel.shufflePlay(detail.tracks) },
+                                    modifier = Modifier.size(48.dp),
+                                    colors = IconButtonDefaults.filledIconButtonColors(
+                                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                                    )
+                                ) {
+                                    Icon(
+                                        Icons.Default.Shuffle,
+                                        contentDescription = "Shuffle",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                FilledIconButton(
+                                    onClick = { navController.navigate(Screen.Mix.createRoute(detail.album.id.toString())) },
+                                    modifier = Modifier.size(48.dp),
+                                    colors = IconButtonDefaults.filledIconButtonColors(
+                                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                                    )
+                                ) {
+                                    Icon(
+                                        androidx.compose.material.icons.Icons.Default.PlayArrow,
+                                        contentDescription = "Mix",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(16.dp))
+                        }
+                    }
+
+                    itemsIndexed(detail.tracks) { index, track ->
+                        TrackItem(
+                            track = track,
+                            isLiked = favoriteTrackIds.contains(track.id),
+                            onLikeClick = { playerViewModel.toggleFavorite(track) },
+                            onClick = { playerViewModel.playTrack(track, detail.tracks) },
+                            onLongClick = { showContextMenuForTrack = track },
+                            onMoreClick = { showContextMenuForTrack = track },
+                            showCover = false,
+                            trackNumber = track.trackNumber ?: (index + 1)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
