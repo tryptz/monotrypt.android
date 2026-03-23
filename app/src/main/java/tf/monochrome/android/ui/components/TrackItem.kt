@@ -27,6 +27,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import tf.monochrome.android.domain.model.Track
 import tf.monochrome.android.ui.theme.ExplicitBadge
+import tf.monochrome.android.ui.theme.MonoDimens
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -46,18 +47,18 @@ fun TrackItem(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .padding(horizontal = MonoDimens.listItemPaddingH, vertical = MonoDimens.spacingXs)
             .bounceCombinedClick(
                 onClick = onClick,
                 onLongClick = onLongClick
             ),
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        shape = MonoDimens.shapeMd,
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = MonoDimens.cardAlpha)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(horizontal = MonoDimens.listItemPaddingH, vertical = MonoDimens.spacingSm),
             verticalAlignment = Alignment.CenterVertically
     ) {
         if (trackNumber != null) {
@@ -79,11 +80,11 @@ fun TrackItem(
                 CoverImage(
                     url = track.coverUrl,
                     contentDescription = track.title,
-                    size = 48.dp,
-                    cornerRadius = 6.dp
+                    size = MonoDimens.coverList,
+                    cornerRadius = MonoDimens.radiusSm
                 )
             }
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(MonoDimens.spacingMd))
         }
 
         Column(

@@ -1,7 +1,9 @@
 package tf.monochrome.android.player
 
+import android.app.PendingIntent
 import android.content.Intent
 import android.net.Uri
+import androidx.core.net.toUri
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -10,7 +12,11 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.DefaultAudioSink
+import androidx.media3.exoplayer.audio.TeeAudioProcessor
 import androidx.media3.exoplayer.dash.DashMediaSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
@@ -22,7 +28,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import tf.monochrome.android.audio.eq.EqProcessor
@@ -31,6 +36,9 @@ import tf.monochrome.android.data.repository.LibraryRepository
 import tf.monochrome.android.data.scrobbling.ScrobblingService
 import tf.monochrome.android.domain.model.EqBand
 import tf.monochrome.android.domain.model.ReplayGainValues
+import tf.monochrome.android.ui.main.MainActivity
+import tf.monochrome.android.visualizer.ProjectMAudioTapProcessor
+import tf.monochrome.android.visualizer.ProjectMEngineRepository
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -42,6 +50,7 @@ class PlaybackService : MediaSessionService() {
     @Inject lateinit var preferences: PreferencesManager
     @Inject lateinit var libraryRepository: LibraryRepository
     @Inject lateinit var scrobblingService: ScrobblingService
+    @Inject lateinit var projectMEngineRepository: ProjectMEngineRepository
 
     private var mediaSession: MediaSession? = null
     private lateinit var player: ExoPlayer
@@ -49,11 +58,25 @@ class PlaybackService : MediaSessionService() {
     private var currentReplayGain: ReplayGainValues? = null
     private var eqProcessor: EqProcessor? = null
 
+    private fun createSessionActivity(): PendingIntent {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            action = Intent.ACTION_MAIN
+            addCategory(Intent.CATEGORY_LAUNCHER)
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        return PendingIntent.getActivity(
+            this,
+            0,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
     @OptIn(UnstableApi::class)
     override fun onCreate() {
         super.onCreate()
 
-        player = ExoPlayer.Builder(this)
+        player = ExoPlayer.Builder(this, buildRenderersFactory())
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
@@ -82,6 +105,9 @@ class PlaybackService : MediaSessionService() {
                         applyPlaybackSpeed()
                         applyEq()
                     }
+                    Player.STATE_BUFFERING, Player.STATE_IDLE -> {
+                        // No action needed
+                    }
                 }
             }
 
@@ -102,6 +128,7 @@ class PlaybackService : MediaSessionService() {
         })
 
         mediaSession = MediaSession.Builder(this, player)
+            .setSessionActivity(createSessionActivity())
             .build()
 
         // Initialize EQ Processor with the player's audio session
@@ -130,6 +157,43 @@ class PlaybackService : MediaSessionService() {
                 Triple(enabled, bandsJson, preamp)
             }.collect { (enabled, bandsJson, preamp) ->
                 applyEqSettings(enabled, bandsJson, preamp)
+            }
+        }
+    }
+
+    @OptIn(UnstableApi::class)
+    private fun buildRenderersFactory(): DefaultRenderersFactory {
+        val audioBus = projectMEngineRepository.audioBus
+        return object : DefaultRenderersFactory(this) {
+            override fun buildAudioSink(
+                context: android.content.Context,
+                enableFloatOutput: Boolean,
+                enableAudioTrackPlaybackParams: Boolean
+            ): AudioSink {
+                return try {
+                    DefaultAudioSink.Builder(context)
+                        .setEnableFloatOutput(enableFloatOutput)
+                        .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                        .setAudioProcessors(
+                            arrayOf(
+                                TeeAudioProcessor(
+                                    ProjectMAudioTapProcessor(audioBus)
+                                )
+                            )
+                        )
+                        .build()
+                } catch (error: Exception) {
+                    projectMEngineRepository.reportAudioTapFailure(
+                        "projectM audio tap unavailable: ${error.message ?: "unknown error"}"
+                    )
+                    checkNotNull(
+                        super.buildAudioSink(
+                            context,
+                            enableFloatOutput,
+                            enableAudioTrackPlaybackParams
+                        )
+                    )
+                }
             }
         }
     }
@@ -188,8 +252,8 @@ class PlaybackService : MediaSessionService() {
 
                     val source = if (trackStream.isDash) {
                         // Create DASH source from MPD XML string
-                        val mpdUri = Uri.parse("data:application/dash+xml;base64," +
-                            android.util.Base64.encodeToString(streamUrl.toByteArray(), android.util.Base64.NO_WRAP))
+                        val mpdUri = ("data:application/dash+xml;base64," +
+                            android.util.Base64.encodeToString(streamUrl.toByteArray(), android.util.Base64.NO_WRAP)).toUri()
                         DashMediaSource.Factory(dataSourceFactory)
                             .createMediaSource(MediaItem.fromUri(mpdUri))
                     } else {

@@ -5,19 +5,16 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.padding
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil3.compose.AsyncImage
 import tf.monochrome.android.domain.model.Album
+import tf.monochrome.android.ui.theme.MonoDimens
 
 @Composable
 fun AlbumItem(
@@ -27,21 +24,21 @@ fun AlbumItem(
 ) {
     Surface(
         modifier = modifier
-            .width(160.dp)
+            .width(MonoDimens.coverCard)
             .bounceClick(onClick = onClick),
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        shape = MonoDimens.shapeMd,
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = MonoDimens.cardAlpha)
     ) {
         Column(
-            modifier = Modifier.padding(12.dp)
+            modifier = Modifier.padding(MonoDimens.spacingMd)
         ) {
         CoverImage(
             url = album.coverUrl,
             contentDescription = album.title,
-            size = 160.dp,
-            cornerRadius = 8.dp
+            size = MonoDimens.coverCard,
+            cornerRadius = MonoDimens.radiusSm
         )
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(MonoDimens.spacingSm))
         Text(
             text = album.title,
             style = MaterialTheme.typography.bodyMedium,

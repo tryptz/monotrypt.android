@@ -16,9 +16,25 @@ import tf.monochrome.android.data.db.entity.FavoriteTrackEntity
 import tf.monochrome.android.data.db.entity.HistoryTrackEntity
 import tf.monochrome.android.data.db.entity.PlaylistTrackEntity
 import tf.monochrome.android.data.db.entity.UserPlaylistEntity
+import tf.monochrome.android.data.collections.db.CollectionAlbumArtistCrossRef
+import tf.monochrome.android.data.collections.db.CollectionAlbumEntity
+import tf.monochrome.android.data.collections.db.CollectionArtistEntity
+import tf.monochrome.android.data.collections.db.CollectionDao
+import tf.monochrome.android.data.collections.db.CollectionDirectLinkEntity
+import tf.monochrome.android.data.collections.db.CollectionEntity
+import tf.monochrome.android.data.collections.db.CollectionTrackArtistCrossRef
+import tf.monochrome.android.data.collections.db.CollectionTrackEntity
+import tf.monochrome.android.data.local.db.LocalAlbumEntity
+import tf.monochrome.android.data.local.db.LocalArtistEntity
+import tf.monochrome.android.data.local.db.LocalFolderEntity
+import tf.monochrome.android.data.local.db.LocalGenreEntity
+import tf.monochrome.android.data.local.db.LocalMediaDao
+import tf.monochrome.android.data.local.db.LocalTrackEntity
+import tf.monochrome.android.data.local.db.ScanStateEntity
 
 @Database(
     entities = [
+        // Core library
         FavoriteTrackEntity::class,
         FavoriteAlbumEntity::class,
         FavoriteArtistEntity::class,
@@ -27,9 +43,24 @@ import tf.monochrome.android.data.db.entity.UserPlaylistEntity
         PlaylistTrackEntity::class,
         DownloadedTrackEntity::class,
         CachedLyricsEntity::class,
-        EqPresetEntity::class
+        EqPresetEntity::class,
+        // Local media
+        LocalTrackEntity::class,
+        LocalAlbumEntity::class,
+        LocalArtistEntity::class,
+        LocalGenreEntity::class,
+        LocalFolderEntity::class,
+        ScanStateEntity::class,
+        // Collections
+        CollectionEntity::class,
+        CollectionArtistEntity::class,
+        CollectionAlbumEntity::class,
+        CollectionTrackEntity::class,
+        CollectionDirectLinkEntity::class,
+        CollectionTrackArtistCrossRef::class,
+        CollectionAlbumArtistCrossRef::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class MusicDatabase : RoomDatabase() {
@@ -38,4 +69,6 @@ abstract class MusicDatabase : RoomDatabase() {
     abstract fun playlistDao(): PlaylistDao
     abstract fun downloadDao(): DownloadDao
     abstract fun eqPresetDao(): EqPresetDao
+    abstract fun localMediaDao(): LocalMediaDao
+    abstract fun collectionDao(): CollectionDao
 }

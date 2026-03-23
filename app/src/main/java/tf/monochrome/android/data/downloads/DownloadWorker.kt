@@ -2,6 +2,9 @@ package tf.monochrome.android.data.downloads
 
 import android.content.Context
 import android.net.Uri
+import androidx.core.net.toUri
+import java.util.Locale
+import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
@@ -72,7 +75,7 @@ class DownloadWorker @AssistedInject constructor(
 
             if (customFolderUri != null) {
                 // Save to user-selected folder via SAF
-                val treeUri = Uri.parse(customFolderUri)
+                val treeUri = customFolderUri.toUri()
                 val docFile = DocumentFile.fromTreeUri(context, treeUri)
                 if (docFile != null && docFile.canWrite()) {
                     val existing = docFile.findFile(fileName)
@@ -104,13 +107,13 @@ class DownloadWorker @AssistedInject constructor(
                         lyrics.lines.forEach { line ->
                             val minutes = line.timeMs / 1000 / 60
                             val seconds = (line.timeMs / 1000.0) % 60
-                            val timeStr = String.format("[%02d:%05.2f]", minutes, seconds)
+                            val timeStr = String.format(Locale.US, "[%02d:%05.2f]", minutes, seconds)
                             lrcContent.append("$timeStr${line.text}\n")
                         }
 
                         val lrcFileName = "$sanitizedTitle.lrc"
                         if (customFolderUri != null) {
-                            val treeUri = Uri.parse(customFolderUri)
+                            val treeUri = customFolderUri.toUri()
                             val docFile = DocumentFile.fromTreeUri(context, treeUri)
                             if (docFile != null && docFile.canWrite()) {
                                 val existing = docFile.findFile(lrcFileName)

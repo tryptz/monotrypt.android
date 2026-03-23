@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -77,7 +78,8 @@ class PreferencesManager @Inject constructor(
         private val PRESERVE_PITCH = booleanPreferencesKey("preserve_pitch")
 
         // Appearance extras
-        private val FONT_SIZE = stringPreferencesKey("font_size")
+        private val FONT_SCALE = floatPreferencesKey("font_scale")
+        private val CUSTOM_FONT_URI = stringPreferencesKey("custom_font_uri")
 
         // Google Auth
         private val GOOGLE_USER_ID = stringPreferencesKey("google_user_id")
@@ -91,6 +93,16 @@ class PreferencesManager @Inject constructor(
         private val ROMAJI_LYRICS = booleanPreferencesKey("romaji_lyrics")
         private val DOWNLOAD_LYRICS = booleanPreferencesKey("download_lyrics")
         private val NOW_PLAYING_VIEW_MODE = stringPreferencesKey("now_playing_view_mode")
+        private val VISUALIZER_ENGINE_ENABLED = booleanPreferencesKey("visualizer_engine_enabled")
+        private val VISUALIZER_AUTO_SHUFFLE = booleanPreferencesKey("visualizer_auto_shuffle")
+        private val VISUALIZER_PRESET_ID = stringPreferencesKey("visualizer_preset_id")
+        private val VISUALIZER_ROTATION_SECONDS = intPreferencesKey("visualizer_rotation_seconds")
+        private val VISUALIZER_TEXTURE_SIZE = intPreferencesKey("visualizer_texture_size")
+        private val VISUALIZER_MESH_X = intPreferencesKey("visualizer_mesh_x")
+        private val VISUALIZER_MESH_Y = intPreferencesKey("visualizer_mesh_y")
+        private val VISUALIZER_TARGET_FPS = intPreferencesKey("visualizer_target_fps")
+        private val VISUALIZER_SHOW_FPS = booleanPreferencesKey("visualizer_show_fps")
+        private val VISUALIZER_FULLSCREEN = booleanPreferencesKey("visualizer_fullscreen")
         
         // AI
         private val GEMINI_API_KEY = stringPreferencesKey("gemini_api_key")
@@ -109,6 +121,15 @@ class PreferencesManager @Inject constructor(
         private val EQ_TARGET_ID = stringPreferencesKey("eq_target_id")
         private val EQ_PREAMP = doublePreferencesKey("eq_preamp")
         private val EQ_BANDS_JSON = stringPreferencesKey("eq_bands_json")
+
+        // Library / Local Media
+        private val SCAN_ON_APP_OPEN = booleanPreferencesKey("scan_on_app_open")
+        private val MIN_TRACK_DURATION_MS = longPreferencesKey("min_track_duration_ms")
+        private val EXCLUDED_PATHS_JSON = stringPreferencesKey("excluded_paths_json")
+        private val BACKGROUND_SCAN_INTERVAL = stringPreferencesKey("background_scan_interval")
+
+        // Collections
+        private val AUTO_DOWNLOAD_COLLECTIONS = booleanPreferencesKey("auto_download_collections")
     }
 
     // Audio Quality
@@ -338,12 +359,23 @@ class PreferencesManager @Inject constructor(
         dataStore.edit { it[PRESERVE_PITCH] = enabled }
     }
 
-    // --- Font size ---
-    val fontSize: Flow<String> = dataStore.data.map { prefs ->
-        prefs[FONT_SIZE] ?: "medium"
+    // --- Font scale ---
+    val fontScale: Flow<Float> = dataStore.data.map { prefs ->
+        prefs[FONT_SCALE] ?: 1.0f
     }
-    suspend fun setFontSize(size: String) {
-        dataStore.edit { it[FONT_SIZE] = size }
+    suspend fun setFontScale(scale: Float) {
+        dataStore.edit { it[FONT_SCALE] = scale.coerceIn(0.5f, 2.0f) }
+    }
+
+    // --- Custom font ---
+    val customFontUri: Flow<String?> = dataStore.data.map { prefs ->
+        prefs[CUSTOM_FONT_URI]
+    }
+    suspend fun setCustomFontUri(uri: String?) {
+        dataStore.edit {
+            if (uri != null) it[CUSTOM_FONT_URI] = uri
+            else it.remove(CUSTOM_FONT_URI)
+        }
     }
 
     // --- Google Auth ---
@@ -375,6 +407,16 @@ class PreferencesManager @Inject constructor(
     val visualizerBrightness: Flow<Int> = dataStore.data.map { it[VISUALIZER_BRIGHTNESS] ?: 80 }
     val romajiLyrics: Flow<Boolean> = dataStore.data.map { it[ROMAJI_LYRICS] ?: false }
     val downloadLyrics: Flow<Boolean> = dataStore.data.map { it[DOWNLOAD_LYRICS] ?: false }
+    val visualizerEngineEnabled: Flow<Boolean> = dataStore.data.map { it[VISUALIZER_ENGINE_ENABLED] ?: true }
+    val visualizerAutoShuffle: Flow<Boolean> = dataStore.data.map { it[VISUALIZER_AUTO_SHUFFLE] ?: true }
+    val visualizerPresetId: Flow<String?> = dataStore.data.map { it[VISUALIZER_PRESET_ID] }
+    val visualizerRotationSeconds: Flow<Int> = dataStore.data.map { it[VISUALIZER_ROTATION_SECONDS] ?: 20 }
+    val visualizerTextureSize: Flow<Int> = dataStore.data.map { it[VISUALIZER_TEXTURE_SIZE] ?: 1024 }
+    val visualizerMeshX: Flow<Int> = dataStore.data.map { it[VISUALIZER_MESH_X] ?: 32 }
+    val visualizerMeshY: Flow<Int> = dataStore.data.map { it[VISUALIZER_MESH_Y] ?: 24 }
+    val visualizerTargetFps: Flow<Int> = dataStore.data.map { it[VISUALIZER_TARGET_FPS] ?: 60 }
+    val visualizerShowFps: Flow<Boolean> = dataStore.data.map { it[VISUALIZER_SHOW_FPS] ?: false }
+    val visualizerFullscreen: Flow<Boolean> = dataStore.data.map { it[VISUALIZER_FULLSCREEN] ?: false }
 
     suspend fun setVisualizerSensitivity(value: Int) {
         dataStore.edit { it[VISUALIZER_SENSITIVITY] = value }
@@ -387,6 +429,39 @@ class PreferencesManager @Inject constructor(
     }
     suspend fun setDownloadLyrics(enabled: Boolean) {
         dataStore.edit { it[DOWNLOAD_LYRICS] = enabled }
+    }
+    suspend fun setVisualizerEngineEnabled(enabled: Boolean) {
+        dataStore.edit { it[VISUALIZER_ENGINE_ENABLED] = enabled }
+    }
+    suspend fun setVisualizerAutoShuffle(enabled: Boolean) {
+        dataStore.edit { it[VISUALIZER_AUTO_SHUFFLE] = enabled }
+    }
+    suspend fun setVisualizerPresetId(presetId: String?) {
+        dataStore.edit {
+            if (presetId.isNullOrBlank()) it.remove(VISUALIZER_PRESET_ID)
+            else it[VISUALIZER_PRESET_ID] = presetId
+        }
+    }
+    suspend fun setVisualizerRotationSeconds(seconds: Int) {
+        dataStore.edit { it[VISUALIZER_ROTATION_SECONDS] = seconds.coerceIn(5, 120) }
+    }
+    suspend fun setVisualizerTextureSize(size: Int) {
+        dataStore.edit { it[VISUALIZER_TEXTURE_SIZE] = size }
+    }
+    suspend fun setVisualizerMeshX(value: Int) {
+        dataStore.edit { it[VISUALIZER_MESH_X] = value }
+    }
+    suspend fun setVisualizerMeshY(value: Int) {
+        dataStore.edit { it[VISUALIZER_MESH_Y] = value }
+    }
+    suspend fun setVisualizerTargetFps(value: Int) {
+        dataStore.edit { it[VISUALIZER_TARGET_FPS] = value }
+    }
+    suspend fun setVisualizerShowFps(enabled: Boolean) {
+        dataStore.edit { it[VISUALIZER_SHOW_FPS] = enabled }
+    }
+    suspend fun setVisualizerFullscreen(enabled: Boolean) {
+        dataStore.edit { it[VISUALIZER_FULLSCREEN] = enabled }
     }
 
     val nowPlayingViewMode: Flow<NowPlayingViewMode> = dataStore.data.map { prefs ->
@@ -479,6 +554,37 @@ class PreferencesManager @Inject constructor(
                 it.remove(EQ_BANDS_JSON)
             }
         }
+    }
+
+    // --- Library / Local Media ---
+    val scanOnAppOpen: Flow<Boolean> = dataStore.data.map { it[SCAN_ON_APP_OPEN] ?: true }
+    suspend fun setScanOnAppOpen(enabled: Boolean) {
+        dataStore.edit { it[SCAN_ON_APP_OPEN] = enabled }
+    }
+
+    val minTrackDurationMs: Flow<Long> = dataStore.data.map { it[MIN_TRACK_DURATION_MS] ?: 30_000L }
+    suspend fun setMinTrackDurationMs(durationMs: Long) {
+        dataStore.edit { it[MIN_TRACK_DURATION_MS] = durationMs }
+    }
+
+    val excludedPathsJson: Flow<String> = dataStore.data.map { it[EXCLUDED_PATHS_JSON] ?: "[]" }
+    suspend fun setExcludedPaths(pathsJson: String) {
+        dataStore.edit { it[EXCLUDED_PATHS_JSON] = pathsJson }
+    }
+
+    val backgroundScanInterval: Flow<String> = dataStore.data.map {
+        it[BACKGROUND_SCAN_INTERVAL] ?: "daily"
+    }
+    suspend fun setBackgroundScanInterval(interval: String) {
+        dataStore.edit { it[BACKGROUND_SCAN_INTERVAL] = interval }
+    }
+
+    // --- Collections ---
+    val autoDownloadCollections: Flow<Boolean> = dataStore.data.map {
+        it[AUTO_DOWNLOAD_COLLECTIONS] ?: false
+    }
+    suspend fun setAutoDownloadCollections(enabled: Boolean) {
+        dataStore.edit { it[AUTO_DOWNLOAD_COLLECTIONS] = enabled }
     }
 
     // --- Clear all prefs (System) ---

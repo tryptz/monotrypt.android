@@ -1,6 +1,7 @@
 package tf.monochrome.android.domain.model
 
 import kotlinx.serialization.Serializable
+import java.io.File
 
 @Serializable
 data class Track(
@@ -144,6 +145,51 @@ data class Lyrics(
     val isSynced: Boolean = false
 )
 
+@Serializable
+data class VisualizerTag(
+    val id: String,
+    val label: String = id
+)
+
+@Serializable
+data class VisualizerPreset(
+    val id: String,
+    val displayName: String,
+    val filePath: String,
+    val tags: List<VisualizerTag> = emptyList(),
+    val intensity: Int = 50
+)
+
+enum class VisualizerEnginePhase {
+    FALLBACK,
+    INSTALLING,
+    READY,
+    ACTIVE,
+    ERROR
+}
+
+data class VisualizerEngineStatus(
+    val phase: VisualizerEnginePhase = VisualizerEnginePhase.FALLBACK,
+    val nativeLibraryLoaded: Boolean = false,
+    val assetVersion: String = "v1",
+    val message: String = "Fallback visualizer active.",
+    val assetRoot: String? = null
+) {
+    val isNativeReady: Boolean
+        get() = nativeLibraryLoaded && (
+            phase == VisualizerEnginePhase.READY || phase == VisualizerEnginePhase.ACTIVE
+        )
+
+    val badge: String
+        get() = when (phase) {
+            VisualizerEnginePhase.FALLBACK -> "fallback"
+            VisualizerEnginePhase.INSTALLING -> "installing"
+            VisualizerEnginePhase.READY -> "projectM ready"
+            VisualizerEnginePhase.ACTIVE -> "projectM live"
+            VisualizerEnginePhase.ERROR -> "projectM error"
+        }
+}
+
 enum class AudioQuality(val apiValue: String, val displayName: String) {
     LOW("LOW", "Low (96 kbps)"),
     HIGH("HIGH", "High (320 kbps)"),
@@ -167,9 +213,188 @@ enum class NowPlayingViewMode(val displayName: String) {
 }
 
 fun buildCoverUrl(coverId: String, size: Int): String {
+    if (coverId.contains("://")) return coverId
+    if (coverId.startsWith("/")) return File(coverId).toURI().toString()
     val formatted = coverId.replace("-", "/")
     return "https://resources.tidal.com/images/$formatted/${size}x${size}.jpg"
 }
+
+// ========== Unified Three-Source Models ==========
+
+enum class SourceType { API, COLLECTION, LOCAL }
+
+enum class AudioCodec(val displayName: String) {
+    FLAC("FLAC"),
+    MP3("MP3"),
+    AAC("AAC"),
+    ALAC("ALAC"),
+    OGG_VORBIS("OGG"),
+    OPUS("Opus"),
+    WAV("WAV"),
+    AIFF("AIFF"),
+    APE("APE"),
+    WMA("WMA"),
+    UNKNOWN("Unknown")
+}
+
+sealed class PlaybackSource {
+
+    /** Stream from Hi-Fi API - requires network */
+    data class HiFiApi(
+        val tidalId: Long,
+        val preferredQuality: AudioQuality = AudioQuality.LOSSLESS
+    ) : PlaybackSource()
+
+    /** Encrypted direct link from collection manifest */
+    data class CollectionDirect(
+        val collectionId: String,
+        val directLinks: List<CollectionDirectLink>,
+        val encryptionKey: String,
+        val fileHash: String,
+        val preferredQuality: AudioQuality = AudioQuality.LOSSLESS
+    ) : PlaybackSource()
+
+    /** Local file on device - zero network, fastest path */
+    data class LocalFile(
+        val filePath: String,
+        val codec: AudioCodec,
+        val sampleRate: Int,
+        val bitDepth: Int? = null
+    ) : PlaybackSource()
+}
+
+data class CollectionDirectLink(
+    val url: String,
+    val quality: String
+)
+
+data class TrackLyrics(
+    val basic: String? = null,
+    val lrc: String? = null,
+    val ttml: String? = null
+)
+
+data class UnifiedTrack(
+    val id: String,
+    val title: String,
+    val durationSeconds: Int,
+    val trackNumber: Int? = null,
+    val discNumber: Int? = null,
+    val explicit: Boolean = false,
+
+    // Artist info
+    val artistName: String,
+    val artistNames: List<String> = emptyList(),
+    val albumArtistName: String? = null,
+
+    // Album info
+    val albumTitle: String? = null,
+    val albumId: String? = null,
+
+    // Artwork
+    val artworkUri: String? = null,
+
+    // Audio quality
+    val codec: AudioCodec? = null,
+    val sampleRate: Int? = null,
+    val bitDepth: Int? = null,
+    val bitRate: Int? = null,
+    val qualityTags: List<String>? = null,
+
+    // Replay gain
+    val replayGainTrack: Float? = null,
+    val replayGainAlbum: Float? = null,
+    val r128TrackGain: Int? = null,
+    val r128AlbumGain: Int? = null,
+
+    // Lyrics
+    val lyrics: TrackLyrics? = null,
+
+    // Identifiers for cross-source matching
+    val isrc: String? = null,
+    val musicBrainzTrackId: String? = null,
+
+    // Source
+    val source: PlaybackSource,
+    val sourceType: SourceType
+) {
+    val displayArtist: String
+        get() = artistName
+
+    val formattedDuration: String
+        get() {
+            val minutes = durationSeconds / 60
+            val seconds = durationSeconds % 60
+            return "%d:%02d".format(minutes, seconds)
+        }
+
+    val qualityBadge: String?
+        get() = when {
+            codec == AudioCodec.FLAC && (bitDepth ?: 16) >= 24 ->
+                "FLAC ${bitDepth}/${(sampleRate ?: 44100) / 1000}"
+            codec == AudioCodec.FLAC -> "FLAC"
+            codec == AudioCodec.ALAC && (bitDepth ?: 16) >= 24 ->
+                "ALAC ${bitDepth}/${(sampleRate ?: 44100) / 1000}"
+            codec == AudioCodec.ALAC -> "ALAC"
+            codec == AudioCodec.MP3 -> "MP3 ${bitRate ?: 320}"
+            codec == AudioCodec.AAC -> "AAC ${bitRate ?: 256}"
+            codec == AudioCodec.OPUS -> "Opus ${bitRate ?: 128}"
+            codec == AudioCodec.OGG_VORBIS -> "OGG ${bitRate ?: 320}"
+            qualityTags?.contains("HI_RES_LOSSLESS") == true -> "Hi-Res"
+            qualityTags?.contains("LOSSLESS") == true -> "Lossless"
+            qualityTags?.contains("HIGH") == true -> "High"
+            else -> null
+        }
+
+    /** Convert to legacy Track model for backward compatibility */
+    fun toLegacyTrack(): Track {
+        val tidalId = when (val s = source) {
+            is PlaybackSource.HiFiApi -> s.tidalId
+            else -> id.hashCode().toLong()
+        }
+        return Track(
+            id = tidalId,
+            title = title,
+            duration = durationSeconds,
+            artist = Artist(id = artistName.hashCode().toLong(), name = artistName),
+            album = albumTitle?.let {
+                Album(
+                    id = albumId?.hashCode()?.toLong() ?: tidalId,
+                    title = it,
+                    cover = artworkUri
+                )
+            },
+            audioQuality = codec?.displayName,
+            explicit = explicit,
+            trackNumber = trackNumber,
+            volumeNumber = discNumber
+        )
+    }
+}
+
+data class UnifiedAlbum(
+    val id: String,
+    val title: String,
+    val artistName: String,
+    val year: Int? = null,
+    val trackCount: Int = 0,
+    val totalDuration: Int = 0,
+    val artworkUri: String? = null,
+    val genres: List<String> = emptyList(),
+    val sourceType: SourceType,
+    val qualitySummary: String? = null
+)
+
+data class UnifiedArtist(
+    val id: String,
+    val name: String,
+    val artworkUri: String? = null,
+    val albumCount: Int = 0,
+    val trackCount: Int = 0,
+    val bio: String? = null,
+    val genres: List<String> = emptyList(),
+    val sourceType: SourceType
+)
 
 // ========== EQ / AutoEQ Models ==========
 

@@ -30,6 +30,7 @@ if (!hasCompleteReleaseSigning) {
 android {
     namespace = "tf.monochrome.android"
     compileSdk = 36
+    ndkVersion = "28.2.13676358"
 
     defaultConfig {
         applicationId = "tf.monochrome.android"
@@ -39,6 +40,13 @@ android {
         versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        externalNativeBuild {
+            cmake {
+                cppFlags += "-std=c++17"
+                abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+            }
+        }
     }
 
     signingConfigs {
@@ -78,6 +86,13 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 }
 
@@ -160,8 +175,14 @@ dependencies {
     // Media (Android Auto)
     implementation(libs.media)
 
+    // Security (Keystore for collection encryption keys)
+    implementation(libs.security.crypto)
+
     // Google Sign-In (Credential Manager)
     implementation(libs.credentials)
     implementation(libs.credentials.play.services)
     implementation(libs.googleid)
+
+    // Accompanist
+    implementation(libs.accompanist.permissions)
 }

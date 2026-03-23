@@ -1,0 +1,161 @@
+package tf.monochrome.android.visualizer
+
+import android.util.Log
+import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
+class ProjectMNativeBridge {
+    private var nativeHandle: Long = 0L
+    private var brightness: Int = 80
+    private val paused = AtomicBoolean(false)
+
+    fun initialize(assetRoot: String, width: Int, height: Int, meshWidth: Int, meshHeight: Int): Boolean {
+        if (!isLibraryLoaded) return false
+        if (nativeHandle != 0L) {
+            nativeResize(nativeHandle, width, height)
+            return true
+        }
+
+        nativeHandle = runCatching {
+            nativeCreate(
+                assetRoot = assetRoot,
+                presetRoot = File(assetRoot, "presets").absolutePath,
+                textureRoot = File(assetRoot, "textures").absolutePath,
+                width = width,
+                height = height,
+                meshWidth = meshWidth,
+                meshHeight = meshHeight
+            )
+        }.getOrElse {
+            Log.e(TAG, "Unable to initialize projectM", it)
+            0L
+        }
+        return nativeHandle != 0L
+    }
+
+    fun resize(width: Int, height: Int) {
+        if (nativeHandle != 0L) {
+            nativeResize(nativeHandle, width, height)
+        }
+    }
+
+    fun renderFrame(frameTimeNanos: Long) {
+        if (nativeHandle != 0L && !paused.get()) {
+            nativeRenderFrame(nativeHandle, frameTimeNanos)
+        }
+    }
+
+    fun pushPcm(samples: FloatArray, channelCount: Int, sampleRate: Int) {
+        if (nativeHandle != 0L && !paused.get()) {
+            nativePushPcm(nativeHandle, samples, channelCount, sampleRate)
+        }
+    }
+
+    fun setPreset(presetPath: String): Boolean {
+        if (nativeHandle == 0L) return false
+        return nativeSetPreset(nativeHandle, presetPath)
+    }
+
+    fun nextPreset(): String? {
+        if (nativeHandle == 0L) return null
+        return nativeNextPreset(nativeHandle)
+    }
+
+    fun setPresetShuffleEnabled(enabled: Boolean) {
+        if (nativeHandle != 0L) {
+            nativeSetPresetShuffleEnabled(nativeHandle, enabled)
+        }
+    }
+
+    fun setBeatSensitivity(value: Int) {
+        if (nativeHandle != 0L) {
+            nativeSetBeatSensitivity(nativeHandle, value.coerceIn(0, 100))
+        }
+    }
+
+    fun setBrightness(value: Int) {
+        brightness = value.coerceIn(0, 100)
+        if (nativeHandle != 0L) {
+            nativeSetBrightness(nativeHandle, brightness)
+        }
+    }
+
+    fun setPaused(paused: Boolean) {
+        this.paused.set(paused)
+        if (nativeHandle != 0L) {
+            nativeSetPaused(nativeHandle, paused)
+        }
+    }
+
+    fun release() {
+        if (nativeHandle != 0L) {
+            nativeRelease(nativeHandle)
+            nativeHandle = 0L
+        }
+    }
+
+    internal fun configureQuality(meshX: Int, meshY: Int) {
+        if (nativeHandle != 0L) {
+            nativeSetQuality(nativeHandle, meshX, meshY)
+        }
+    }
+
+    internal fun configureTargetFps(fps: Int) {
+        if (nativeHandle != 0L) {
+            nativeSetFps(nativeHandle, fps)
+        }
+    }
+
+    internal fun configurePresetDuration(seconds: Int) {
+        if (nativeHandle != 0L) {
+            nativeSetPresetDuration(nativeHandle, seconds.coerceIn(5, 120))
+        }
+    }
+
+    companion object {
+        private const val TAG = "ProjectMNativeBridge"
+
+        val isLibraryLoaded: Boolean by lazy {
+            runCatching {
+                listOf("projectM-4", "projectM-4d").forEach { name ->
+                    runCatching { System.loadLibrary(name) }
+                }
+                listOf("projectM-4-playlist", "projectM-4-playlistd").forEach { name ->
+                    runCatching { System.loadLibrary(name) }
+                }
+                listOf("projectm_android_bridge", "projectm_android_bridged").firstNotNullOfOrNull { name ->
+                    runCatching {
+                        System.loadLibrary(name)
+                        name
+                    }.getOrNull()
+                } != null
+            }.getOrElse { error ->
+                Log.w(TAG, "Native projectM bridge unavailable", error)
+                false
+            }
+        }
+    }
+
+    private external fun nativeCreate(
+        assetRoot: String,
+        presetRoot: String,
+        textureRoot: String,
+        width: Int,
+        height: Int,
+        meshWidth: Int,
+        meshHeight: Int
+    ): Long
+
+    private external fun nativeResize(handle: Long, width: Int, height: Int)
+    private external fun nativeRenderFrame(handle: Long, frameTimeNanos: Long)
+    private external fun nativePushPcm(handle: Long, samples: FloatArray, channelCount: Int, sampleRate: Int)
+    private external fun nativeSetPreset(handle: Long, presetPath: String): Boolean
+    private external fun nativeNextPreset(handle: Long): String?
+    private external fun nativeSetPresetShuffleEnabled(handle: Long, enabled: Boolean)
+    private external fun nativeSetBeatSensitivity(handle: Long, value: Int)
+    private external fun nativeSetBrightness(handle: Long, value: Int)
+    private external fun nativeSetPaused(handle: Long, paused: Boolean)
+    private external fun nativeSetQuality(handle: Long, meshWidth: Int, meshHeight: Int)
+    private external fun nativeSetFps(handle: Long, fps: Int)
+    private external fun nativeSetPresetDuration(handle: Long, seconds: Int)
+    private external fun nativeRelease(handle: Long)
+}

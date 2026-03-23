@@ -22,7 +22,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -55,7 +55,8 @@ import tf.monochrome.android.ui.player.PlayerViewModel
 fun LibraryScreen(
     navController: NavController,
     playerViewModel: PlayerViewModel,
-    viewModel: LibraryViewModel = hiltViewModel()
+    viewModel: LibraryViewModel = hiltViewModel(),
+    localLibraryViewModel: LocalLibraryViewModel = hiltViewModel()
 ) {
     val favoriteTracks by viewModel.favoriteTracks.collectAsState()
     val recentTracks by viewModel.recentTracks.collectAsState()
@@ -65,7 +66,7 @@ fun LibraryScreen(
     val favoriteTrackIds by playerViewModel.favoriteTrackIds.collectAsState()
 
     var selectedTabIndex by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Songs", "Albums", "Artists", "Playlists")
+    val tabs = listOf("Overview", "Local", "Collections", "Playlists", "Favorites", "Downloads")
 
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var showContextMenuForTrack by remember { mutableStateOf<Track?>(null) }
@@ -96,6 +97,10 @@ fun LibraryScreen(
             onSubmit = { name, description ->
                 viewModel.createPlaylist(name, description)
                 showCreatePlaylistDialog = false
+            },
+            onImportCsv = { uri, strict, name, description ->
+                viewModel.importCsvPlaylist(uri, strict, name, description)
+                showCreatePlaylistDialog = false
             }
         )
     }
@@ -112,8 +117,6 @@ fun LibraryScreen(
             onCreateNew = {
                 showAddToPlaylistForTrack = null
                 showCreatePlaylistDialog = true
-                // Note: The track won't be added to the newly created playlist automatically 
-                // in this simple implementation, but the user can then add it.
             }
         )
     }
@@ -140,9 +143,10 @@ fun LibraryScreen(
             )
         )
 
-        PrimaryTabRow(
+        ScrollableTabRow(
             selectedTabIndex = selectedTabIndex,
-            containerColor = MaterialTheme.colorScheme.background
+            containerColor = MaterialTheme.colorScheme.background,
+            edgePadding = 8.dp
         ) {
             tabs.forEachIndexed { index, title ->
                 Tab(
@@ -154,33 +158,14 @@ fun LibraryScreen(
         }
 
         when (selectedTabIndex) {
-            0 -> // Songs
+            0 -> // Overview
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 80.dp)
                 ) {
-                    if (favoriteTracks.isNotEmpty()) {
-                        item { SectionHeader(title = "Liked Songs") }
-                        items(favoriteTracks) { track ->
-                            TrackItem(
-                                track = track,
-                                isLiked = favoriteTrackIds.contains(track.id),
-                                onLikeClick = { playerViewModel.toggleFavorite(track) },
-                                onClick = { playerViewModel.playTrack(track, favoriteTracks) },
-                                onLongClick = { showContextMenuForTrack = track },
-                                onMoreClick = { showContextMenuForTrack = track },
-                                onAlbumClick = track.album?.id?.let { albumId ->
-                                    { navController.navigate(Screen.AlbumDetail.createRoute(albumId)) }
-                                }
-                            )
-                        }
-                    }
-
-                    item { Spacer(modifier = Modifier.height(8.dp)) }
-
                     if (recentTracks.isNotEmpty()) {
                         item { SectionHeader(title = "Recently Played") }
-                        items(recentTracks.take(10)) { track ->
+                        items(recentTracks.take(5)) { track ->
                             TrackItem(
                                 track = track,
                                 isLiked = favoriteTrackIds.contains(track.id),
@@ -195,56 +180,60 @@ fun LibraryScreen(
                         }
                     }
 
+                    if (favoriteTracks.isNotEmpty()) {
+                        item { SectionHeader(title = "Liked Songs") }
+                        items(favoriteTracks.take(5)) { track ->
+                            TrackItem(
+                                track = track,
+                                isLiked = true,
+                                onLikeClick = { playerViewModel.toggleFavorite(track) },
+                                onClick = { playerViewModel.playTrack(track, favoriteTracks) },
+                                onLongClick = { showContextMenuForTrack = track },
+                                onMoreClick = { showContextMenuForTrack = track },
+                                onAlbumClick = track.album?.id?.let { albumId ->
+                                    { navController.navigate(Screen.AlbumDetail.createRoute(albumId)) }
+                                }
+                            )
+                        }
+                    }
+
                     if (favoriteTracks.isEmpty() && recentTracks.isEmpty()) {
-                        item { EmptyState("Start playing music to build your song collection.") }
+                        item { EmptyState("Start playing music to build your library.") }
                     }
                 }
-            
-            1 -> // Albums
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(vertical = 16.dp, horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    if (favoriteAlbums.isEmpty()) {
-                        item { EmptyState("Like albums to see them here.") }
-                    } else {
-                        // Displaying them as a list of large items or a grid. Let's do a simple row per item for now
-                        items(favoriteAlbums) { album ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { navController.navigate(Screen.AlbumDetail.createRoute(album.id)) },
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                AlbumItem(album = album, onClick = { navController.navigate(Screen.AlbumDetail.createRoute(album.id)) })
-                            }
+
+            1 -> // Local
+                LocalLibraryTab(
+                    viewModel = localLibraryViewModel,
+                    onTrackClick = { track, queue ->
+                        playerViewModel.playUnifiedTrack(track, queue)
+                    },
+                    onAlbumClick = { album ->
+                        // Navigate to local album detail
+                        val albumId = album.id.removePrefix("local_album_").toLongOrNull()
+                        if (albumId != null) {
+                            navController.navigate("local_album/$albumId")
                         }
-                    }
-                }
-            
-            2 -> // Artists
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(vertical = 16.dp, horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    if (favoriteArtists.isEmpty()) {
-                        item { EmptyState("Like artists to see them here.") }
-                    } else {
-                        items(favoriteArtists) { artist ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { navController.navigate(Screen.ArtistDetail.createRoute(artist.id)) },
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                ArtistItem(artist = artist, onClick = { navController.navigate(Screen.ArtistDetail.createRoute(artist.id)) })
-                            }
+                    },
+                    onArtistClick = { artist ->
+                        val artistId = artist.id.removePrefix("local_artist_").toLongOrNull()
+                        if (artistId != null) {
+                            navController.navigate("local_artist/$artistId")
                         }
+                    },
+                    onFolderClick = { path ->
+                        navController.navigate("folder/${java.net.URLEncoder.encode(path, "UTF-8")}")
                     }
-                }
-            
+                )
+
+            2 -> // Collections
+                CollectionsTab(
+                    viewModel = localLibraryViewModel,
+                    onCollectionClick = { collectionId ->
+                        navController.navigate("collection/$collectionId")
+                    }
+                )
+
             3 -> // Playlists
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
@@ -308,6 +297,66 @@ fun LibraryScreen(
                         }
                     }
                 }
+
+            4 -> // Favorites
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = 80.dp)
+                ) {
+                    if (favoriteTracks.isNotEmpty()) {
+                        item { SectionHeader(title = "Liked Songs") }
+                        items(favoriteTracks) { track ->
+                            TrackItem(
+                                track = track,
+                                isLiked = true,
+                                onLikeClick = { playerViewModel.toggleFavorite(track) },
+                                onClick = { playerViewModel.playTrack(track, favoriteTracks) },
+                                onLongClick = { showContextMenuForTrack = track },
+                                onMoreClick = { showContextMenuForTrack = track },
+                                onAlbumClick = track.album?.id?.let { albumId ->
+                                    { navController.navigate(Screen.AlbumDetail.createRoute(albumId)) }
+                                }
+                            )
+                        }
+                    }
+
+                    if (favoriteAlbums.isNotEmpty()) {
+                        item { Spacer(modifier = Modifier.height(8.dp)) }
+                        item { SectionHeader(title = "Liked Albums") }
+                        items(favoriteAlbums) { album ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { navController.navigate(Screen.AlbumDetail.createRoute(album.id)) },
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                AlbumItem(album = album, onClick = { navController.navigate(Screen.AlbumDetail.createRoute(album.id)) })
+                            }
+                        }
+                    }
+
+                    if (favoriteArtists.isNotEmpty()) {
+                        item { Spacer(modifier = Modifier.height(8.dp)) }
+                        item { SectionHeader(title = "Liked Artists") }
+                        items(favoriteArtists) { artist ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { navController.navigate(Screen.ArtistDetail.createRoute(artist.id)) },
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                ArtistItem(artist = artist, onClick = { navController.navigate(Screen.ArtistDetail.createRoute(artist.id)) })
+                            }
+                        }
+                    }
+
+                    if (favoriteTracks.isEmpty() && favoriteAlbums.isEmpty() && favoriteArtists.isEmpty()) {
+                        item { EmptyState("Like tracks, albums, and artists to see them here.") }
+                    }
+                }
+
+            5 -> // Downloads
+                DownloadsScreen(navController = navController)
         }
     }
 }

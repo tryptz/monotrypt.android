@@ -1,44 +1,44 @@
 package tf.monochrome.android.ui.library
 
+import androidx.core.net.toUri
+import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import tf.monochrome.android.domain.model.Track
+import tf.monochrome.android.data.db.dao.DownloadDao
+import tf.monochrome.android.data.db.entity.DownloadedTrackEntity
 import java.io.File
 import javax.inject.Inject
 
 @HiltViewModel
 class DownloadsViewModel @Inject constructor(
-    private val appCtx: android.app.Application
+    private val appCtx: android.app.Application,
+    private val downloadDao: DownloadDao
 ) : ViewModel() {
 
-    private val _downloadedFiles = MutableStateFlow<List<File>>(emptyList())
-    val downloadedFiles: StateFlow<List<File>> = _downloadedFiles.asStateFlow()
+    val downloadedTracks: StateFlow<List<DownloadedTrackEntity>> =
+        downloadDao.getDownloadedTracks()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    init {
-        loadDownloads()
-    }
-
-    fun loadDownloads() {
+    fun deleteDownload(track: DownloadedTrackEntity) {
         viewModelScope.launch {
-            val downloadsDir = File(appCtx.getExternalFilesDir(null), "downloads")
-            if (downloadsDir.exists()) {
-                _downloadedFiles.value = downloadsDir.listFiles()?.toList() ?: emptyList()
+            if (track.filePath.startsWith("content://")) {
+                try {
+                    val uri = track.filePath.toUri()
+                    val docFile = DocumentFile.fromSingleUri(appCtx, uri)
+                    docFile?.delete()
+                } catch (e: Exception) {
+                    // Ignore exceptions during content deletion
+                }
             } else {
-                _downloadedFiles.value = emptyList()
+                val file = File(track.filePath)
+                if (file.exists()) file.delete()
             }
-        }
-    }
-
-    fun deleteDownload(file: File) {
-        viewModelScope.launch {
-            if (file.exists() && file.delete()) {
-                loadDownloads()
-            }
+            downloadDao.deleteDownloadedTrack(track.id)
         }
     }
 }

@@ -29,9 +29,13 @@ import tf.monochrome.android.domain.model.Lyrics
 import tf.monochrome.android.domain.model.NowPlayingViewMode
 import tf.monochrome.android.domain.model.RepeatMode
 import tf.monochrome.android.domain.model.Track
+import tf.monochrome.android.domain.model.UnifiedTrack
+import tf.monochrome.android.domain.model.VisualizerEngineStatus
+import tf.monochrome.android.domain.model.VisualizerPreset
 import tf.monochrome.android.player.PlaybackService
 import tf.monochrome.android.player.QueueManager
 import tf.monochrome.android.player.StreamResolver
+import tf.monochrome.android.visualizer.ProjectMEngineRepository
 import javax.inject.Inject
 
 @HiltViewModel
@@ -42,7 +46,8 @@ class PlayerViewModel @Inject constructor(
     private val repository: MusicRepository,
     private val libraryRepository: LibraryRepository,
     private val downloadManager: DownloadManager,
-    private val preferences: PreferencesManager
+    private val preferences: PreferencesManager,
+    private val projectMEngineRepository: ProjectMEngineRepository
 ) : ViewModel() {
 
     // --- State from QueueManager (runs in-process, no IPC needed) ---
@@ -90,9 +95,26 @@ class PlayerViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), NowPlayingViewMode.COVER_ART)
     val romajiLyrics: StateFlow<Boolean> = preferences.romajiLyrics
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    val visualizerEngineEnabled: StateFlow<Boolean> = preferences.visualizerEngineEnabled
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+    val visualizerShowFps: StateFlow<Boolean> = preferences.visualizerShowFps
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    val visualizerFullscreen: StateFlow<Boolean> = preferences.visualizerFullscreen
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    val visualizerAutoShuffle: StateFlow<Boolean> = projectMEngineRepository.autoShuffle
+    val visualizerEngineStatus: StateFlow<VisualizerEngineStatus> = projectMEngineRepository.engineStatus
+    val visualizerPresets: StateFlow<List<VisualizerPreset>> = projectMEngineRepository.presets
+    val currentVisualizerPreset: StateFlow<VisualizerPreset?> = projectMEngineRepository.currentPreset
+    val visualizerRepository: ProjectMEngineRepository
+        get() = projectMEngineRepository
 
     // --- Playback Speed ---
     val playbackSpeed: StateFlow<Float> = preferences.playbackSpeed
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 1.0f)
+
+    // --- Volume ---
+    val volume: StateFlow<Float> = preferences.volume
+        .map { it.toFloat() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 1.0f)
 
     // --- Global Favorites State ---
@@ -113,6 +135,9 @@ class PlayerViewModel @Inject constructor(
 
     private var mediaController: MediaController? = null
     private var controllerFuture: ListenableFuture<MediaController>? = null
+
+    // Maps legacy Track IDs to their UnifiedTrack source for local/collection playback
+    private val unifiedSourceMap = mutableMapOf<Long, UnifiedTrack>()
 
 
     init {
@@ -251,6 +276,32 @@ class PlayerViewModel @Inject constructor(
         resolveAndPlay()
     }
 
+    // --- Unified Track playback (local files, collections) ---
+
+    /** Play a UnifiedTrack within a list — the correct path for local/collection files. */
+    fun playUnifiedTrack(track: UnifiedTrack, trackList: List<UnifiedTrack>) {
+        val legacyTracks = trackList.map { it.toLegacyTrack() }
+        // Store source mappings so resolveAndPlay can find the right playback source
+        trackList.forEach { ut ->
+            val legacyId = ut.toLegacyTrack().id
+            unifiedSourceMap[legacyId] = ut
+        }
+        val legacyTrack = track.toLegacyTrack()
+        queueManager.playTrackInQueue(legacyTrack, legacyTracks)
+        resolveAndPlay()
+    }
+
+    /** Play all unified tracks starting from index 0. */
+    fun playAllUnified(tracks: List<UnifiedTrack>) {
+        if (tracks.isEmpty()) return
+        tracks.forEach { ut ->
+            unifiedSourceMap[ut.toLegacyTrack().id] = ut
+        }
+        val legacyTracks = tracks.map { it.toLegacyTrack() }
+        queueManager.setQueue(legacyTracks, 0)
+        resolveAndPlay()
+    }
+
     /** Add tracks to end of current queue. */
     fun addToQueue(tracks: List<Track>) {
         queueManager.addToQueue(tracks)
@@ -306,17 +357,52 @@ class PlayerViewModel @Inject constructor(
         queueManager.cycleRepeatMode()
     }
 
+    fun setVolume(newVolume: Float) {
+        viewModelScope.launch {
+            preferences.setVolume(newVolume.toDouble())
+            mediaController?.volume = newVolume
+        }
+    }
+
     fun cycleNowPlayingViewMode() {
         viewModelScope.launch {
             val current = nowPlayingViewMode.value
             val next = when (current) {
                 NowPlayingViewMode.COVER_ART -> NowPlayingViewMode.VISUALIZER
-                NowPlayingViewMode.VISUALIZER -> NowPlayingViewMode.LYRICS
-                NowPlayingViewMode.LYRICS -> NowPlayingViewMode.QUEUE
+                NowPlayingViewMode.VISUALIZER -> NowPlayingViewMode.COVER_ART
+                NowPlayingViewMode.LYRICS -> NowPlayingViewMode.COVER_ART
                 NowPlayingViewMode.QUEUE -> NowPlayingViewMode.COVER_ART
+            }
+            if (next == NowPlayingViewMode.VISUALIZER) {
+                preferences.setVisualizerEngineEnabled(true)
             }
             preferences.setNowPlayingViewMode(next)
         }
+    }
+
+    fun setNowPlayingViewMode(mode: NowPlayingViewMode) {
+        viewModelScope.launch {
+            if (mode == NowPlayingViewMode.VISUALIZER) {
+                preferences.setVisualizerEngineEnabled(true)
+            }
+            preferences.setNowPlayingViewMode(mode)
+        }
+    }
+
+    fun setVisualizerShuffle(enabled: Boolean) {
+        projectMEngineRepository.setShuffleEnabled(enabled)
+    }
+
+    fun nextVisualizerPreset() {
+        projectMEngineRepository.nextPreset()
+    }
+
+    fun selectVisualizerPreset(preset: VisualizerPreset) {
+        projectMEngineRepository.selectPreset(preset)
+    }
+
+    fun setVisualizerPlaybackPaused(paused: Boolean) {
+        projectMEngineRepository.setPlaybackPaused(paused)
     }
 
     fun skipToQueueIndex(index: Int) {
@@ -332,16 +418,23 @@ class PlayerViewModel @Inject constructor(
         val track = queueManager.currentTrack.value ?: return
         viewModelScope.launch {
             try {
-                val (mediaItem, trackStream) = streamResolver.resolveMediaItem(track)
-
-                mediaController?.let { mc ->
-                    if (trackStream != null && trackStream.streamUrl.isNotBlank()) {
-                        mc.setMediaItem(mediaItem)
-                    } else {
-                        mc.setMediaItem(mediaItem)
+                // Check if this track has a unified source (local file, collection, etc.)
+                val unifiedTrack = unifiedSourceMap[track.id]
+                if (unifiedTrack != null) {
+                    val resolved = streamResolver.resolveUnifiedTrack(unifiedTrack)
+                    mediaController?.let { mc ->
+                        mc.setMediaItem(resolved.mediaItem)
+                        mc.prepare()
+                        mc.play()
                     }
-                    mc.prepare()
-                    mc.play()
+                } else {
+                    // Legacy API path
+                    val (mediaItem, trackStream) = streamResolver.resolveMediaItem(track)
+                    mediaController?.let { mc ->
+                        mc.setMediaItem(mediaItem)
+                        mc.prepare()
+                        mc.play()
+                    }
                 }
             } catch (_: Exception) {
                 // On error skip to next

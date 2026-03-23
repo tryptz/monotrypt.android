@@ -1,6 +1,8 @@
 package tf.monochrome.android.ui.settings
 
 import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -21,7 +23,11 @@ import tf.monochrome.android.data.preferences.PreferencesManager
 import tf.monochrome.android.data.sync.BackupManager
 import tf.monochrome.android.domain.model.AudioQuality
 import tf.monochrome.android.domain.model.NowPlayingViewMode
+import tf.monochrome.android.domain.model.VisualizerEngineStatus
+import tf.monochrome.android.domain.model.VisualizerPreset
+import tf.monochrome.android.visualizer.ProjectMEngineRepository
 import java.io.File
+import java.util.Locale
 import javax.inject.Inject
 
 @HiltViewModel
@@ -31,6 +37,7 @@ class SettingsViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val backupManager: BackupManager,
     private val playlistImporter: PlaylistImporter,
+    private val projectMEngineRepository: ProjectMEngineRepository,
     @ApplicationContext private val appContext: Context
 ) : ViewModel() {
 
@@ -39,8 +46,10 @@ class SettingsViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "monochrome_dark")
     val dynamicColors: StateFlow<Boolean> = preferences.dynamicColors
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
-    val fontSize: StateFlow<String> = preferences.fontSize
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "medium")
+    val fontScale: StateFlow<Float> = preferences.fontScale
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 1.0f)
+    val customFontUri: StateFlow<String?> = preferences.customFontUri
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     // --- Interface ---
     val gaplessPlayback: StateFlow<Boolean> = preferences.gaplessPlayback
@@ -93,12 +102,28 @@ class SettingsViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
     val nowPlayingViewMode: StateFlow<NowPlayingViewMode> = preferences.nowPlayingViewMode
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), NowPlayingViewMode.COVER_ART)
-    
-    // --- AI ---
-    val geminiApiKey: StateFlow<String?> = preferences.geminiApiKey
+    val visualizerEngineEnabled: StateFlow<Boolean> = preferences.visualizerEngineEnabled
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+    val visualizerAutoShuffle: StateFlow<Boolean> = preferences.visualizerAutoShuffle
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+    val visualizerPresetId: StateFlow<String?> = preferences.visualizerPresetId
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
-    val aiRadioEnabled: StateFlow<Boolean> = preferences.aiRadioEnabled
+    val visualizerRotationSeconds: StateFlow<Int> = preferences.visualizerRotationSeconds
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 20)
+    val visualizerTextureSize: StateFlow<Int> = preferences.visualizerTextureSize
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 1024)
+    val visualizerMeshX: StateFlow<Int> = preferences.visualizerMeshX
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 32)
+    val visualizerMeshY: StateFlow<Int> = preferences.visualizerMeshY
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 24)
+    val visualizerTargetFps: StateFlow<Int> = preferences.visualizerTargetFps
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 60)
+    val visualizerShowFps: StateFlow<Boolean> = preferences.visualizerShowFps
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    val visualizerFullscreen: StateFlow<Boolean> = preferences.visualizerFullscreen
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    val visualizerEngineStatus: StateFlow<VisualizerEngineStatus> = projectMEngineRepository.engineStatus
+    val visualizerPresets: StateFlow<List<VisualizerPreset>> = projectMEngineRepository.presets
 
     // --- PocketBase Auth ---
     val isLoggedIn: StateFlow<Boolean> = authRepository.isLoggedIn
@@ -120,15 +145,88 @@ class SettingsViewModel @Inject constructor(
     private val _cacheSize = MutableStateFlow("")
     val cacheSize: StateFlow<String> = _cacheSize.asStateFlow()
 
+    // --- Font Library ---
+    private val _availableFonts = MutableStateFlow<List<File>>(emptyList())
+    val availableFonts: StateFlow<List<File>> = _availableFonts.asStateFlow()
+
     init {
         loadInstances()
         calculateCacheSize()
+        loadFonts()
+    }
+
+    private fun loadFonts() {
+        val fontsDir = File(appContext.filesDir, "custom_fonts")
+        if (fontsDir.exists()) {
+            _availableFonts.value = fontsDir.listFiles()?.filter { it.extension == "ttf" || it.extension == "otf" }?.toList() ?: emptyList()
+        } else {
+            _availableFonts.value = emptyList()
+        }
     }
 
     // --- Appearance actions ---
     fun setTheme(theme: String) { viewModelScope.launch { preferences.setTheme(theme) } }
     fun setDynamicColors(enabled: Boolean) { viewModelScope.launch { preferences.setDynamicColors(enabled) } }
-    fun setFontSize(size: String) { viewModelScope.launch { preferences.setFontSize(size) } }
+    fun setFontScale(scale: Float) { viewModelScope.launch { preferences.setFontScale(scale) } }
+
+    fun importFont(uri: Uri) {
+        viewModelScope.launch {
+            try {
+                val fontsDir = File(appContext.filesDir, "custom_fonts")
+                fontsDir.mkdirs()
+                
+                var fileName = "font_${System.currentTimeMillis()}.ttf"
+                if (uri.scheme == "content") {
+                    appContext.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                        if (cursor.moveToFirst()) {
+                            val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                            if (index != -1) {
+                                fileName = cursor.getString(index)
+                            }
+                        }
+                    }
+                }
+                // Ensure it ends with .ttf (or otf)
+                if (!fileName.lowercase().endsWith(".ttf") && !fileName.lowercase().endsWith(".otf")) {
+                    fileName += ".ttf"
+                }
+
+                val destFile = File(fontsDir, fileName)
+                appContext.contentResolver.openInputStream(uri)?.use { input ->
+                    destFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                loadFonts()
+                preferences.setCustomFontUri(destFile.absolutePath)
+            } catch (_: Exception) {
+                // Font import failed silently
+            }
+        }
+    }
+
+    fun selectFont(file: File) {
+        viewModelScope.launch {
+            preferences.setCustomFontUri(file.absolutePath)
+        }
+    }
+
+    fun removeFont(file: File) {
+        viewModelScope.launch {
+            val currentActive = preferences.customFontUri.first()
+            if (file.absolutePath == currentActive) {
+                preferences.setCustomFontUri(null)
+            }
+            file.delete()
+            loadFonts()
+        }
+    }
+
+    fun resetDefaultFont() {
+        viewModelScope.launch {
+            preferences.setCustomFontUri(null)
+        }
+    }
 
     // --- Interface actions ---
     fun setGaplessPlayback(enabled: Boolean) { viewModelScope.launch { preferences.setGaplessPlayback(enabled) } }
@@ -158,15 +256,44 @@ class SettingsViewModel @Inject constructor(
     fun setDownloadLyrics(enabled: Boolean) { viewModelScope.launch { preferences.setDownloadLyrics(enabled) } }
     fun setDownloadFolderUri(uri: String?) { viewModelScope.launch { preferences.setDownloadFolderUri(uri) } }
 
-    // --- AI actions ---
-    fun setGeminiApiKey(key: String?) { viewModelScope.launch { preferences.setGeminiApiKey(key) } }
-    fun setAiRadioEnabled(enabled: Boolean) { viewModelScope.launch { preferences.setAiRadioEnabled(enabled) } }
 
     // --- Parity actions ---
     fun setVisualizerSensitivity(value: Int) { viewModelScope.launch { preferences.setVisualizerSensitivity(value) } }
     fun setVisualizerBrightness(value: Int) { viewModelScope.launch { preferences.setVisualizerBrightness(value) } }
     fun setRomajiLyrics(enabled: Boolean) { viewModelScope.launch { preferences.setRomajiLyrics(enabled) } }
     fun setNowPlayingViewMode(mode: NowPlayingViewMode) { viewModelScope.launch { preferences.setNowPlayingViewMode(mode) } }
+    fun setVisualizerEngineEnabled(enabled: Boolean) { viewModelScope.launch { preferences.setVisualizerEngineEnabled(enabled) } }
+    fun setVisualizerAutoShuffle(enabled: Boolean) { viewModelScope.launch { preferences.setVisualizerAutoShuffle(enabled) } }
+    fun setVisualizerRotationSeconds(seconds: Int) { viewModelScope.launch { preferences.setVisualizerRotationSeconds(seconds) } }
+    fun setVisualizerTextureSize(size: Int) { viewModelScope.launch { preferences.setVisualizerTextureSize(size) } }
+    fun setVisualizerMeshX(value: Int) { viewModelScope.launch { preferences.setVisualizerMeshX(value) } }
+    fun setVisualizerMeshY(value: Int) { viewModelScope.launch { preferences.setVisualizerMeshY(value) } }
+    fun setVisualizerTargetFps(value: Int) { viewModelScope.launch { preferences.setVisualizerTargetFps(value) } }
+    fun setVisualizerShowFps(enabled: Boolean) { viewModelScope.launch { preferences.setVisualizerShowFps(enabled) } }
+    fun setVisualizerFullscreen(enabled: Boolean) { viewModelScope.launch { preferences.setVisualizerFullscreen(enabled) } }
+    fun setVisualizerPresetId(presetId: String?) { viewModelScope.launch { preferences.setVisualizerPresetId(presetId) } }
+
+    // --- Library settings ---
+    val scanOnAppOpen: StateFlow<Boolean> = preferences.scanOnAppOpen
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+    val minTrackDuration: StateFlow<Long> = preferences.minTrackDurationMs
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 30_000L)
+    val backgroundScanInterval: StateFlow<String> = preferences.backgroundScanInterval
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "daily")
+
+    fun setScanOnAppOpen(enabled: Boolean) { viewModelScope.launch { preferences.setScanOnAppOpen(enabled) } }
+    fun setMinTrackDuration(durationMs: Long) { viewModelScope.launch { preferences.setMinTrackDurationMs(durationMs) } }
+    fun setBackgroundScanInterval(interval: String) { viewModelScope.launch { preferences.setBackgroundScanInterval(interval) } }
+    fun rescanLibrary() {
+        // This triggers a scan via broadcast or direct call
+        // The actual scanning happens in LocalLibraryViewModel
+    }
+
+    // --- Collection settings ---
+    val autoDownloadCollections: StateFlow<Boolean> = preferences.autoDownloadCollections
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    fun setAutoDownloadCollections(enabled: Boolean) { viewModelScope.launch { preferences.setAutoDownloadCollections(enabled) } }
  
     // --- Account actions ---
     fun logout() {
@@ -270,8 +397,8 @@ class SettingsViewModel @Inject constructor(
         return when {
             bytes < 1024 -> "$bytes B"
             bytes < 1024 * 1024 -> "${bytes / 1024} KB"
-            bytes < 1024 * 1024 * 1024 -> String.format("%.1f MB", bytes / (1024.0 * 1024.0))
-            else -> String.format("%.2f GB", bytes / (1024.0 * 1024.0 * 1024.0))
+            bytes < 1024 * 1024 * 1024 -> String.format(Locale.US, "%.1f MB", bytes / (1024.0 * 1024.0))
+            else -> String.format(Locale.US, "%.2f GB", bytes / (1024.0 * 1024.0 * 1024.0))
         }
     }
 }

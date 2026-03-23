@@ -20,6 +20,7 @@ palette = "1.0.0"
 castFramework = "22.0.0"
 credentials = "1.5.0-beta01"
 googleid = "1.1.1"
+accompanist = "0.36.0"
 
 [libraries]
 # Compose
@@ -100,10 +101,16 @@ core-splashscreen = { group = "androidx.core", name = "core-splashscreen", versi
 # Media (for Android Auto)
 media = { group = "androidx.media", name = "media", version = "1.7.0" }
 
+# Security
+security-crypto = { group = "androidx.security", name = "security-crypto", version = "1.1.0-alpha06" }
+
 # Credentials (Google Sign-In)
 credentials = { group = "androidx.credentials", name = "credentials", version.ref = "credentials" }
 credentials-play-services = { group = "androidx.credentials", name = "credentials-play-services-auth", version.ref = "credentials" }
 googleid = { group = "com.google.android.libraries.identity.googleid", name = "googleid", version.ref = "googleid" }
+
+# Accompanist
+accompanist-permissions = { group = "com.google.accompanist", name = "accompanist-permissions", version.ref = "accompanist" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
