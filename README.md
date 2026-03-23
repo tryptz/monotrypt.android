@@ -2,7 +2,7 @@
 
 Native Android music streaming client with a built-in parametric equalizer. Connects to TIDAL for lossless and hi-res playback. Alpha.
 
-[**Download APK**](monochrome-autoeq-alpha.apk) — sideload or install via ADB.
+[**Download APK**](https://github.com/tryptz/tf.monochrome.android/releases/download/Android-beta-release.apk/release_1.0.1.apk) — sideload or install via ADB.
 
 ---
 
