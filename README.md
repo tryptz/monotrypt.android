@@ -22,8 +22,9 @@ API requests go through Ktor with an OkHttp engine. There's a 200-entry LRU cach
 
 ### Database
 
-Room v2 schema with nine tables:
+Room v2 schema (version 3) with 22 tables across three domains:
 
+**Core library:**
 - `favorite_tracks`, `favorite_albums`, `favorite_artists` — local library
 - `history_tracks` — play history, indexed on timestamp
 - `user_playlists` + `playlist_tracks` — playlist management with cascade delete
@@ -31,11 +32,40 @@ Room v2 schema with nine tables:
 - `cached_lyrics` — lyrics JSON with sync flag, indexed on cache time
 - `eq_presets` — serialized EQ band arrays, preamp, target reference, custom flag
 
+**Local media:**
+- `local_tracks`, `local_albums`, `local_artists`, `local_genres`, `local_folders` — on-device library indexed from MediaStore
+- `scan_state` — tracks incremental scan progress
+
+**Collections:**
+- `collections`, `collection_artists`, `collection_albums`, `collection_tracks` — encrypted collection metadata
+- `collection_direct_links` — resolved streaming URLs
+- `collection_track_artist_cross_ref`, `collection_album_artist_cross_ref` — many-to-many artist relationships
+
 All queries are Flow-based for reactive UI updates.
 
 ### Downloads
 
 WorkManager dispatches download jobs on `Dispatchers.IO` with network constraints. Files are written to a user-selected folder via SAF (Storage Access Framework) or fall back to external app storage. Tracks are saved as FLAC with sanitized filenames (`{Artist} - {Title}.flac`). Lyrics optionally export as LRC with `[mm:ss.ms]` timecodes. Three retry attempts with exponential backoff.
+
+### Local Media
+
+A MediaStore-backed scanner indexes on-device audio files. The scanner reads embedded metadata via a `TagReader`, groups tracks into albums/artists/genres/folders, and stores everything in the local media tables. A `FileObserverService` watches for filesystem changes to keep the library in sync. Configurable minimum duration filter and path exclusion list. Scan progress is emitted as a reactive Flow.
+
+### Collections
+
+Encrypted music collections loaded from remote manifests (version 1.3). Each manifest contains artist, album, and track metadata with AES-256-GCM encrypted streaming URLs. A `DecryptingDataSource` handles transparent decryption during playback. Collections are parsed, cached in Room, and browsable alongside the streaming catalog.
+
+### AI Recommendations
+
+Gemini 2.0 Flash–powered music recommendations. An audio snippet is captured from the current track, base64-encoded, and sent to the Gemini API along with track context and user-selected filters. The model analyzes the audio and returns a list of similar track suggestions.
+
+### Chromecast
+
+Media3 Cast integration with Google Cast Framework. Playback can be routed to Chromecast-compatible devices.
+
+### Android Auto
+
+A `MediaBrowserService` exposes the library to Android Auto.
 
 ### Auth
 
@@ -48,6 +78,10 @@ Dual scrobbling to Last.fm and ListenBrainz. Last.fm uses MD5-signed API request
 ### DI & Navigation
 
 Full Hilt injection across the app — four modules (App, Network, Database, API) providing singletons. Navigation uses Jetpack Compose Navigation with three main tabs (Home, Search, Library) in a HorizontalPager, plus detail screens for albums, artists, playlists, and mixes. A mini player overlay persists across all screens except Now Playing.
+
+### Native Layer
+
+C++ code compiled via CMake (C++17, targeting arm64-v8a, armeabi-v7a, x86_64). Includes a ProjectM visualizer bridge with JNI bindings and a lock-free audio ring buffer for feeding audio samples to the visualizer.
 
 ---
 
@@ -152,17 +186,22 @@ Presets are stored in Room with the full band array serialized as JSON, plus pre
 | Language | Kotlin 2.1.0 |
 | UI | Jetpack Compose, Material 3 (BOM 2024.12.01) |
 | Audio | Media3 / ExoPlayer 1.5.1 |
+| Casting | Media3 Cast, Google Cast Framework 22.0.0 |
+| Visualizer | ProjectM (C++17 via JNI) |
+| Images | Coil 3.0.4, Palette |
 | Database | Room 2.7.1 |
 | Preferences | DataStore 1.1.1 |
 | Network | Ktor 3.0.3 (OkHttp) |
 | DI | Hilt 2.57.1 |
 | Serialization | Kotlinx Serialization 1.7.3 |
 | Auth | Appwrite 7.0.0, Google Credentials API |
+| Encryption | AndroidX Security Crypto (AES-256-GCM) |
+| AI | Gemini 2.0 Flash |
 | Background | WorkManager 2.10.0 |
 | Widgets | Glance 1.1.1 |
-| Build | AGP 9.0.0, KSP 2.1.0 |
+| Build | AGP 9.0.0, KSP 2.1.0, CMake 3.22.1 |
 
-Android 8.0+ (API 26). Target SDK 36.
+Android 8.0+ (API 26). Target SDK 36. NDK 28.2.
 
 ## Build
 
