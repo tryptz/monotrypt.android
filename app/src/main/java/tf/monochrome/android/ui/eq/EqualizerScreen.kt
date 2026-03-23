@@ -29,6 +29,8 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.UploadFile
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -55,6 +57,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import tf.monochrome.android.domain.model.EqBand
@@ -83,6 +88,7 @@ fun EqualizerScreen(
     val sampleRate by viewModel.sampleRate.collectAsState()
     val headphoneTypeFilter by viewModel.headphoneTypeFilter.collectAsState()
     val availableHeadphones by viewModel.availableHeadphones.collectAsState()
+    val showTutorial by viewModel.showTutorial.collectAsState()
 
     var showSaveDialog by remember { mutableStateOf(false) }
     var showTargetMenu by remember { mutableStateOf(false) }
@@ -92,6 +98,46 @@ fun EqualizerScreen(
     var showBandsExpanded by remember { mutableStateOf(true) }
     var saveName by remember { mutableStateOf("") }
     var saveDescription by remember { mutableStateOf("") }
+    var showTargetNameDialog by remember { mutableStateOf(false) }
+    var pendingTargetData by remember { mutableStateOf("") }
+    var targetName by remember { mutableStateOf("") }
+
+    val context = LocalContext.current
+
+    // File picker for measurement import
+    val measurementFilePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        try {
+            val rawData = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+            if (!rawData.isNullOrEmpty()) {
+                viewModel.importMeasurementData(rawData)
+            }
+        } catch (e: Exception) {
+            viewModel.clearError()
+        }
+    }
+
+    // File picker for custom target import
+    val targetFilePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        try {
+            val rawData = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+            if (!rawData.isNullOrEmpty()) {
+                pendingTargetData = rawData
+                targetName = ""
+                showTargetNameDialog = true
+            }
+        } catch (_: Exception) { }
+    }
+
+    // AutoEQ tutorial dialog (first visit)
+    if (showTutorial) {
+        AutoEqTutorialDialog(onDismiss = { viewModel.dismissTutorial() })
+    }
 
     Column(
         modifier = Modifier
@@ -190,7 +236,7 @@ fun EqualizerScreen(
                         onClick = { showHeadphoneSelect = true },
                         trailingIcon = {
                             IconButton(
-                                onClick = { showMeasurementUpload = true },
+                                onClick = { measurementFilePicker.launch("text/*") },
                                 modifier = Modifier
                                     .size(44.dp)
                                     .background(
@@ -199,8 +245,8 @@ fun EqualizerScreen(
                                     )
                             ) {
                                 Icon(
-                                    Icons.Default.Tune,
-                                    contentDescription = "Custom measurement",
+                                    Icons.Default.UploadFile,
+                                    contentDescription = "Import measurement file",
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
@@ -219,7 +265,7 @@ fun EqualizerScreen(
                             onClick = { showTargetMenu = true },
                             trailingIcon = {
                                 IconButton(
-                                    onClick = { /* compare targets */ },
+                                    onClick = { targetFilePicker.launch("text/*") },
                                     modifier = Modifier
                                         .size(44.dp)
                                         .background(
@@ -228,8 +274,8 @@ fun EqualizerScreen(
                                         )
                                 ) {
                                     Icon(
-                                        Icons.Default.Tune,
-                                        contentDescription = "Target settings",
+                                        Icons.Default.UploadFile,
+                                        contentDescription = "Import custom target",
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
@@ -240,8 +286,33 @@ fun EqualizerScreen(
                             onDismissRequest = { showTargetMenu = false }
                         ) {
                             availableTargets.forEach { target ->
+                                val isCustom = target.id.startsWith("custom_")
                                 DropdownMenuItem(
-                                    text = { Text(target.label) },
+                                    text = {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(target.label, modifier = Modifier.weight(1f))
+                                            if (isCustom) {
+                                                IconButton(
+                                                    onClick = {
+                                                        viewModel.deleteCustomTarget(target.id)
+                                                        showTargetMenu = false
+                                                    },
+                                                    modifier = Modifier.size(24.dp)
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.Delete,
+                                                        contentDescription = "Delete",
+                                                        modifier = Modifier.size(16.dp),
+                                                        tint = MaterialTheme.colorScheme.error
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    },
                                     onClick = {
                                         viewModel.selectTarget(target.id)
                                         showTargetMenu = false
@@ -573,6 +644,38 @@ fun EqualizerScreen(
                     onHeadphoneSelected = { showHeadphoneSelect = false },
                     onDismiss = { showHeadphoneSelect = false }
                 )
+            }
+        )
+    }
+
+    if (showTargetNameDialog) {
+        AlertDialog(
+            onDismissRequest = { showTargetNameDialog = false },
+            title = { Text("Name Custom Target") },
+            text = {
+                OutlinedTextField(
+                    value = targetName,
+                    onValueChange = { targetName = it },
+                    label = { Text("Target Name") },
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (targetName.isNotBlank()) {
+                            viewModel.importCustomTarget(pendingTargetData, targetName.trim())
+                            showTargetNameDialog = false
+                            pendingTargetData = ""
+                        }
+                    }
+                ) { Text("Import") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showTargetNameDialog = false
+                    pendingTargetData = ""
+                }) { Text("Cancel") }
             }
         )
     }

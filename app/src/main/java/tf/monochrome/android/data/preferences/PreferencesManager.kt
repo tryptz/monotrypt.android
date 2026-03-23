@@ -10,6 +10,7 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
@@ -103,7 +104,8 @@ class PreferencesManager @Inject constructor(
         private val VISUALIZER_TARGET_FPS = intPreferencesKey("visualizer_target_fps")
         private val VISUALIZER_SHOW_FPS = booleanPreferencesKey("visualizer_show_fps")
         private val VISUALIZER_FULLSCREEN = booleanPreferencesKey("visualizer_fullscreen")
-        
+        private val VISUALIZER_FAVORITE_PRESETS = stringSetPreferencesKey("visualizer_favorite_presets")
+
         // AI
         private val GEMINI_API_KEY = stringPreferencesKey("gemini_api_key")
         private val AI_RADIO_ENABLED = booleanPreferencesKey("ai_radio_enabled")
@@ -116,11 +118,13 @@ class PreferencesManager @Inject constructor(
         private val HOME_RECOMMENDATIONS_CACHE = stringPreferencesKey("home_recommendations_cache")
 
         // EQ / AutoEQ
+        private val EQ_TUTORIAL_SEEN = booleanPreferencesKey("eq_tutorial_seen")
         private val EQ_ENABLED = booleanPreferencesKey("eq_enabled")
         private val EQ_ACTIVE_PRESET_ID = stringPreferencesKey("eq_active_preset_id")
         private val EQ_TARGET_ID = stringPreferencesKey("eq_target_id")
         private val EQ_PREAMP = doublePreferencesKey("eq_preamp")
         private val EQ_BANDS_JSON = stringPreferencesKey("eq_bands_json")
+        private val EQ_CUSTOM_TARGETS_JSON = stringPreferencesKey("eq_custom_targets_json")
 
         // Library / Local Media
         private val SCAN_ON_APP_OPEN = booleanPreferencesKey("scan_on_app_open")
@@ -464,6 +468,20 @@ class PreferencesManager @Inject constructor(
         dataStore.edit { it[VISUALIZER_FULLSCREEN] = enabled }
     }
 
+    val visualizerFavoritePresets: Flow<Set<String>> = dataStore.data.map {
+        it[VISUALIZER_FAVORITE_PRESETS] ?: emptySet()
+    }
+    suspend fun toggleVisualizerFavoritePreset(presetId: String) {
+        dataStore.edit { prefs ->
+            val current = prefs[VISUALIZER_FAVORITE_PRESETS] ?: emptySet()
+            prefs[VISUALIZER_FAVORITE_PRESETS] = if (presetId in current) {
+                current - presetId
+            } else {
+                current + presetId
+            }
+        }
+    }
+
     val nowPlayingViewMode: Flow<NowPlayingViewMode> = dataStore.data.map { prefs ->
         prefs[NOW_PLAYING_VIEW_MODE]?.let { NowPlayingViewMode.valueOf(it) } ?: NowPlayingViewMode.COVER_ART
     }
@@ -518,6 +536,11 @@ class PreferencesManager @Inject constructor(
     }
 
     // --- EQ / AutoEQ ---
+    val eqTutorialSeen: Flow<Boolean> = dataStore.data.map { it[EQ_TUTORIAL_SEEN] ?: false }
+    suspend fun setEqTutorialSeen(seen: Boolean) {
+        dataStore.edit { it[EQ_TUTORIAL_SEEN] = seen }
+    }
+
     val eqEnabled: Flow<Boolean> = dataStore.data.map { it[EQ_ENABLED] ?: false }
     val eqActivePresetId: Flow<String?> = dataStore.data.map { it[EQ_ACTIVE_PRESET_ID] }
     val eqTargetId: Flow<String> = dataStore.data.map { it[EQ_TARGET_ID] ?: "harman_oe_2018" }
@@ -554,6 +577,11 @@ class PreferencesManager @Inject constructor(
                 it.remove(EQ_BANDS_JSON)
             }
         }
+    }
+
+    val eqCustomTargetsJson: Flow<String> = dataStore.data.map { it[EQ_CUSTOM_TARGETS_JSON] ?: "[]" }
+    suspend fun setEqCustomTargets(json: String) {
+        dataStore.edit { it[EQ_CUSTOM_TARGETS_JSON] = json }
     }
 
     // --- Library / Local Media ---

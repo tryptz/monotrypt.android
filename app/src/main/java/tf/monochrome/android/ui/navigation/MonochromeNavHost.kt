@@ -53,6 +53,8 @@ import kotlinx.coroutines.launch
 import tf.monochrome.android.ui.components.MiniPlayer
 import tf.monochrome.android.ui.detail.AlbumDetailScreen
 import tf.monochrome.android.ui.detail.ArtistDetailScreen
+import tf.monochrome.android.ui.detail.LocalAlbumDetailScreen
+import tf.monochrome.android.ui.detail.LocalArtistDetailScreen
 import tf.monochrome.android.ui.detail.MixScreen
 import tf.monochrome.android.ui.eq.EqualizerScreen
 import tf.monochrome.android.ui.home.HomeScreen
@@ -254,6 +256,40 @@ fun MonochromeNavHost() {
                         },
                         onPlayAll = { tracks ->
                             playerViewModel.playAllUnified(tracks)
+                        }
+                    )
+                }
+                composable(
+                    route = Screen.LocalAlbumDetail.route,
+                    arguments = listOf(navArgument("albumId") { type = NavType.LongType })
+                ) {
+                    LocalAlbumDetailScreen(
+                        navController = navController,
+                        onPlayTrack = { track, queue ->
+                            playerViewModel.playUnifiedTrack(track, queue)
+                        },
+                        onPlayAll = { tracks ->
+                            playerViewModel.playAllUnified(tracks)
+                        },
+                        onShuffleAll = { tracks ->
+                            playerViewModel.shufflePlayUnified(tracks)
+                        }
+                    )
+                }
+                composable(
+                    route = Screen.LocalArtistDetail.route,
+                    arguments = listOf(navArgument("artistId") { type = NavType.LongType })
+                ) {
+                    LocalArtistDetailScreen(
+                        navController = navController,
+                        onPlayTrack = { track, queue ->
+                            playerViewModel.playUnifiedTrack(track, queue)
+                        },
+                        onPlayAll = { tracks ->
+                            playerViewModel.playAllUnified(tracks)
+                        },
+                        onShuffleAll = { tracks ->
+                            playerViewModel.shufflePlayUnified(tracks)
                         }
                     )
                 }

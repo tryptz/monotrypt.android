@@ -15,9 +15,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -41,7 +45,9 @@ import tf.monochrome.android.domain.model.VisualizerPreset
 fun VisualizerPresetSheet(
     presets: List<VisualizerPreset>,
     selectedPresetId: String?,
+    favoritePresetIds: Set<String> = emptySet(),
     onPresetSelected: (VisualizerPreset) -> Unit,
+    onToggleFavorite: (String) -> Unit = {},
     onSettingsClick: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -60,6 +66,13 @@ fun VisualizerPresetSheet(
             val matchesTag = selectedTag == null || preset.tags.any { tag -> tag.label == selectedTag }
             matchesQuery && matchesTag
         }
+    }
+
+    val favoritePresets = remember(filteredPresets, favoritePresetIds) {
+        filteredPresets.filter { it.id in favoritePresetIds }
+    }
+    val nonFavoritePresets = remember(filteredPresets, favoritePresetIds) {
+        filteredPresets.filter { it.id !in favoritePresetIds }
     }
 
     ModalBottomSheet(
@@ -85,19 +98,19 @@ fun VisualizerPresetSheet(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "${filteredPresets.size} bundled presets",
+                        text = "${filteredPresets.size} presets · ${favoritePresetIds.size} favorites",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)
                     )
                 }
-                androidx.compose.material3.IconButton(
+                IconButton(
                     onClick = {
                         onDismiss()
                         onSettingsClick()
                     }
                 ) {
-                    androidx.compose.material3.Icon(
+                    Icon(
                         imageVector = Icons.Default.Settings,
                         contentDescription = "Settings"
                     )
@@ -143,14 +156,48 @@ fun VisualizerPresetSheet(
                     .padding(top = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                items(filteredPresets, key = { it.id }) { preset ->
+                if (favoritePresets.isNotEmpty()) {
+                    item {
+                        Text(
+                            text = "Favorites",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(bottom = 4.dp)
+                        )
+                    }
+                    items(favoritePresets, key = { "fav_${it.id}" }) { preset ->
+                        VisualizerPresetRow(
+                            preset = preset,
+                            selected = preset.id == selectedPresetId,
+                            isFavorite = true,
+                            onClick = {
+                                onPresetSelected(preset)
+                                onDismiss()
+                            },
+                            onToggleFavorite = { onToggleFavorite(preset.id) }
+                        )
+                    }
+                    if (nonFavoritePresets.isNotEmpty()) {
+                        item {
+                            Text(
+                                text = "All Presets",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 12.dp, bottom = 4.dp)
+                            )
+                        }
+                    }
+                }
+                items(nonFavoritePresets, key = { it.id }) { preset ->
                     VisualizerPresetRow(
                         preset = preset,
                         selected = preset.id == selectedPresetId,
+                        isFavorite = false,
                         onClick = {
                             onPresetSelected(preset)
                             onDismiss()
-                        }
+                        },
+                        onToggleFavorite = { onToggleFavorite(preset.id) }
                     )
                 }
                 item {
@@ -165,7 +212,9 @@ fun VisualizerPresetSheet(
 private fun VisualizerPresetRow(
     preset: VisualizerPreset,
     selected: Boolean,
-    onClick: () -> Unit
+    isFavorite: Boolean,
+    onClick: () -> Unit,
+    onToggleFavorite: () -> Unit
 ) {
     Surface(
         modifier = Modifier
@@ -182,7 +231,7 @@ private fun VisualizerPresetRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 14.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
@@ -193,12 +242,12 @@ private fun VisualizerPresetRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                val tagLine = preset.tags.joinToString(" • ") { it.label }
+                val tagLine = preset.tags.joinToString(" · ") { it.label }
                 Text(
                     text = if (tagLine.isBlank()) {
                         "Intensity ${preset.intensity}"
                     } else {
-                        "$tagLine • Intensity ${preset.intensity}"
+                        "$tagLine · Intensity ${preset.intensity}"
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -206,8 +255,15 @@ private fun VisualizerPresetRow(
                     overflow = TextOverflow.Ellipsis
                 )
             }
+            IconButton(onClick = onToggleFavorite) {
+                Icon(
+                    imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                    contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites",
+                    tint = if (isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             if (selected) {
-                androidx.compose.material3.Icon(
+                Icon(
                     imageVector = Icons.Default.Check,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary

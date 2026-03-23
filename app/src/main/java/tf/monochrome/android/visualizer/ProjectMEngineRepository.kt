@@ -56,6 +56,9 @@ class ProjectMEngineRepository @Inject constructor(
     private val _engineEnabled = MutableStateFlow(true)
     val engineEnabled: StateFlow<Boolean> = _engineEnabled.asStateFlow()
 
+    private val _favoritePresetIds = MutableStateFlow<Set<String>>(emptySet())
+    val favoritePresetIds: StateFlow<Set<String>> = _favoritePresetIds.asStateFlow()
+
     private val _currentFps = MutableStateFlow(0)
     val currentFps: StateFlow<Int> = _currentFps.asStateFlow()
 
@@ -175,6 +178,11 @@ class ProjectMEngineRepository @Inject constructor(
                 synchronized(engineLock) {
                     applyRotationLocked()
                 }
+            }
+        }
+        scope.launch {
+            preferences.visualizerFavoritePresets.collectLatest { ids ->
+                _favoritePresetIds.value = ids
             }
         }
     }
@@ -316,6 +324,12 @@ class ProjectMEngineRepository @Inject constructor(
     fun setShuffleEnabled(enabled: Boolean) {
         scope.launch {
             preferences.setVisualizerAutoShuffle(enabled)
+        }
+    }
+
+    fun toggleFavoritePreset(presetId: String) {
+        scope.launch {
+            preferences.toggleVisualizerFavoritePreset(presetId)
         }
     }
 

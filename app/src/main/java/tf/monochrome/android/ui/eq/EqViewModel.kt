@@ -20,7 +20,15 @@ import tf.monochrome.android.domain.model.EqPreset
 import tf.monochrome.android.domain.model.EqTarget
 import tf.monochrome.android.domain.model.FrequencyPoint
 import tf.monochrome.android.domain.model.Headphone
+import kotlinx.serialization.Serializable
 import javax.inject.Inject
+
+@Serializable
+private data class StoredCustomTarget(
+    val id: String,
+    val label: String,
+    val rawData: String
+)
 
 @HiltViewModel
 class EqViewModel @Inject constructor(
@@ -28,6 +36,11 @@ class EqViewModel @Inject constructor(
     private val headphoneRepository: HeadphoneRepository,
     private val preferences: PreferencesManager
 ) : ViewModel() {
+
+    // ===== Tutorial State =====
+
+    private val _showTutorial = MutableStateFlow(false)
+    val showTutorial: StateFlow<Boolean> = _showTutorial.asStateFlow()
 
     // ===== UI State =====
 
@@ -95,6 +108,8 @@ class EqViewModel @Inject constructor(
     private val _originalMeasurement = MutableStateFlow<List<FrequencyPoint>>(emptyList())
     val originalMeasurement: StateFlow<List<FrequencyPoint>> = _originalMeasurement.asStateFlow()
 
+    private val _customTargets = MutableStateFlow<List<EqTarget>>(emptyList())
+
     // ===== Initialization =====
 
     init {
@@ -102,6 +117,13 @@ class EqViewModel @Inject constructor(
     }
 
     private fun loadInitialState() {
+        viewModelScope.launch {
+            // Check if tutorial has been seen
+            preferences.eqTutorialSeen.collect { seen ->
+                _showTutorial.value = !seen
+            }
+        }
+
         viewModelScope.launch {
             // Load enabled state
             preferences.eqEnabled.collect { enabled ->
@@ -161,10 +183,41 @@ class EqViewModel @Inject constructor(
             // Load target
             preferences.eqTargetId.collect { targetId ->
                 val target = FrequencyTargets.getTargetById(targetId)
+                    ?: _customTargets.value.find { it.id == targetId }
                 if (target != null) {
                     _selectedTarget.value = target
                 }
             }
+        }
+
+        viewModelScope.launch {
+            // Load custom targets
+            preferences.eqCustomTargetsJson.collect { json ->
+                try {
+                    val jsonParser = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+                    val stored = jsonParser.decodeFromString<List<StoredCustomTarget>>(json)
+                    val customs = stored.map { st ->
+                        EqTarget(
+                            id = st.id,
+                            label = st.label,
+                            data = EqDataParser.parseRawData(st.rawData),
+                            filename = ""
+                        )
+                    }
+                    _customTargets.value = customs
+                    _availableTargets.value = FrequencyTargets.getAllTargets() + customs
+                } catch (_: Exception) {
+                    _customTargets.value = emptyList()
+                    _availableTargets.value = FrequencyTargets.getAllTargets()
+                }
+            }
+        }
+    }
+
+    fun dismissTutorial() {
+        _showTutorial.value = false
+        viewModelScope.launch {
+            preferences.setEqTutorialSeen(true)
         }
     }
 
@@ -254,7 +307,9 @@ class EqViewModel @Inject constructor(
      * Select target curve
      */
     fun selectTarget(targetId: String) {
-        val target = FrequencyTargets.getTargetById(targetId) ?: return
+        val target = FrequencyTargets.getTargetById(targetId)
+            ?: _customTargets.value.find { it.id == targetId }
+            ?: return
         _selectedTarget.value = target
         viewModelScope.launch {
             preferences.setEqTarget(targetId)
@@ -566,6 +621,135 @@ class EqViewModel @Inject constructor(
             } finally {
                 _isCalculating.value = false
             }
+        }
+    }
+
+    // ===== File Import =====
+
+    /**
+     * Import measurement from raw file contents (read by UI via ContentResolver)
+     */
+    fun importMeasurementData(rawData: String) {
+        viewModelScope.launch {
+            try {
+                _isCalculating.value = true
+                _error.value = null
+
+                val measurement = EqDataParser.parseRawData(rawData)
+                if (measurement.isEmpty()) {
+                    _error.value = "Failed to parse measurement file"
+                    _isCalculating.value = false
+                    return@launch
+                }
+
+                _originalMeasurement.value = measurement
+
+                val target = _selectedTarget.value.data
+                if (target.isEmpty()) {
+                    _error.value = "Target curve not available"
+                    _isCalculating.value = false
+                    return@launch
+                }
+
+                val bands = AutoEqEngine.runAutoEqAlgorithm(
+                    measurement = measurement,
+                    target = target,
+                    bandCount = _bandCount.value,
+                    maxFrequency = _maxFrequency.value,
+                    sampleRate = _sampleRate.value
+                )
+
+                _currentBands.value = bands
+                saveBandsToPreferences(bands)
+            } catch (e: Exception) {
+                _error.value = "Import failed: ${e.message}"
+            } finally {
+                _isCalculating.value = false
+            }
+        }
+    }
+
+    /**
+     * Import a custom target curve from raw file contents
+     */
+    fun importCustomTarget(rawData: String, label: String) {
+        viewModelScope.launch {
+            try {
+                val points = EqDataParser.parseRawData(rawData)
+                if (points.isEmpty()) {
+                    _error.value = "Failed to parse target file"
+                    return@launch
+                }
+
+                val id = "custom_${System.currentTimeMillis()}"
+                val newTarget = EqTarget(id = id, label = label, data = points, filename = "")
+
+                val updatedCustoms = _customTargets.value + newTarget
+                _customTargets.value = updatedCustoms
+                _availableTargets.value = FrequencyTargets.getAllTargets() + updatedCustoms
+
+                // Select the new target
+                _selectedTarget.value = newTarget
+                preferences.setEqTarget(id)
+
+                // Persist
+                saveCustomTargets(updatedCustoms, rawData = mapOf(id to rawData))
+                _error.value = null
+            } catch (e: Exception) {
+                _error.value = "Failed to import target: ${e.message}"
+            }
+        }
+    }
+
+    /**
+     * Delete a custom target
+     */
+    fun deleteCustomTarget(targetId: String) {
+        viewModelScope.launch {
+            val updatedCustoms = _customTargets.value.filter { it.id != targetId }
+            _customTargets.value = updatedCustoms
+            _availableTargets.value = FrequencyTargets.getAllTargets() + updatedCustoms
+
+            if (_selectedTarget.value.id == targetId) {
+                val fallback = FrequencyTargets.getHarmanOverEar2018()
+                _selectedTarget.value = fallback
+                preferences.setEqTarget(fallback.id)
+            }
+
+            saveCustomTargets(updatedCustoms)
+        }
+    }
+
+    private suspend fun saveCustomTargets(
+        targets: List<EqTarget>,
+        rawData: Map<String, String> = emptyMap()
+    ) {
+        try {
+            val jsonParser = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+
+            // Load existing stored data to preserve raw strings
+            val existingJson = preferences.eqCustomTargetsJson.stateIn(
+                viewModelScope, SharingStarted.Eagerly, "[]"
+            ).value
+            val existingStored = try {
+                jsonParser.decodeFromString<List<StoredCustomTarget>>(existingJson)
+            } catch (_: Exception) { emptyList() }
+            val existingRawMap = existingStored.associate { it.id to it.rawData }
+
+            val stored = targets.map { t ->
+                StoredCustomTarget(
+                    id = t.id,
+                    label = t.label,
+                    rawData = rawData[t.id] ?: existingRawMap[t.id] ?: ""
+                )
+            }
+            val json = jsonParser.encodeToString(
+                kotlinx.serialization.builtins.ListSerializer(StoredCustomTarget.serializer()),
+                stored
+            )
+            preferences.setEqCustomTargets(json)
+        } catch (e: Exception) {
+            _error.value = "Failed to save custom targets: ${e.message}"
         }
     }
 

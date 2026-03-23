@@ -17,6 +17,14 @@ if (keystorePropertiesFile.exists()) {
     keystorePropertiesFile.inputStream().use(keystoreProperties::load)
 }
 
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.inputStream().use(localProperties::load)
+}
+
+
+
 val hasCompleteReleaseSigning = requiredSigningKeys.all { key ->
     !keystoreProperties.getProperty(key).isNullOrBlank()
 }
