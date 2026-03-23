@@ -3,6 +3,7 @@ package tf.monochrome.android.audio.eq
 import tf.monochrome.android.domain.model.EqBand
 import tf.monochrome.android.domain.model.FilterType
 import tf.monochrome.android.domain.model.FrequencyPoint
+import java.util.Locale
 
 /**
  * Parser for frequency response data and parametric EQ formats.
@@ -213,7 +214,7 @@ object EqDataParser {
      */
     fun bandToParametricEQ(bands: List<EqBand>, preamp: Float = 0f): String {
         val sb = StringBuilder()
-        sb.append(String.format("Preamp: %.1f dB\n", preamp))
+        sb.append(String.format(Locale.US, "Preamp: %.1f dB\n", preamp))
 
         bands.forEachIndexed { idx, band ->
             val status = if (band.enabled) "ON" else "OFF"
@@ -224,6 +225,7 @@ object EqDataParser {
             }
             sb.append(
                 String.format(
+                    Locale.US,
                     "Filter %d: %s %s Fc %.0f Hz Gain %.1f dB Q %.2f\n",
                     idx + 1, status, typeCode, band.freq, band.gain, band.q
                 )

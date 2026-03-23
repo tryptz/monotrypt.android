@@ -37,13 +37,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.blur
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -53,7 +49,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import coil3.compose.AsyncImage
 import kotlinx.coroutines.launch
 import tf.monochrome.android.ui.components.MiniPlayer
 import tf.monochrome.android.ui.detail.AlbumDetailScreen
@@ -66,6 +61,7 @@ import tf.monochrome.android.ui.library.DownloadsScreen
 import tf.monochrome.android.ui.library.PlaylistScreen
 import tf.monochrome.android.ui.player.NowPlayingScreen
 import tf.monochrome.android.ui.player.PlayerViewModel
+import tf.monochrome.android.ui.library.FolderBrowserScreen
 import tf.monochrome.android.ui.profile.ProfileScreen
 import tf.monochrome.android.ui.search.SearchScreen
 import tf.monochrome.android.ui.settings.SettingsScreen
@@ -91,6 +87,18 @@ sealed class Screen(val route: String) {
     data object Settings : Screen("settings")
     data object Equalizer : Screen("equalizer")
     data object Profile : Screen("profile")
+    data object FolderBrowser : Screen("folder/{folderPath}") {
+        fun createRoute(folderPath: String) = "folder/${java.net.URLEncoder.encode(folderPath, "UTF-8")}"
+    }
+    data object CollectionDetail : Screen("collection/{collectionId}") {
+        fun createRoute(collectionId: String) = "collection/$collectionId"
+    }
+    data object LocalAlbumDetail : Screen("local_album/{albumId}") {
+        fun createRoute(albumId: Long) = "local_album/$albumId"
+    }
+    data object LocalArtistDetail : Screen("local_artist/{artistId}") {
+        fun createRoute(artistId: Long) = "local_artist/$artistId"
+    }
 }
 
 data class BottomNavItem(
@@ -160,18 +168,6 @@ fun MonochromeNavHost() {
                 .fillMaxSize()
                 .background(themeBackground)
         )
-        if (currentTrack?.coverUrl != null) {
-            AsyncImage(
-                model = currentTrack?.coverUrl,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .scale(1.5f)
-                    .blur(radius = 150.dp, edgeTreatment = BlurredEdgeTreatment.Unbounded)
-                    .graphicsLayer { alpha = 0.25f }
-            )
-        }
 
         // ── Layer 1: Full-screen content (draws behind bars) ─────────────
         Box(modifier = Modifier.fillMaxSize()) {
@@ -242,6 +238,24 @@ fun MonochromeNavHost() {
                 }
                 composable(Screen.Profile.route) {
                     ProfileScreen(navController = navController)
+                }
+                composable(
+                    route = Screen.FolderBrowser.route,
+                    arguments = listOf(navArgument("folderPath") { type = NavType.StringType })
+                ) { backStackEntry ->
+                    val folderPath = java.net.URLDecoder.decode(
+                        backStackEntry.arguments?.getString("folderPath") ?: "", "UTF-8"
+                    )
+                    FolderBrowserScreen(
+                        folderPath = folderPath,
+                        navController = navController,
+                        onPlayTrack = { track, queue ->
+                            playerViewModel.playUnifiedTrack(track, queue)
+                        },
+                        onPlayAll = { tracks ->
+                            playerViewModel.playAllUnified(tracks)
+                        }
+                    )
                 }
             }
         }

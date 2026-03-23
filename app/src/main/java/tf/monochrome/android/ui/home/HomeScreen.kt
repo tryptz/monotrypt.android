@@ -75,8 +75,6 @@ fun HomeScreen(
     val isRadioLoading by viewModel.isRadioLoading.collectAsState()
     val favoriteTrackIds by playerViewModel.favoriteTrackIds.collectAsState()
     val playlists by playerViewModel.playlists.collectAsState()
-    val isAiMode by viewModel.isAiMode.collectAsState()
-    val activeFilters by viewModel.activeFilters.collectAsState()
 
     var showContextMenuForTrack by androidx.compose.runtime.remember {
         androidx.compose.runtime.mutableStateOf<Track?>(null)
@@ -171,40 +169,23 @@ fun HomeScreen(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 160.dp)
             ) {
-                // ── Recommended Songs + Infinite Radio ─────────────────
+                // ── Personalized Mix ──────────────────────────────
                 item {
                     SectionHeader(
-                        title = if (isAiMode) "AI Recommended" else "Recommended Songs"
+                        title = "Your Personalized Mix"
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     InfiniteRadioButton(
                         isLoading = isRadioLoading,
-                        isAiMode = isAiMode,
                         onStartRadio = {
-                            val tracks = viewModel.startInfiniteRadio()
+                            val tracks = viewModel.startHistoryMix()
                             if (tracks.isNotEmpty()) {
                                 playerViewModel.playTrack(tracks.first(), tracks)
                             }
                         },
-                        onRefresh = { viewModel.loadRecommendations() },
-                        onToggleAi = { viewModel.toggleAiMode() }
+                        onRefresh = { viewModel.loadRecommendations() }
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
-                }
-
-                // ── AI Filter Chips ────────────────────────────────────
-                item {
-                    AnimatedVisibility(
-                        visible = isAiMode,
-                        enter = expandVertically(),
-                        exit = shrinkVertically()
-                    ) {
-                        AiFilterChips(
-                            activeFilters = activeFilters,
-                            onToggleFilter = { viewModel.toggleFilter(it) }
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
                 }
 
                 if (recommendedTracks.isNotEmpty()) {
@@ -257,10 +238,8 @@ fun HomeScreen(
 @Composable
 private fun InfiniteRadioButton(
     isLoading: Boolean,
-    isAiMode: Boolean,
     onStartRadio: () -> Unit,
-    onRefresh: () -> Unit,
-    onToggleAi: () -> Unit
+    onRefresh: () -> Unit
 ) {
     val rotation by animateFloatAsState(
         targetValue = if (isLoading) 360f else 0f,
@@ -285,30 +264,14 @@ private fun InfiniteRadioButton(
             elevation = ButtonDefaults.elevatedButtonElevation(defaultElevation = 2.dp)
         ) {
             Icon(
-                if (isAiMode) Icons.Default.AutoAwesome else Icons.Default.GraphicEq,
+                Icons.Default.GraphicEq,
                 contentDescription = null,
                 modifier = Modifier.size(20.dp)
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                if (isAiMode) "Start AI Radio" else "Start Infinite Radio",
+                "Play My Mix",
                 style = MaterialTheme.typography.labelLarge
-            )
-        }
-
-        IconButton(
-            onClick = onToggleAi,
-            colors = IconButtonDefaults.iconButtonColors(
-                containerColor = if (isAiMode) MaterialTheme.colorScheme.tertiaryContainer
-                else MaterialTheme.colorScheme.surfaceVariant,
-                contentColor = if (isAiMode) MaterialTheme.colorScheme.onTertiaryContainer
-                else MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        ) {
-            Icon(
-                Icons.Default.AutoAwesome,
-                contentDescription = if (isAiMode) "Disable AI" else "Enable AI",
-                modifier = Modifier.size(20.dp)
             )
         }
 
@@ -327,34 +290,6 @@ private fun InfiniteRadioButton(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun AiFilterChips(
-    activeFilters: Set<AiFilter>,
-    onToggleFilter: (AiFilter) -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        AiFilter.entries.forEach { filter ->
-            FilterChip(
-                selected = activeFilters.contains(filter),
-                onClick = { onToggleFilter(filter) },
-                label = {
-                    Text(filter.displayName, style = MaterialTheme.typography.labelMedium)
-                },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                    selectedLabelColor = MaterialTheme.colorScheme.onTertiaryContainer
-                )
-            )
         }
     }
 }

@@ -1,6 +1,7 @@
 package tf.monochrome.android.ui.components
 
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -25,6 +26,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import tf.monochrome.android.domain.model.Track
+import tf.monochrome.android.ui.theme.MonoDimens
 import kotlin.math.abs
 
 @Composable
@@ -43,25 +45,38 @@ fun MiniPlayer(
     Surface(
         modifier = modifier
             .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
             .bounceClick(onClick = onClick)
             .pointerInput(Unit) {
-                var totalDrag = 0f
-                detectHorizontalDragGestures(
-                    onDragStart = { totalDrag = 0f },
+                var totalHorizontalDrag = 0f
+                var totalVerticalDrag = 0f
+                detectDragGestures(
+                    onDragStart = { 
+                        totalHorizontalDrag = 0f 
+                        totalVerticalDrag = 0f 
+                    },
                     onDragEnd = {
-                        if (totalDrag > 50f) {
+                        if (abs(totalVerticalDrag) > abs(totalHorizontalDrag) && totalVerticalDrag < -50f) {
+                            // Swipe Up
+                            onClick()
+                        } else if (abs(totalVerticalDrag) > abs(totalHorizontalDrag) && totalVerticalDrag > 50f) {
+                            // Swipe Down (Collapse logic, if any, could go here)
+                        } else if (totalHorizontalDrag > 50f) {
                             onSkipPreviousClick()
-                        } else if (totalDrag < -50f) {
+                        } else if (totalHorizontalDrag < -50f) {
                             onSkipNextClick()
                         }
                     },
-                    onHorizontalDrag = { change, dragAmount ->
+                    onDrag = { change, dragAmount ->
                         change.consume()
-                        totalDrag += dragAmount
+                        totalHorizontalDrag += dragAmount.x
+                        totalVerticalDrag += dragAmount.y
                     }
                 )
             },
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(32.dp),
+        shadowElevation = 12.dp
     ) {
         Column {
             LinearProgressIndicator(
@@ -73,16 +88,16 @@ fun MiniPlayer(
                 trackColor = MaterialTheme.colorScheme.outline
             )
             Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                modifier = Modifier.padding(horizontal = MonoDimens.spacingMd, vertical = MonoDimens.spacingSm),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 CoverImage(
                     url = track.coverUrl,
                     contentDescription = track.title,
-                    size = 40.dp,
-                    cornerRadius = 6.dp
+                    size = MonoDimens.coverMini,
+                    cornerRadius = MonoDimens.radiusSm
                 )
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(MonoDimens.spacingMd))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = track.title,

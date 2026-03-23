@@ -13,7 +13,6 @@ import kotlinx.coroutines.launch
 import tf.monochrome.android.data.preferences.PreferencesManager
 import tf.monochrome.android.data.repository.LibraryRepository
 import tf.monochrome.android.data.repository.MusicRepository
-import tf.monochrome.android.domain.model.AiFilter
 import tf.monochrome.android.domain.model.Track
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.encodeToString
@@ -38,12 +37,6 @@ class HomeViewModel @Inject constructor(
     private val _isRadioLoading = MutableStateFlow(false)
     val isRadioLoading: StateFlow<Boolean> = _isRadioLoading.asStateFlow()
 
-    // Derived directly from the persisted preference so Settings and Home are always in sync.
-    val isAiMode: StateFlow<Boolean> = preferences.aiRadioEnabled
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
-
-    private val _activeFilters = MutableStateFlow(setOf(AiFilter.ALL))
-    val activeFilters: StateFlow<Set<AiFilter>> = _activeFilters.asStateFlow()
 
     init {
         loadHome()
@@ -67,11 +60,8 @@ class HomeViewModel @Inject constructor(
                 _recentTracks.value = tracks.take(20)
                 _isLoading.value = false
 
-                // Auto-load recommendations from the first recent track if available
-                if (_recommendedTracks.value.isEmpty() && tracks.isNotEmpty()) {
-                    loadRecommendations(tracks.first().id)
-                } else if (_recommendedTracks.value.isEmpty() && tracks.isEmpty()) {
-                    // Fallback for brand new user
+                // Auto-load recommendations explicitly from history
+                if (_recommendedTracks.value.isEmpty()) {
                     loadRecommendations()
                 }
             } catch (e: Exception) {
@@ -84,55 +74,17 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    /** Toggle AI mode and immediately reload recommendations for the new mode. */
-    fun toggleAiMode() {
-        viewModelScope.launch {
-            val newValue = !preferences.aiRadioEnabled.first()
-            preferences.setAiRadioEnabled(newValue)
-            // Reload so the list reflects the newly selected mode straight away.
-            loadRecommendations()
-        }
-    }
-
-    fun toggleFilter(filter: AiFilter) {
-        val current = _activeFilters.value
-        if (filter == AiFilter.ALL) {
-            _activeFilters.value = setOf(AiFilter.ALL)
-        } else {
-            val withoutAll = current - AiFilter.ALL
-            val updated = if (withoutAll.contains(filter)) {
-                withoutAll - filter
-            } else {
-                withoutAll + filter
-            }
-            _activeFilters.value = updated.ifEmpty { setOf(AiFilter.ALL) }
-        }
-    }
-
-    fun loadRecommendations(seedTrackId: Long? = null) {
-        // Read the current persisted value synchronously via the StateFlow snapshot so
-        // this function stays non-suspending and callable from Compose event handlers.
-        if (isAiMode.value) {
-            loadAiRecommendations(seedTrackId)
-        } else {
-            loadRegularRecommendations(seedTrackId)
-        }
-    }
-
-    private fun loadRegularRecommendations(seedTrackId: Long?) {
+    fun loadRecommendations() {
         viewModelScope.launch {
             _isRadioLoading.value = true
             try {
-                val seed = seedTrackId
-                    ?: _recentTracks.value.randomOrNull()?.id
-                    ?: _recommendedTracks.value.randomOrNull()?.id
-
-                if (seed != null) {
-                    val tracks = musicRepository.getRecommendations(seed).getOrDefault(emptyList())
-                    if (tracks.isNotEmpty()) {
-                        _recommendedTracks.value = tracks
-                        preferences.setHomeRecommendationsCache(Json.encodeToString(tracks))
-                    }
+                // Personalize home screen by focusing exclusively on user's past music choices
+                val historyFields = libraryRepository.getHistory().first()
+                if (historyFields.isNotEmpty()) {
+                    // Generate a personalized mix directly from history
+                    val mix = historyFields.shuffled().take(50)
+                    _recommendedTracks.value = mix
+                    preferences.setHomeRecommendationsCache(Json.encodeToString(mix))
                 } else {
                     // Fallback for new user with empty history
                     val tracks = musicRepository.searchTracks("pop").getOrDefault(emptyList())
@@ -148,47 +100,11 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    private fun loadAiRecommendations(seedTrackId: Long?) {
-        viewModelScope.launch {
-            _isRadioLoading.value = true
-            try {
-                val seedTrack = seedTrackId?.let { id ->
-                    _recentTracks.value.find { it.id == id }
-                        ?: _recommendedTracks.value.find { it.id == id }
-                } ?: _recentTracks.value.firstOrNull()
-
-                if (seedTrack != null) {
-                    val result = musicRepository.getAiRecommendations(
-                        seedTrack = seedTrack,
-                        filters = _activeFilters.value
-                    )
-                    val tracks = result.getOrNull()
-                    if (!tracks.isNullOrEmpty()) {
-                        _recommendedTracks.value = tracks
-                        preferences.setHomeRecommendationsCache(Json.encodeToString(tracks))
-                    } else {
-                        // Fallback to regular recommendations without leaking the loading state.
-                        loadRegularRecommendations(seedTrackId)
-                    }
-                }
-            } catch (_: Exception) {
-                // Fallback to regular recommendations on AI failure.
-                loadRegularRecommendations(seedTrackId)
-            } finally {
-                // Only clear loading if we're NOT handing off to the fallback, which manages its
-                // own loading state. We detect that by checking whether _isRadioLoading was already
-                // set to false by the fallback (it won't be yet — the fallback is a new coroutine).
-                // So we unconditionally clear it here; the fallback will set it true→false itself.
-                _isRadioLoading.value = false
-            }
-        }
-    }
-
     /**
-     * Triggers a fresh load of recommendations for the current mode, then returns whatever
-     * tracks are already in the queue so the player can start immediately while new results load.
+     * Triggers a fresh load of personalized history recommendations, then returns whatever
+     * tracks are already available so the player can start immediately.
      */
-    fun startInfiniteRadio(): List<Track> {
+    fun startHistoryMix(): List<Track> {
         loadRecommendations()
         return _recommendedTracks.value.ifEmpty { _recentTracks.value }
     }

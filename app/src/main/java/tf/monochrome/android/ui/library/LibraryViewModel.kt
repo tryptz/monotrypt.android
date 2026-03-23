@@ -12,16 +12,45 @@ import tf.monochrome.android.data.repository.LibraryRepository
 import tf.monochrome.android.domain.model.Album
 import tf.monochrome.android.domain.model.Artist
 import tf.monochrome.android.domain.model.Track
+import tf.monochrome.android.data.import_.CsvPlaylistParser
+import tf.monochrome.android.data.repository.MusicRepository
+import android.net.Uri
 import javax.inject.Inject
 
 @HiltViewModel
 class LibraryViewModel @Inject constructor(
-    private val libraryRepository: LibraryRepository
+    private val libraryRepository: LibraryRepository,
+    private val csvPlaylistParser: CsvPlaylistParser,
+    private val musicRepository: MusicRepository
 ) : ViewModel() {
 
     fun createPlaylist(name: String, description: String? = null) {
         viewModelScope.launch {
             libraryRepository.createPlaylist(name, description)
+        }
+    }
+
+    fun importCsvPlaylist(uri: Uri, strictAlbumMatch: Boolean, name: String, description: String?) {
+        viewModelScope.launch {
+            val playlistId = libraryRepository.createPlaylist(name, description)
+            val result = csvPlaylistParser.parseFromUri(uri)
+            val parsedPlaylist = result.getOrNull() ?: return@launch
+            
+            for (csvTrack in parsedPlaylist.tracks) {
+                val query = "${csvTrack.title} ${csvTrack.artist}"
+                val results = musicRepository.searchTracks(query).getOrNull() ?: continue
+                
+                val bestMatch = if (strictAlbumMatch && csvTrack.album.isNotBlank()) {
+                    results.find { it.album?.title?.equals(csvTrack.album, ignoreCase = true) == true }
+                        ?: results.firstOrNull()
+                } else {
+                    results.firstOrNull()
+                }
+
+                if (bestMatch != null) {
+                    libraryRepository.addTrackToPlaylist(playlistId, bestMatch)
+                }
+            }
         }
     }
 

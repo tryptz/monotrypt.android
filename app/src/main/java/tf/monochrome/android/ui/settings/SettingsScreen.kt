@@ -1,7 +1,9 @@
 package tf.monochrome.android.ui.settings
 
 import android.content.Intent
-import android.net.Uri
+import androidx.core.net.toUri
+import java.util.Locale
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -55,12 +57,14 @@ import tf.monochrome.android.domain.model.NowPlayingViewMode
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -74,8 +78,9 @@ import androidx.navigation.NavController
 import tf.monochrome.android.domain.model.AudioQuality
 import tf.monochrome.android.ui.eq.EqViewModel
 import tf.monochrome.android.domain.model.EqPreset
+import tf.monochrome.android.ui.theme.themeDisplayNames
 
-private val settingsTabs = listOf("Appearance", "Interface", "Scrobbling", "Audio", "Equalizer", "AI", "Downloads", "Instances", "System")
+private val settingsTabs = listOf("Appearance", "Interface", "Scrobbling", "Audio", "Equalizer", "Library", "Collections", "Downloads", "Instances", "System")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -125,10 +130,11 @@ fun SettingsScreen(
             2 -> ScrobblingTab(viewModel)
             3 -> AudioTab(viewModel)
             4 -> EqualizerTab(navController)
-            5 -> AiTab(viewModel)
-            6 -> DownloadsTab(viewModel)
-            7 -> InstancesTab(viewModel)
-            8 -> SystemTab(viewModel)
+            5 -> LibrarySettingsTab(viewModel)
+            6 -> CollectionSettingsTab(viewModel)
+            7 -> DownloadsTab(viewModel)
+            8 -> InstancesTab(viewModel)
+            9 -> SystemTab(viewModel)
         }
     }
 }
@@ -179,16 +185,26 @@ private fun EqualizerTab(navController: NavController, eqViewModel: EqViewModel 
 private fun AppearanceTab(viewModel: SettingsViewModel) {
     val themeName by viewModel.theme.collectAsState()
     val dynamicColors by viewModel.dynamicColors.collectAsState()
-    val fontSize by viewModel.fontSize.collectAsState()
+    val fontScale by viewModel.fontScale.collectAsState()
+    val customFontUri by viewModel.customFontUri.collectAsState()
+    val availableFonts by viewModel.availableFonts.collectAsState()
     var showThemeDropdown by remember { mutableStateOf(false) }
-    var showFontDropdown by remember { mutableStateOf(false) }
+    var fontScaleText by remember(fontScale) { mutableStateOf(String.format(Locale.US, "%.2f", fontScale)) }
+
+    // File picker for .ttf font import
+    val context = LocalContext.current
+    val fontPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let { viewModel.importFont(it) }
+    }
 
     SettingsTabContent {
         SettingsGroupHeader("Theme")
-        SettingItem(title = "Color Theme", subtitle = themeName, onClick = { showThemeDropdown = true })
+        SettingItem(title = "Color Theme", subtitle = themeDisplayNames[themeName] ?: themeName, onClick = { showThemeDropdown = true })
         DropdownMenu(expanded = showThemeDropdown, onDismissRequest = { showThemeDropdown = false }) {
-            listOf("monochrome_dark", "ocean", "midnight", "crimson", "forest").forEach { t ->
-                DropdownMenuItem(text = { Text(t) }, onClick = { viewModel.setTheme(t); showThemeDropdown = false })
+            themeDisplayNames.forEach { (key, displayName) ->
+                DropdownMenuItem(text = { Text(displayName) }, onClick = { viewModel.setTheme(key); showThemeDropdown = false })
             }
         }
         SettingSwitchItem(
@@ -200,10 +216,128 @@ private fun AppearanceTab(viewModel: SettingsViewModel) {
 
         Spacer(modifier = Modifier.height(16.dp))
         SettingsGroupHeader("Typography")
-        SettingItem(title = "Font Size", subtitle = fontSize.replaceFirstChar { it.uppercase() }, onClick = { showFontDropdown = true })
-        DropdownMenu(expanded = showFontDropdown, onDismissRequest = { showFontDropdown = false }) {
-            listOf("small", "medium", "large").forEach { s ->
-                DropdownMenuItem(text = { Text(s.replaceFirstChar { it.uppercase() }) }, onClick = { viewModel.setFontSize(s); showFontDropdown = false })
+
+        // Font scale slider
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Font Scale",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                OutlinedTextField(
+                    value = fontScaleText,
+                    onValueChange = { newText ->
+                        fontScaleText = newText
+                        newText.toFloatOrNull()?.let { value ->
+                            if (value in 0.5f..2.0f) {
+                                viewModel.setFontScale(value)
+                            }
+                        }
+                    },
+                    modifier = Modifier.width(80.dp),
+                    textStyle = MaterialTheme.typography.bodyMedium,
+                    singleLine = true
+                )
+            }
+            Text(
+                "Preview: The quick brown fox jumps over the lazy dog",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+            Slider(
+                value = fontScale,
+                onValueChange = { newScale ->
+                    val rounded = (Math.round(newScale * 100f) / 100f)
+                    viewModel.setFontScale(rounded)
+                    fontScaleText = String.format(Locale.US, "%.2f", rounded)
+                },
+                valueRange = 0.5f..2.0f,
+                steps = 29,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("0.50", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("1.00", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("2.00", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Custom font import matching Font Library requirements
+        Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+            Text(
+                "Font Library",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+
+            if (availableFonts.isNotEmpty()) {
+                availableFonts.forEach { file ->
+                    val isSelected = file.absolutePath == customFontUri
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { viewModel.selectFont(file) }
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.Check,
+                            contentDescription = null,
+                            tint = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Text(
+                            file.nameWithoutExtension,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(onClick = { viewModel.removeFont(file) }, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = { fontPickerLauncher.launch(arrayOf("font/ttf", "application/x-font-ttf", "application/octet-stream")) },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Add Font")
+                    }
+                    if (customFontUri != null) {
+                        OutlinedButton(
+                            onClick = { viewModel.resetDefaultFont() },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                        ) {
+                            Text("Reset")
+                        }
+                    }
+                }
+            } else {
+                OutlinedButton(
+                    onClick = { fontPickerLauncher.launch(arrayOf("font/ttf", "application/x-font-ttf", "application/octet-stream")) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Import Custom Font (.ttf)")
+                }
             }
         }
     }
@@ -215,6 +349,23 @@ private fun InterfaceTab(viewModel: SettingsViewModel) {
     val gapless by viewModel.gaplessPlayback.collectAsState()
     val explicit by viewModel.showExplicitBadges.collectAsState()
     val confirmQueue by viewModel.confirmClearQueue.collectAsState()
+    val sensitivity by viewModel.visualizerSensitivity.collectAsState()
+    val brightness by viewModel.visualizerBrightness.collectAsState()
+    val engineEnabled by viewModel.visualizerEngineEnabled.collectAsState()
+    val autoShuffle by viewModel.visualizerAutoShuffle.collectAsState()
+    val presetId by viewModel.visualizerPresetId.collectAsState()
+    val rotationSeconds by viewModel.visualizerRotationSeconds.collectAsState()
+    val textureSize by viewModel.visualizerTextureSize.collectAsState()
+    val meshX by viewModel.visualizerMeshX.collectAsState()
+    val meshY by viewModel.visualizerMeshY.collectAsState()
+    val targetFps by viewModel.visualizerTargetFps.collectAsState()
+    val showFps by viewModel.visualizerShowFps.collectAsState()
+    val fullscreen by viewModel.visualizerFullscreen.collectAsState()
+    val engineStatus by viewModel.visualizerEngineStatus.collectAsState()
+    val presets by viewModel.visualizerPresets.collectAsState()
+    val selectedPresetName = presets.firstOrNull { it.id == presetId }?.displayName ?: "Auto-select bundled preset"
+    var showTextureDropdown by remember { mutableStateOf(false) }
+    var showPresetDropdown by remember { mutableStateOf(false) }
 
     SettingsTabContent {
         SettingsGroupHeader("Playback")
@@ -261,9 +412,121 @@ private fun InterfaceTab(viewModel: SettingsViewModel) {
 
         Spacer(modifier = Modifier.height(16.dp))
         SettingsGroupHeader("Audio Visualizer")
-        val sensitivity by viewModel.visualizerSensitivity.collectAsState()
-        val brightness by viewModel.visualizerBrightness.collectAsState()
+        SettingSwitchItem(
+            title = "Use projectM Visualizer",
+            subtitle = "Use the native OpenGL renderer when the bridge is available",
+            checked = engineEnabled,
+            onCheckedChange = { viewModel.setVisualizerEngineEnabled(it) }
+        )
+        SettingSwitchItem(
+            title = "Auto-shuffle Presets",
+            subtitle = "Rotate bundled presets automatically during playback",
+            checked = autoShuffle,
+            onCheckedChange = { viewModel.setVisualizerAutoShuffle(it) }
+        )
+        SettingItem(
+            title = "Default Preset",
+            subtitle = selectedPresetName,
+            onClick = { showPresetDropdown = true }
+        )
+        DropdownMenu(expanded = showPresetDropdown, onDismissRequest = { showPresetDropdown = false }) {
+            DropdownMenuItem(
+                text = { Text("Auto-select bundled preset") },
+                onClick = {
+                    viewModel.setVisualizerPresetId(null)
+                    showPresetDropdown = false
+                }
+            )
+            presets.forEach { preset ->
+                DropdownMenuItem(
+                    text = { Text(preset.displayName) },
+                    onClick = {
+                        viewModel.setVisualizerPresetId(preset.id)
+                        showPresetDropdown = false
+                    }
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+        SettingsGroupHeader("Graphics")
         
+        SettingItem(
+            title = "Texture Size",
+            subtitle = "$textureSize",
+            onClick = { showTextureDropdown = true }
+        )
+        DropdownMenu(expanded = showTextureDropdown, onDismissRequest = { showTextureDropdown = false }) {
+            listOf(256, 512, 1024, 2048, 4096).forEach { size ->
+                DropdownMenuItem(
+                    text = { Text(size.toString()) },
+                    onClick = {
+                        viewModel.setVisualizerTextureSize(size)
+                        showTextureDropdown = false
+                    }
+                )
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(8.dp))
+        Text("Mesh X: $meshX", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+        Slider(
+            value = meshX.toFloat(),
+            onValueChange = { viewModel.setVisualizerMeshX(it.toInt()) },
+            valueRange = 8f..128f,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+        Text("Mesh Y: $meshY", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+        Slider(
+            value = meshY.toFloat(),
+            onValueChange = { viewModel.setVisualizerMeshY(it.toInt()) },
+            valueRange = 8f..128f,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+        Text("Target FPS: $targetFps", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+        Slider(
+            value = targetFps.toFloat(),
+            onValueChange = { viewModel.setVisualizerTargetFps(it.toInt()) },
+            valueRange = 30f..144f,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        SettingSwitchItem(
+            title = "Show FPS",
+            subtitle = "Display visualizer framerate counter",
+            checked = showFps,
+            onCheckedChange = { viewModel.setVisualizerShowFps(it) }
+        )
+
+        SettingSwitchItem(
+            title = "Fullscreen",
+            subtitle = "Fill screen in Now Playing visualizer view",
+            checked = fullscreen,
+            onCheckedChange = { viewModel.setVisualizerFullscreen(it) }
+        )
+        SettingItem(
+            title = "Engine Status",
+            subtitle = "${engineStatus.badge} • assets ${engineStatus.assetVersion}",
+            onClick = {}
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            "Preset Rotation: ${rotationSeconds}s",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Slider(
+            value = rotationSeconds.toFloat(),
+            onValueChange = { viewModel.setVisualizerRotationSeconds(it.toInt()) },
+            valueRange = 5f..120f,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
         Text("Sensitivity: $sensitivity%", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
         Text("Controls intensity (High = Epilepsy Warning)", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Slider(
@@ -400,7 +663,7 @@ private fun AudioTab(viewModel: SettingsViewModel) {
     val preservePitch by viewModel.preservePitch.collectAsState()
     var showWifiDropdown by remember { mutableStateOf(false) }
     var showCellularDropdown by remember { mutableStateOf(false) }
-    var speedText by remember(playbackSpeed) { mutableStateOf(String.format("%.2f", playbackSpeed)) }
+    var speedText by remember(playbackSpeed) { mutableStateOf(String.format(Locale.US, "%.2f", playbackSpeed)) }
 
     SettingsTabContent {
         SettingsGroupHeader("Streaming Quality")
@@ -449,7 +712,7 @@ private fun AudioTab(viewModel: SettingsViewModel) {
                 value = playbackSpeed,
                 onValueChange = { newSpeed ->
                     val rounded = (Math.round(newSpeed * 100) / 100f)
-                    speedText = String.format("%.2f", rounded)
+                    speedText = String.format(Locale.US, "%.2f", rounded)
                     viewModel.setPlaybackSpeed(rounded)
                 },
                 valueRange = 0.25f..3.0f,
@@ -486,66 +749,7 @@ private fun AudioTab(viewModel: SettingsViewModel) {
     }
 }
 
-// ─── Tab 5: AI ────────────────────────────────────────────────────────
-@Composable
-private fun AiTab(viewModel: SettingsViewModel) {
-    val geminiApiKey by viewModel.geminiApiKey.collectAsState()
-    val aiRadioEnabled by viewModel.aiRadioEnabled.collectAsState()
-    var keyInput by remember(geminiApiKey) { mutableStateOf(geminiApiKey ?: "") }
 
-    SettingsTabContent {
-        SettingsGroupHeader("Gemini AI")
-        Text(
-            "Use Google Gemini to analyze audio and generate intelligent music recommendations based on tempo, genre, year, and samples.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 12.dp)
-        )
-
-        SettingSwitchItem(
-            title = "AI Radio",
-            subtitle = "Enable AI-powered recommendations on the Home screen",
-            checked = aiRadioEnabled,
-            onCheckedChange = { viewModel.setAiRadioEnabled(it) }
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-        SettingsGroupHeader("API Key")
-        OutlinedTextField(
-            value = keyInput,
-            onValueChange = { keyInput = it },
-            label = { Text("Gemini API Key") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation()
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(
-                onClick = { viewModel.setGeminiApiKey(keyInput.ifBlank { null }) }
-            ) {
-                Text("Save Key")
-            }
-            if (geminiApiKey != null) {
-                OutlinedButton(onClick = {
-                    keyInput = ""
-                    viewModel.setGeminiApiKey(null)
-                }) {
-                    Text("Clear")
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-        SettingsGroupHeader("How It Works")
-        Text(
-            "When AI Radio is enabled, Monochrome sends a short audio snippet of the seed track to Google Gemini for analysis. " +
-                "You can select filter chips (Tempo, Genre, Year, Sample, All) on the Home screen to control what aspects the AI focuses on.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
 
 // ─── Tab 6: Downloads ──────────────────────────────────────────────────
 @Composable
@@ -607,15 +811,13 @@ private fun DownloadsTab(viewModel: SettingsViewModel) {
         Spacer(modifier = Modifier.height(16.dp))
         SettingsGroupHeader("Download Folder")
 
-        val folderDisplay = if (downloadFolder != null) {
+        val folderDisplay = downloadFolder?.let { folder ->
             try {
-                val uri = Uri.parse(downloadFolder)
+                val uri = folder.toUri()
                 val docFile = androidx.documentfile.provider.DocumentFile.fromTreeUri(context, uri)
                 docFile?.name ?: "Custom folder"
             } catch (_: Exception) { "Custom folder" }
-        } else {
-            "Internal app storage (default)"
-        }
+        } ?: "Internal app storage (default)"
 
         SettingItem(
             title = "Save location",
@@ -735,6 +937,35 @@ private fun SystemTab(viewModel: SettingsViewModel) {
     val cacheSize by viewModel.cacheSize.collectAsState()
     var showClearAllDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+
+    val filePickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let {
+            coroutineScope.launch(Dispatchers.IO) {
+                try {
+                    val content = context.contentResolver.openInputStream(it)?.bufferedReader()?.use { reader ->
+                        reader.readText()
+                    }
+                    if (!content.isNullOrBlank()) {
+                        withContext(Dispatchers.Main) {
+                            viewModel.importLibrary(content)
+                            android.widget.Toast.makeText(context, "Library imported", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    } else {
+                        withContext(Dispatchers.Main) {
+                            android.widget.Toast.makeText(context, "Failed to read file", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        android.widget.Toast.makeText(context, "Error reading file", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+    }
 
     if (showClearAllDialog) {
         AlertDialog(
@@ -848,16 +1079,7 @@ private fun SystemTab(viewModel: SettingsViewModel) {
                 Text("Export JSON")
             }
             OutlinedButton(onClick = {
-                // For simplicity, we'll try to get from clipboard
-                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                val clip = clipboard.primaryClip
-                if (clip != null && clip.itemCount > 0) {
-                    val json = clip.getItemAt(0).text.toString()
-                    viewModel.importLibrary(json)
-                    android.widget.Toast.makeText(context, "Library imported", android.widget.Toast.LENGTH_SHORT).show()
-                } else {
-                    android.widget.Toast.makeText(context, "Clipboard empty", android.widget.Toast.LENGTH_SHORT).show()
-                }
+                filePickerLauncher.launch(arrayOf("application/json", "*/*"))
             }) {
                 Text("Import JSON")
             }
@@ -886,7 +1108,7 @@ private fun LinkItem(label: String, url: String, context: android.content.Contex
         style = MaterialTheme.typography.bodyLarge,
         color = MaterialTheme.colorScheme.primary,
         modifier = Modifier
-            .clickable { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+            .clickable { context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri())) }
             .padding(vertical = 10.dp)
     )
 }
@@ -937,6 +1159,150 @@ fun SettingSwitchItem(title: String, subtitle: String, checked: Boolean, onCheck
             Text(text = subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+// ─── Tab 5: Library Settings ──────────────────────────────────────────
+@Composable
+private fun LibrarySettingsTab(viewModel: SettingsViewModel) {
+    val scanOnAppOpen by viewModel.scanOnAppOpen.collectAsState()
+    val minTrackDuration by viewModel.minTrackDuration.collectAsState()
+    val backgroundScanInterval by viewModel.backgroundScanInterval.collectAsState()
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        item {
+            Text(
+                "Local Media Scanning",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
+        }
+
+        item {
+            SettingSwitchItem(
+                title = "Scan on App Open",
+                subtitle = "Automatically scan for new music when the app opens",
+                checked = scanOnAppOpen,
+                onCheckedChange = { viewModel.setScanOnAppOpen(it) }
+            )
+        }
+
+        item {
+            Column(modifier = Modifier.padding(vertical = 8.dp)) {
+                Text(
+                    "Minimum Track Duration",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    "Skip files shorter than ${minTrackDuration / 1000} seconds",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Slider(
+                    value = minTrackDuration.toFloat(),
+                    onValueChange = { viewModel.setMinTrackDuration(it.toLong()) },
+                    valueRange = 0f..120_000f,
+                    steps = 11,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
+        item {
+            var expanded by remember { mutableStateOf(false) }
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = true }
+                    .padding(vertical = 12.dp)
+            ) {
+                Text(
+                    "Background Scan Interval",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    backgroundScanInterval.replaceFirstChar { it.titlecase(Locale.getDefault()) },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                    listOf("never", "hourly", "daily").forEach { interval ->
+                        DropdownMenuItem(
+                            text = { Text(interval.replaceFirstChar { it.titlecase(Locale.getDefault()) }) },
+                            onClick = {
+                                viewModel.setBackgroundScanInterval(interval)
+                                expanded = false
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        item {
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+        }
+
+        item {
+            OutlinedButton(
+                onClick = { viewModel.rescanLibrary() },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Rescan Library Now")
+            }
+        }
+    }
+}
+
+// ─── Tab 6: Collection Settings ───────────────────────────────────────
+@Composable
+private fun CollectionSettingsTab(viewModel: SettingsViewModel) {
+    val autoDownload by viewModel.autoDownloadCollections.collectAsState()
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        item {
+            Text(
+                "Collection Settings",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
+        }
+
+        item {
+            SettingSwitchItem(
+                title = "Auto-download on Import",
+                subtitle = "Automatically download tracks when importing a collection",
+                checked = autoDownload,
+                onCheckedChange = { viewModel.setAutoDownloadCollections(it) }
+            )
+        }
+
+        item {
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+        }
+
+        item {
+            Text(
+                "Manage imported collections from the Library → Collections tab",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
+        }
     }
 }
 

@@ -17,14 +17,15 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import tf.monochrome.android.ui.theme.MonoDimens
 
 @Composable
 fun CoverImage(
     url: String?,
     contentDescription: String?,
     modifier: Modifier = Modifier,
-    size: Dp = 56.dp,
-    cornerRadius: Dp = 8.dp
+    size: Dp = MonoDimens.coverList,
+    cornerRadius: Dp = MonoDimens.radiusSm
 ) {
     if (url != null) {
         AsyncImage(

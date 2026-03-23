@@ -27,3 +27,6 @@
 
 # Keep Media3
 -keep class androidx.media3.** { *; }
+
+# Keep projectM JNI bridge
+-keep class tf.monochrome.android.visualizer.ProjectMNativeBridge { *; }
