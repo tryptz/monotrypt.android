@@ -31,6 +31,8 @@ import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -158,6 +160,8 @@ fun NowPlayingScreen(
     val visualizerAutoShuffle by playerViewModel.visualizerAutoShuffle.collectAsState()
     val currentVisualizerPreset by playerViewModel.currentVisualizerPreset.collectAsState()
     val visualizerPresets by playerViewModel.visualizerPresets.collectAsState()
+    val visualizerFavoritePresetIds by playerViewModel.visualizerFavoritePresetIds.collectAsState()
+    val visualizerCompact by playerViewModel.visualizerCompact.collectAsState()
 
     var speedText by remember(playbackSpeed) {
         mutableStateOf(String.format(Locale.US, "%.2f", playbackSpeed))
@@ -196,7 +200,9 @@ fun NowPlayingScreen(
         VisualizerPresetSheet(
             presets = visualizerPresets,
             selectedPresetId = currentVisualizerPreset?.id,
+            favoritePresetIds = visualizerFavoritePresetIds,
             onPresetSelected = playerViewModel::selectVisualizerPreset,
+            onToggleFavorite = playerViewModel::toggleVisualizerFavoritePreset,
             onSettingsClick = { navController.navigate(tf.monochrome.android.ui.navigation.Screen.Settings.route) },
             onDismiss = { showPresetSheet = false }
         )
@@ -340,8 +346,36 @@ fun NowPlayingScreen(
                         onToggleVisualizerShuffle = playerViewModel::setVisualizerShuffle,
                         onNextPreset = playerViewModel::nextVisualizerPreset,
                         onOpenPresetBrowser = { showPresetSheet = true },
-                        onCycleMode = playerViewModel::cycleNowPlayingViewMode
+                        onCycleMode = playerViewModel::cycleNowPlayingViewMode,
+                        visualizerCompact = visualizerCompact,
+                        onToggleCompact = playerViewModel::toggleVisualizerCompact,
+                        onToggleFullscreen = playerViewModel::toggleVisualizerFullscreen
                     )
+                }
+
+                // Fullscreen button (only show when in visualizer mode and not already fullscreen)
+                if (!isFullscreenActive && viewMode == NowPlayingViewMode.VISUALIZER) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        FilledIconButton(
+                            onClick = playerViewModel::toggleVisualizerFullscreen,
+                            modifier = Modifier.size(48.dp),
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = Color.White.copy(alpha = 0.15f),
+                                contentColor = Color.White
+                            )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Fullscreen,
+                                contentDescription = "Fullscreen",
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
                 }
 
                 if (!isFullscreenActive) {
@@ -370,7 +404,12 @@ fun NowPlayingScreen(
                             style = MaterialTheme.typography.bodyLarge,
                             color = Color.White.copy(alpha = 0.6f),
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.clickable(enabled = currentTrack?.artist?.id != null) {
+                                currentTrack?.artist?.id?.let { artistId ->
+                                    navController.navigate(tf.monochrome.android.ui.navigation.Screen.ArtistDetail.createRoute(artistId))
+                                }
+                            }
                         )
                     }
 
@@ -614,7 +653,10 @@ private fun NowPlayingHero(
     onToggleVisualizerShuffle: (Boolean) -> Unit,
     onNextPreset: () -> Unit,
     onOpenPresetBrowser: () -> Unit,
-    onCycleMode: () -> Unit
+    onCycleMode: () -> Unit,
+    visualizerCompact: Boolean = false,
+    onToggleCompact: () -> Unit = {},
+    onToggleFullscreen: () -> Unit = {}
 ) {
     var showOverlay by androidx.compose.runtime.remember(viewMode) { 
         androidx.compose.runtime.mutableStateOf(viewMode == NowPlayingViewMode.VISUALIZER) 
@@ -645,29 +687,57 @@ private fun NowPlayingHero(
                     }
                 )
         ) {
-            androidx.compose.animation.Crossfade(
-                targetState = viewMode,
-                animationSpec = androidx.compose.animation.core.tween(durationMillis = 600),
-                label = "HeroCrossfade"
-            ) { targetMode ->
-                when (targetMode) {
-                    NowPlayingViewMode.COVER_ART -> HeroCoverArt(track = track, isPlaying = isPlaying)
-                    NowPlayingViewMode.VISUALIZER -> VisualizerComponent(
-                        isPlaying = isPlaying,
-                        sensitivity = visualizerSensitivity,
-                        brightness = visualizerBrightness,
-                        modifier = Modifier.fillMaxSize(),
-                        engineStatus = visualizerEngineStatus,
-                        engineEnabled = visualizerEngineEnabled,
-                        showFps = visualizerShowFps,
-                        isFullscreen = isFullscreen,
-                        repository = visualizerRepository
-                    )
-                    NowPlayingViewMode.LYRICS -> LyricsHeroPanel(
-                        lyrics = lyrics,
-                        isLoading = isLyricsLoading
-                    )
-                    NowPlayingViewMode.QUEUE -> QueueHeroPanel(queuePreview = queuePreview)
+            if (viewMode == NowPlayingViewMode.VISUALIZER && visualizerCompact) {
+                // Compact mode: cover art with small visualizer window
+                Box(modifier = Modifier.fillMaxSize()) {
+                    HeroCoverArt(track = track, isPlaying = isPlaying)
+                    Surface(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(12.dp)
+                            .size(120.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color.Black,
+                        shadowElevation = 8.dp
+                    ) {
+                        VisualizerComponent(
+                            isPlaying = isPlaying,
+                            sensitivity = visualizerSensitivity,
+                            brightness = visualizerBrightness,
+                            modifier = Modifier.fillMaxSize(),
+                            engineStatus = visualizerEngineStatus,
+                            engineEnabled = visualizerEngineEnabled,
+                            showFps = false,
+                            isFullscreen = false,
+                            repository = visualizerRepository
+                        )
+                    }
+                }
+            } else {
+                androidx.compose.animation.Crossfade(
+                    targetState = viewMode,
+                    animationSpec = androidx.compose.animation.core.tween(durationMillis = 600),
+                    label = "HeroCrossfade"
+                ) { targetMode ->
+                    when (targetMode) {
+                        NowPlayingViewMode.COVER_ART -> HeroCoverArt(track = track, isPlaying = isPlaying)
+                        NowPlayingViewMode.VISUALIZER -> VisualizerComponent(
+                            isPlaying = isPlaying,
+                            sensitivity = visualizerSensitivity,
+                            brightness = visualizerBrightness,
+                            modifier = Modifier.fillMaxSize(),
+                            engineStatus = visualizerEngineStatus,
+                            engineEnabled = visualizerEngineEnabled,
+                            showFps = visualizerShowFps,
+                            isFullscreen = isFullscreen,
+                            repository = visualizerRepository
+                        )
+                        NowPlayingViewMode.LYRICS -> LyricsHeroPanel(
+                            lyrics = lyrics,
+                            isLoading = isLyricsLoading
+                        )
+                        NowPlayingViewMode.QUEUE -> QueueHeroPanel(queuePreview = queuePreview)
+                    }
                 }
             }
 
@@ -679,6 +749,43 @@ private fun NowPlayingHero(
                     modifier = Modifier.fillMaxSize()
                 ) {
                     Box(modifier = Modifier.fillMaxSize()) {
+                        // Compact/Window toggle button (top-left)
+                        IconButton(
+                            onClick = onToggleCompact,
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(16.dp)
+                                .background(Color.Black.copy(alpha = 0.3f), shape = RoundedCornerShape(999.dp))
+                        ) {
+                            Icon(
+                                if (visualizerCompact) Icons.Default.Fullscreen else Icons.Default.GraphicEq,
+                                contentDescription = if (visualizerCompact) "Expand Visualizer" else "Window Mode",
+                                tint = Color.White
+                            )
+                        }
+
+                        // Exit fullscreen button (top-center, only in fullscreen)
+                        if (isFullscreen) {
+                            FilledIconButton(
+                                onClick = onToggleFullscreen,
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .padding(16.dp)
+                                    .size(48.dp),
+                                colors = IconButtonDefaults.filledIconButtonColors(
+                                    containerColor = Color.Black.copy(alpha = 0.3f),
+                                    contentColor = Color.White
+                                )
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.FullscreenExit,
+                                    contentDescription = "Exit Fullscreen",
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        }
+
+                        // Close button (top-right)
                         IconButton(
                             onClick = onCycleMode,
                             modifier = Modifier

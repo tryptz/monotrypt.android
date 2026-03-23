@@ -21,6 +21,7 @@ import tf.monochrome.android.ui.navigation.MonochromeNavHost
 import tf.monochrome.android.ui.theme.MonochromeTheme
 import java.io.File
 import javax.inject.Inject
+import tf.monochrome.android.audio.eq.FrequencyTargets
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -32,6 +33,8 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         
+        FrequencyTargets.init(applicationContext)
+
         // Force maximum available refresh rate (e.g. 120Hz)
         window.attributes = window.attributes.apply {
             val displayModes = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {

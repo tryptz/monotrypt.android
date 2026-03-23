@@ -18,6 +18,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -35,8 +36,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -69,6 +73,19 @@ fun MeasurementUploadScreen(
     var showTargetMenu by remember { mutableStateOf(false) }
     var headphoneName by remember { mutableStateOf("") }
     var calculationAttempted by remember { mutableStateOf(false) }
+
+    val context = LocalContext.current
+    val filePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        try {
+            val rawData = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+            if (!rawData.isNullOrEmpty()) {
+                measurementData = rawData
+            }
+        } catch (_: Exception) { }
+    }
 
     Column(
         modifier = Modifier
@@ -183,12 +200,29 @@ fun MeasurementUploadScreen(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        Text(
-            "Example: 20,80.5\\n25,79.2\\n31.5,78.1\\n...",
-            fontSize = 10.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 16.dp)
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "Example: 20,80.5\\n25,79.2\\n31.5,78.1\\n...",
+                fontSize = 10.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            OutlinedButton(
+                onClick = { filePicker.launch("text/*") }
+            ) {
+                Icon(
+                    Icons.Default.UploadFile,
+                    contentDescription = null,
+                    modifier = Modifier.padding(end = 4.dp)
+                )
+                Text("Import File", fontSize = 12.sp)
+            }
+        }
 
         Spacer(modifier = Modifier.height(16.dp))
 

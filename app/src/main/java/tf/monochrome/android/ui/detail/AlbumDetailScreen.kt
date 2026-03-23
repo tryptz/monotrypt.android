@@ -1,5 +1,6 @@
 package tf.monochrome.android.ui.detail
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -125,7 +126,7 @@ fun AlbumDetailScreen(
                 onRetry = { viewModel.retry() }
             )
             albumDetail != null -> {
-                val detail = albumDetail!!
+                val detail = albumDetail ?: return
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 80.dp)
@@ -153,7 +154,12 @@ fun AlbumDetailScreen(
                             Text(
                                 text = detail.album.displayArtist,
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.clickable(enabled = detail.album.artist?.id != null) {
+                                    detail.album.artist?.id?.let { artistId ->
+                                        navController.navigate(Screen.ArtistDetail.createRoute(artistId))
+                                    }
+                                }
                             )
                             detail.album.releaseYear?.let { year ->
                                 Text(

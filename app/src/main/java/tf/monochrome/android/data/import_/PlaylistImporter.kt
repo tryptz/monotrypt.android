@@ -24,7 +24,7 @@ class PlaylistImporter @Inject constructor(
         
         // Simulating metadata extraction and search matching
         // We'll just return a success for now to show the flow.
-        // In practice, we'd loop through extracted metadata and call apiClient.searchTracks(query)
+        // In practice, we'd loop through extracted metadata and call apiClient.search(query).tracks
         
         emptyList<Track>()
     }

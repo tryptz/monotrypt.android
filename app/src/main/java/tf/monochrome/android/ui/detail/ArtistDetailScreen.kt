@@ -130,7 +130,7 @@ fun ArtistDetailScreen(
                 onRetry = { viewModel.retry() }
             )
             artistDetail != null -> {
-                val detail = artistDetail!!
+                val detail = artistDetail ?: return
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 80.dp)

@@ -101,10 +101,14 @@ class PlayerViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
     val visualizerFullscreen: StateFlow<Boolean> = preferences.visualizerFullscreen
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    private val _visualizerCompact = MutableStateFlow(false)
+    val visualizerCompact: StateFlow<Boolean> = _visualizerCompact.asStateFlow()
+
     val visualizerAutoShuffle: StateFlow<Boolean> = projectMEngineRepository.autoShuffle
     val visualizerEngineStatus: StateFlow<VisualizerEngineStatus> = projectMEngineRepository.engineStatus
     val visualizerPresets: StateFlow<List<VisualizerPreset>> = projectMEngineRepository.presets
     val currentVisualizerPreset: StateFlow<VisualizerPreset?> = projectMEngineRepository.currentPreset
+    val visualizerFavoritePresetIds: StateFlow<Set<String>> = projectMEngineRepository.favoritePresetIds
     val visualizerRepository: ProjectMEngineRepository
         get() = projectMEngineRepository
 
@@ -302,6 +306,18 @@ class PlayerViewModel @Inject constructor(
         resolveAndPlay()
     }
 
+    /** Shuffle-play all unified tracks. */
+    fun shufflePlayUnified(tracks: List<UnifiedTrack>) {
+        if (tracks.isEmpty()) return
+        tracks.forEach { ut ->
+            unifiedSourceMap[ut.toLegacyTrack().id] = ut
+        }
+        val legacyTracks = tracks.map { it.toLegacyTrack() }
+        queueManager.setQueue(legacyTracks, 0)
+        queueManager.toggleShuffle()
+        resolveAndPlay()
+    }
+
     /** Add tracks to end of current queue. */
     fun addToQueue(tracks: List<Track>) {
         queueManager.addToQueue(tracks)
@@ -401,8 +417,23 @@ class PlayerViewModel @Inject constructor(
         projectMEngineRepository.selectPreset(preset)
     }
 
+    fun toggleVisualizerFavoritePreset(presetId: String) {
+        projectMEngineRepository.toggleFavoritePreset(presetId)
+    }
+
     fun setVisualizerPlaybackPaused(paused: Boolean) {
         projectMEngineRepository.setPlaybackPaused(paused)
+    }
+
+    fun toggleVisualizerCompact() {
+        _visualizerCompact.value = !_visualizerCompact.value
+    }
+
+    fun toggleVisualizerFullscreen() {
+        viewModelScope.launch {
+            val current = visualizerFullscreen.value
+            preferences.setVisualizerFullscreen(!current)
+        }
     }
 
     fun skipToQueueIndex(index: Int) {

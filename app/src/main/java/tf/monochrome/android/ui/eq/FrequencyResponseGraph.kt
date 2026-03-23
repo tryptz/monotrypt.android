@@ -3,6 +3,7 @@ package tf.monochrome.android.ui.eq
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -17,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -118,7 +120,8 @@ fun FrequencyResponseGraph(
         .filter { it.gain.isFinite() }
     }
 
-    var draggedBandId by remember { mutableIntStateOf(-1) }
+    var selectedBandId by remember { mutableIntStateOf(-1) }
+    var isDragging by remember { mutableStateOf(false) }
 
     Box(
         modifier = modifier
@@ -133,26 +136,41 @@ fun FrequencyResponseGraph(
                 .padding(start = 4.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)
                 .pointerInput(eqBands, minGain, maxGain) {
                     if (onBandDragged == null) return@pointerInput
+                    detectTapGestures { offset ->
+                        val tapped = findNearestBand(
+                            offset, eqBands, size.width.toFloat(), size.height.toFloat(),
+                            minGain, maxGain, zeroOffset
+                        )
+                        selectedBandId = if (tapped == selectedBandId) -1 else tapped
+                    }
+                }
+                .pointerInput(eqBands, minGain, maxGain, selectedBandId) {
+                    if (onBandDragged == null) return@pointerInput
                     detectDragGestures(
                         onDragStart = { offset ->
-                            draggedBandId = findNearestBand(
-                                offset, eqBands, size.width.toFloat(), size.height.toFloat(),
-                                minGain, maxGain, zeroOffset
-                            )
+                            // If a band is already selected, drag that one
+                            // Otherwise try to grab nearest band directly
+                            if (selectedBandId < 0) {
+                                selectedBandId = findNearestBand(
+                                    offset, eqBands, size.width.toFloat(), size.height.toFloat(),
+                                    minGain, maxGain, zeroOffset
+                                )
+                            }
+                            isDragging = selectedBandId >= 0
                         },
                         onDrag = { change, _ ->
-                            if (draggedBandId >= 0) {
+                            if (selectedBandId >= 0 && isDragging) {
                                 change.consume()
                                 val freq = xToFreq(change.position.x, size.width.toFloat())
                                 val gain = yToGain(
                                     change.position.y, size.height.toFloat(),
                                     minGain, maxGain
                                 )
-                                onBandDragged(draggedBandId, freq, gain)
+                                onBandDragged(selectedBandId, freq, gain)
                             }
                         },
-                        onDragEnd = { draggedBandId = -1 },
-                        onDragCancel = { draggedBandId = -1 }
+                        onDragEnd = { isDragging = false },
+                        onDragCancel = { isDragging = false }
                     )
                 }
         ) {
@@ -168,19 +186,19 @@ fun FrequencyResponseGraph(
             // Frequency labels at bottom
             drawFreqLabels(w, h)
 
-            // Original measurement curve (semi-transparent blue)
+            // Original measurement curve (bright blue for visibility)
             if (originalCurve.size > 1) {
-                drawCurve(originalCurve, Color.Blue.copy(alpha = 0.5f), w, h, minGain, maxGain, 2f)
+                drawCurve(originalCurve, Color(0xFF4A9EFF), w, h, minGain, maxGain, 2.5f)
             }
 
-            // Target curve (dashed primary) — normalized to measurement
+            // Target curve (bright white dashed) — normalized to measurement
             if (normalizedTarget.size > 1) {
-                drawDashedCurve(normalizedTarget, primary.copy(alpha = 0.8f), w, h, minGain, maxGain, 2f)
+                drawDashedCurve(normalizedTarget, Color.White, w, h, minGain, maxGain, 2.5f)
             }
 
-            // Corrected curve (red solid) with fabfilter pro-q 3 style fill
+            // Corrected curve (bright red solid) with fabfilter pro-q 3 style fill
             if (correctedCurve.size > 1) {
-                drawFilledCurve(correctedCurve, Color.Red, w, h, minGain, maxGain, zeroOffset, 2.5f)
+                drawFilledCurve(correctedCurve, Color(0xFFFF4444), w, h, minGain, maxGain, zeroOffset, 2.5f)
             }
 
             // EQ band dots
@@ -197,14 +215,16 @@ fun FrequencyResponseGraph(
                 }
                 val dotY = gainToY(bandGain, h, minGain, maxGain)
 
+                val isSelected = selectedBandId == band.id
+
                 // Individual band contribution curve (Pro-Q style highlight)
-                if (draggedBandId == band.id) {
+                if (isSelected) {
                     val contributionPoints = originalCurve.map { p ->
                         val biquad = AutoEqEngine.calculateBiquadResponse(p.freq, band, sampleRate)
                         FrequencyPoint(p.freq, zeroOffset + biquad)
                     }
                     drawCurve(contributionPoints, Color.White.copy(alpha = 0.2f), w, h, minGain, maxGain, 1.5f)
-                    
+
                     // Floating Tooltip
                     val infoText = "${band.freq.toInt()}Hz  ${"%.1f".format(band.gain)}dB"
                     val paint = android.graphics.Paint().apply {
@@ -215,8 +235,8 @@ fun FrequencyResponseGraph(
                     }
                     val textWidth = paint.measureText(infoText)
                     val tooltipPadding = 16f
-                    val rectTop = (dotY - 60f).coerceAtLeast(GRAPH_PADDING_TOP)
-                    
+                    val rectTop = (dotY - 70f).coerceAtLeast(GRAPH_PADDING_TOP)
+
                     drawContext.canvas.nativeCanvas.drawRoundRect(
                         dotX - textWidth/2 - tooltipPadding, rectTop - 35f,
                         dotX + textWidth/2 + tooltipPadding, rectTop + 10f,
@@ -230,11 +250,11 @@ fun FrequencyResponseGraph(
                 val hue = ((log10(band.freq) - log10(20f)) / (log10(20000f) - log10(20f)) * 360f)
                 val bandColor = Color.hsl(hue, 0.7f, 0.6f)
 
-                // Glow for dragged band
-                if (draggedBandId == band.id) {
+                // Glow for selected/dragged band
+                if (isSelected) {
                     drawCircle(
                         color = bandColor.copy(alpha = 0.4f),
-                        radius = 24f,
+                        radius = 32f,
                         center = Offset(dotX, dotY)
                     )
                 }
@@ -242,22 +262,22 @@ fun FrequencyResponseGraph(
                 // Main dot shadow/border
                 drawCircle(
                     color = Color.Black,
-                    radius = 11f,
+                    radius = if (isSelected) 17f else 15f,
                     center = Offset(dotX, dotY)
                 )
 
                 // Main dot
                 drawCircle(
                     color = bandColor,
-                    radius = 9f,
+                    radius = if (isSelected) 15f else 13f,
                     center = Offset(dotX, dotY)
                 )
                 // White border
                 drawCircle(
                     color = Color.White,
-                    radius = 9f,
+                    radius = if (isSelected) 15f else 13f,
                     center = Offset(dotX, dotY),
-                    style = Stroke(width = 2.5f)
+                    style = Stroke(width = if (isSelected) 3f else 2.5f)
                 )
             }
         }
@@ -271,9 +291,9 @@ fun FrequencyResponseGraph(
                 .padding(horizontal = 12.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally)
         ) {
-            LegendDot("Original", Color.Blue.copy(alpha = 0.7f))
-            LegendDot("Target (Primary)", primary)
-            LegendDot("Corrected", Color.Red)
+            LegendDot("Original", Color(0xFF4A9EFF))
+            LegendDot("Target (Primary)", Color.White)
+            LegendDot("Corrected", Color(0xFFFF4444))
         }
     }
 }
@@ -352,7 +372,7 @@ private fun findNearestBand(
     maxGain: Float,
     zeroOffset: Float
 ): Int {
-    val threshold = 40f
+    val threshold = 50f
     var nearest = -1
     var nearestDist = Float.MAX_VALUE
     bands.forEach { band ->
