@@ -51,6 +51,17 @@ Full Hilt injection across the app — four modules (App, Network, Database, API
 
 ---
 
+## User Interface
+
+The player is designed with a modern, curved aesthetic that follows the physical screen radius of high-end Android devices.
+
+- **Floating Player**: A detached, card-based UI that can be swiped up/down to expand or collapse.
+- **Dynamic Views**: One-tap toggle between high-fidelity album art and the ProjectM-based visualizer.
+- **Micro-Animations**: Smooth cross-fading transitions and gesture-based interaction models.
+- **Theming**: Supports Dark, Light (White), and transparent "Clear" modes for varied aesthetics.
+
+---
+
 ## AutoEQ Engine
 
 A 10-band fully parametric equalizer that generates headphone correction filters from frequency response measurements.
