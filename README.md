@@ -53,11 +53,7 @@ A MediaStore-backed scanner indexes on-device audio files. The scanner reads emb
 
 ### Collections
 
-Encrypted music collections loaded from remote manifests (version 1.3). Each manifest contains artist, album, and track metadata with AES-256-GCM encrypted streaming URLs. A `DecryptingDataSource` handles transparent decryption during playback. Collections are parsed, cached in Room, and browsable alongside the streaming catalog.
-
-### AI Recommendations
-
-Gemini 2.0 Flash–powered music recommendations. An audio snippet is captured from the current track, base64-encoded, and sent to the Gemini API along with track context and user-selected filters. The model analyzes the audio and returns a list of similar track suggestions.
+Encrypted music collections loaded from remote manifests (version 1.3). Each manifest contains artist, album, and track metadata with AES-256-GCM encrypted streaming URLs. A `DecryptingDataSource` handles transparent decryption during playback. Collections are parsed, cached in Room, and browsable alongside the streaming catalog..
 
 ### Chromecast
 
