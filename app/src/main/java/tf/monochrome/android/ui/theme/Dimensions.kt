@@ -72,4 +72,16 @@ object MonoDimens {
     // ── Card surface alpha ───────────────────────────────────────────
     /** Uniform alpha for all card/surface backgrounds */
     const val cardAlpha = 0.85f
+
+    // ── Glass effect tokens ─────────────────────────────────────────
+    /** Tint layer opacity for glass cards */
+    const val glassAlpha = 0.25f
+    /** Border glow opacity for glass cards */
+    const val glassBorderAlpha = 0.15f
+    /** Thin luminous border width */
+    val glassBorderWidth = 0.5.dp
+    /** Backdrop blur radius for glass surfaces */
+    val glassBlurRadius = 20.dp
+    /** Soft shadow elevation for glass cards */
+    val glassElevation = 4.dp
 }

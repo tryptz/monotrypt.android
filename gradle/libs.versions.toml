@@ -21,6 +21,7 @@ castFramework = "22.0.0"
 credentials = "1.5.0-beta01"
 googleid = "1.1.1"
 accompanist = "0.36.0"
+haze = "1.5.0"
 
 [libraries]
 # Compose
@@ -111,6 +112,10 @@ googleid = { group = "com.google.android.libraries.identity.googleid", name = "g
 
 # Accompanist
 accompanist-permissions = { group = "com.google.accompanist", name = "accompanist-permissions", version.ref = "accompanist" }
+
+# Haze (Glassmorphism blur)
+haze = { group = "dev.chrisbanes.haze", name = "haze", version.ref = "haze" }
+haze-materials = { group = "dev.chrisbanes.haze", name = "haze-materials", version.ref = "haze" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
