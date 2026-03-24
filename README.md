@@ -1,4 +1,4 @@
-# Monochrome Android
+# MonoTrypt Android
 
 Native Android music streaming client with a built-in parametric equalizer. Connects to TIDAL for lossless and hi-res playback. Alpha.
 
