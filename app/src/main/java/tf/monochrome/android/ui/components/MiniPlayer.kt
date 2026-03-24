@@ -22,9 +22,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.chrisbanes.haze.HazeState
 import tf.monochrome.android.domain.model.Track
 import tf.monochrome.android.ui.theme.MonoDimens
 import kotlin.math.abs
@@ -38,7 +40,8 @@ fun MiniPlayer(
     onSkipNextClick: () -> Unit,
     onSkipPreviousClick: () -> Unit,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    hazeState: HazeState? = null
 ) {
     if (track == null) return
 
@@ -51,9 +54,9 @@ fun MiniPlayer(
                 var totalHorizontalDrag = 0f
                 var totalVerticalDrag = 0f
                 detectDragGestures(
-                    onDragStart = { 
-                        totalHorizontalDrag = 0f 
-                        totalVerticalDrag = 0f 
+                    onDragStart = {
+                        totalHorizontalDrag = 0f
+                        totalVerticalDrag = 0f
                     },
                     onDragEnd = {
                         if (abs(totalVerticalDrag) > abs(totalHorizontalDrag) && totalVerticalDrag < -50f) {
@@ -73,10 +76,14 @@ fun MiniPlayer(
                         totalVerticalDrag += dragAmount.y
                     }
                 )
-            },
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f),
+            }
+            .liquidGlass(
+                hazeState = hazeState,
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(32.dp)
+            ),
+        color = Color.Transparent,
         shape = androidx.compose.foundation.shape.RoundedCornerShape(32.dp),
-        shadowElevation = 12.dp
+        shadowElevation = MonoDimens.glassElevation
     ) {
         Column {
             LinearProgressIndicator(

@@ -193,4 +193,8 @@ dependencies {
 
     // Accompanist
     implementation(libs.accompanist.permissions)
+
+    // Haze (Glassmorphism blur)
+    implementation(libs.haze)
+    implementation(libs.haze.materials)
 }
