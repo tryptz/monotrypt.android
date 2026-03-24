@@ -89,6 +89,7 @@ import tf.monochrome.android.domain.model.Track
 import tf.monochrome.android.domain.model.VisualizerEngineStatus
 import tf.monochrome.android.domain.model.VisualizerPreset
 import tf.monochrome.android.ui.components.CoverImage
+import tf.monochrome.android.ui.components.liquidGlass
 import tf.monochrome.android.visualizer.ProjectMEngineRepository
 import java.util.Locale
 
@@ -533,8 +534,12 @@ fun NowPlayingScreen(
 
                 if (showSpeedPanel) {
                     Surface(
+                        modifier = Modifier.liquidGlass(
+                            shape = RoundedCornerShape(22.dp),
+                            tintAlpha = 0.18f
+                        ),
                         shape = RoundedCornerShape(22.dp),
-                        color = Color.Black.copy(alpha = 0.18f)
+                        color = Color.Transparent
                     ) {
                         Row(
                             modifier = Modifier
@@ -839,9 +844,13 @@ private fun VisualizerHeroOverlay(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        modifier = modifier.padding(16.dp),
+        modifier = modifier.padding(16.dp)
+            .liquidGlass(
+                shape = RoundedCornerShape(24.dp),
+                tintAlpha = 0.26f
+            ),
         shape = RoundedCornerShape(24.dp),
-        color = Color.Black.copy(alpha = 0.26f),
+        color = Color.Transparent,
         contentColor = Color.White
     ) {
         Column(
@@ -1174,8 +1183,9 @@ private fun TrackSummaryCard(
     onToggleLike: () -> Unit
 ) {
     Surface(
+        modifier = Modifier.liquidGlass(shape = RoundedCornerShape(28.dp)),
         shape = RoundedCornerShape(28.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f)
+        color = Color.Transparent
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),

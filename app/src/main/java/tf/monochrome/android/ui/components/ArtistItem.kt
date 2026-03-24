@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
@@ -30,9 +31,10 @@ fun ArtistItem(
     Surface(
         modifier = modifier
             .width(140.dp)
-            .bounceClick(onClick = onClick),
+            .bounceClick(onClick = onClick)
+            .liquidGlass(shape = MonoDimens.shapeMd),
         shape = MonoDimens.shapeMd,
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = MonoDimens.cardAlpha)
+        color = Color.Transparent
     ) {
         Column(
             modifier = Modifier.padding(MonoDimens.spacingMd),

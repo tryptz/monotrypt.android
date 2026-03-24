@@ -50,9 +50,10 @@ fun CreatePlaylistDialog(
             modifier = Modifier
                 .fillMaxWidth(0.9f)
                 .wrapContentHeight()
-                .padding(vertical = 24.dp),
+                .padding(vertical = 24.dp)
+                .liquidGlass(shape = RoundedCornerShape(16.dp)),
             shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surface
+            color = androidx.compose.ui.graphics.Color.Transparent
         ) {
             Column(
                 modifier = Modifier

@@ -78,6 +78,7 @@ import androidx.navigation.NavController
 import tf.monochrome.android.domain.model.AudioQuality
 import tf.monochrome.android.ui.eq.EqViewModel
 import tf.monochrome.android.domain.model.EqPreset
+import tf.monochrome.android.ui.components.liquidGlass
 import tf.monochrome.android.ui.theme.themeDisplayNames
 
 private val settingsTabs = listOf("Appearance", "Interface", "Scrobbling", "Audio", "Equalizer", "Library", "Collections", "Downloads", "Instances", "System")
@@ -910,8 +911,9 @@ private fun InstancesTab(viewModel: SettingsViewModel) {
 @Composable
 private fun InstanceCard(url: String, version: String?) {
     Card(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
+            .liquidGlass(shape = RoundedCornerShape(8.dp)),
+        colors = CardDefaults.cardColors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
         shape = RoundedCornerShape(8.dp)
     ) {
         Row(

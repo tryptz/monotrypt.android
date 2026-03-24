@@ -33,16 +33,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
+import tf.monochrome.android.ui.components.liquidGlass
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -158,6 +159,8 @@ fun MonochromeNavHost() {
     val themeBackground = MaterialTheme.colorScheme.background
     val themeSurface = MaterialTheme.colorScheme.surface
 
+    val hazeState = rememberHazeState()
+
     // System bar heights for overlapping content
     val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val navBarHeight = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -172,7 +175,7 @@ fun MonochromeNavHost() {
         )
 
         // ── Layer 1: Full-screen content (draws behind bars) ─────────────
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier.fillMaxSize().hazeSource(hazeState)) {
             // Pager for main tabs — fills entire screen
             if (isOnMainTab) {
                 HorizontalPager(
@@ -308,16 +311,17 @@ fun MonochromeNavHost() {
                         onPlayPauseClick = { playerViewModel.togglePlayPause() },
                         onSkipNextClick = { playerViewModel.skipToNext() },
                         onSkipPreviousClick = { playerViewModel.skipToPrevious() },
-                        onClick = { navController.navigate(Screen.NowPlaying.route) }
+                        onClick = { navController.navigate(Screen.NowPlaying.route) },
+                        hazeState = hazeState
                     )
                 }
 
                 // Frosted navigation bar
                 NavigationBar(
-                    containerColor = themeSurface.copy(alpha = 0.85f),
+                    containerColor = Color.Transparent,
                     contentColor = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier
-                        .blur(radius = 0.dp) // container blur if needed
+                        .liquidGlass(hazeState = hazeState)
                 ) {
                     bottomNavItems.forEachIndexed { index, item ->
                         val selected = pagerState.currentPage == index
@@ -352,7 +356,7 @@ fun MonochromeNavHost() {
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(navBarHeight)
-                        .background(themeSurface.copy(alpha = 0.85f))
+                        .liquidGlass(hazeState = hazeState)
                 )
             }
         } else if (showMiniPlayer) {
@@ -365,7 +369,8 @@ fun MonochromeNavHost() {
                     onPlayPauseClick = { playerViewModel.togglePlayPause() },
                     onSkipNextClick = { playerViewModel.skipToNext() },
                     onSkipPreviousClick = { playerViewModel.skipToPrevious() },
-                    onClick = { navController.navigate(Screen.NowPlaying.route) }
+                    onClick = { navController.navigate(Screen.NowPlaying.route) },
+                    hazeState = hazeState
                 )
             }
         }
