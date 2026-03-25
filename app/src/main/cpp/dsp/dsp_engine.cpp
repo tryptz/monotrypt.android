@@ -11,6 +11,12 @@
 #include "snapins/transient_shaper.h"
 #include "snapins/distortion.h"
 #include "snapins/shaper.h"
+#include "snapins/chorus.h"
+#include "snapins/ensemble.h"
+#include "snapins/flanger.h"
+#include "snapins/phaser.h"
+#include "snapins/delay.h"
+#include "snapins/reverb.h"
 #include <algorithm>
 #include <cstring>
 #include <sstream>
@@ -36,7 +42,13 @@ SnapinProcessor* createSnapin(SnapinType type) {
         case SnapinType::TRANSIENT_SHAPER: return new TransientShaperProcessor();
         case SnapinType::DISTORTION: return new DistortionProcessor();
         case SnapinType::SHAPER:     return new ShaperProcessor();
-        // Phase 3+ snapins — return nullptr until implemented
+        case SnapinType::CHORUS:     return new ChorusProcessor();
+        case SnapinType::ENSEMBLE:   return new EnsembleProcessor();
+        case SnapinType::FLANGER:    return new FlangerProcessor();
+        case SnapinType::PHASER:     return new PhaserProcessor();
+        case SnapinType::DELAY:      return new DelayProcessor();
+        case SnapinType::REVERB:     return new ReverbProcessor();
+        // Phase 4+ snapins — return nullptr until implemented
         default:
             LOGE("Unsupported snapin type: %d", static_cast<int>(type));
             return nullptr;
