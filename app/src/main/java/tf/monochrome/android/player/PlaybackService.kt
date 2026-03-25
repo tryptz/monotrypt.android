@@ -30,6 +30,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+import tf.monochrome.android.audio.dsp.MixBusProcessor
 import tf.monochrome.android.audio.eq.EqProcessor
 import tf.monochrome.android.data.preferences.PreferencesManager
 import tf.monochrome.android.data.repository.LibraryRepository
@@ -51,6 +52,7 @@ class PlaybackService : MediaSessionService() {
     @Inject lateinit var libraryRepository: LibraryRepository
     @Inject lateinit var scrobblingService: ScrobblingService
     @Inject lateinit var projectMEngineRepository: ProjectMEngineRepository
+    @Inject lateinit var mixBusProcessor: MixBusProcessor
 
     private var mediaSession: MediaSession? = null
     private lateinit var player: ExoPlayer
@@ -176,6 +178,7 @@ class PlaybackService : MediaSessionService() {
                         .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
                         .setAudioProcessors(
                             arrayOf(
+                                mixBusProcessor,  // DSP engine (mixer/effects)
                                 TeeAudioProcessor(
                                     ProjectMAudioTapProcessor(audioBus)
                                 )
