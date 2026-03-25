@@ -122,6 +122,57 @@ private fun getParamDefs(type: SnapinType?): List<ParamDef> = when (type) {
         ParamDef("Overflow", 0f, 2f, 0f, ""),
         ParamDef("DC Filter", 0f, 1f, 1f, "")
     )
+    SnapinType.CHORUS -> listOf(
+        ParamDef("Delay", 1f, 40f, 7f, "ms"),
+        ParamDef("Rate", 0.01f, 10f, 1f, "Hz"),
+        ParamDef("Depth", 0f, 100f, 50f, "%"),
+        ParamDef("Spread", 0f, 100f, 50f, "%"),
+        ParamDef("Mix", 0f, 100f, 50f, "%"),
+        ParamDef("Taps", 1f, 6f, 2f, "")
+    )
+    SnapinType.ENSEMBLE -> listOf(
+        ParamDef("Voices", 2f, 8f, 4f, ""),
+        ParamDef("Detune", 0f, 100f, 50f, "%"),
+        ParamDef("Spread", 0f, 100f, 80f, "%"),
+        ParamDef("Mix", 0f, 100f, 50f, "%"),
+        ParamDef("Motion", 0f, 2f, 0f, "")
+    )
+    SnapinType.FLANGER -> listOf(
+        ParamDef("Delay", 0.1f, 10f, 1f, "ms"),
+        ParamDef("Depth", 0f, 100f, 50f, "%"),
+        ParamDef("Rate", 0.01f, 10f, 0.5f, "Hz"),
+        ParamDef("Scroll", 0f, 1f, 0f, ""),
+        ParamDef("Offset", 0f, 360f, 0f, "deg"),
+        ParamDef("Motion", 0f, 10f, 0f, "Hz"),
+        ParamDef("Spread", 0f, 100f, 0f, "%"),
+        ParamDef("Feedback", -100f, 100f, 30f, "%"),
+        ParamDef("Mix", 0f, 100f, 50f, "%")
+    )
+    SnapinType.PHASER -> listOf(
+        ParamDef("Order", 2f, 12f, 4f, ""),
+        ParamDef("Cutoff", 20f, 20000f, 1000f, "Hz"),
+        ParamDef("Depth", 0f, 100f, 50f, "%"),
+        ParamDef("Rate", 0.01f, 10f, 0.5f, "Hz"),
+        ParamDef("Spread", 0f, 100f, 0f, "%"),
+        ParamDef("Mix", 0f, 100f, 50f, "%")
+    )
+    SnapinType.DELAY -> listOf(
+        ParamDef("Time", 1f, 2000f, 250f, "ms"),
+        ParamDef("Sync", 0f, 1f, 0f, ""),
+        ParamDef("Feedback", 0f, 100f, 30f, "%"),
+        ParamDef("Pan", -100f, 100f, 0f, ""),
+        ParamDef("Ping-Pong", 0f, 1f, 0f, ""),
+        ParamDef("Duck", 0f, 100f, 0f, "%"),
+        ParamDef("Mix", 0f, 100f, 50f, "%")
+    )
+    SnapinType.REVERB -> listOf(
+        ParamDef("Decay", 0.1f, 30f, 2f, "s"),
+        ParamDef("Dampen", 0f, 100f, 50f, "%"),
+        ParamDef("Size", 0f, 100f, 50f, "%"),
+        ParamDef("Width", 0f, 100f, 100f, "%"),
+        ParamDef("Early", 0f, 100f, 50f, "%"),
+        ParamDef("Mix", 0f, 100f, 30f, "%")
+    )
     else -> emptyList()
 }
 
