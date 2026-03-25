@@ -173,6 +173,105 @@ private fun getParamDefs(type: SnapinType?): List<ParamDef> = when (type) {
         ParamDef("Early", 0f, 100f, 50f, "%"),
         ParamDef("Mix", 0f, 100f, 30f, "%")
     )
+    SnapinType.BITCRUSH -> listOf(
+        ParamDef("Rate", 200f, 48000f, 48000f, "Hz"),
+        ParamDef("Bits", 1f, 24f, 24f, ""),
+        ParamDef("ADC Quality", 0f, 100f, 100f, "%"),
+        ParamDef("DAC Quality", 0f, 100f, 100f, "%"),
+        ParamDef("Dither", 0f, 100f, 0f, "%"),
+        ParamDef("Mix", 0f, 100f, 100f, "%")
+    )
+    SnapinType.COMB_FILTER -> listOf(
+        ParamDef("Cutoff", 20f, 20000f, 440f, "Hz"),
+        ParamDef("Mix", 0f, 100f, 50f, "%"),
+        ParamDef("Polarity", 0f, 1f, 0f, ""),
+        ParamDef("Stereo", 0f, 1f, 0f, "")
+    )
+    SnapinType.CHANNEL_MIXER -> listOf(
+        ParamDef("L\u2192L", -1f, 1f, 1f, ""),
+        ParamDef("R\u2192L", -1f, 1f, 0f, ""),
+        ParamDef("L\u2192R", -1f, 1f, 0f, ""),
+        ParamDef("R\u2192R", -1f, 1f, 1f, "")
+    )
+    SnapinType.FORMANT_FILTER -> listOf(
+        ParamDef("Vowel X", 0f, 1f, 0.5f, ""),
+        ParamDef("Vowel Y", 0f, 1f, 0.5f, ""),
+        ParamDef("Q", 0.5f, 20f, 5f, ""),
+        ParamDef("Lows", 0f, 100f, 0f, "%"),
+        ParamDef("Highs", 0f, 100f, 0f, "%")
+    )
+    SnapinType.FREQUENCY_SHIFTER -> listOf(
+        ParamDef("Shift", -5000f, 5000f, 0f, "Hz")
+    )
+    SnapinType.HAAS -> listOf(
+        ParamDef("Channel", 0f, 1f, 0f, ""),
+        ParamDef("Delay", 0f, 30f, 10f, "ms")
+    )
+    SnapinType.LADDER_FILTER -> listOf(
+        ParamDef("Cutoff", 20f, 20000f, 1000f, "Hz"),
+        ParamDef("Resonance", 0f, 100f, 0f, "%"),
+        ParamDef("Topology", 0f, 1f, 0f, ""),
+        ParamDef("Saturate", 0f, 1f, 0f, ""),
+        ParamDef("Drive", 0f, 48f, 0f, "dB"),
+        ParamDef("Bias", -1f, 1f, 0f, "")
+    )
+    SnapinType.NONLINEAR_FILTER -> listOf(
+        ParamDef("Type", 0f, 3f, 0f, ""),
+        ParamDef("Cutoff", 20f, 20000f, 1000f, "Hz"),
+        ParamDef("Q", 0.1f, 20f, 0.707f, ""),
+        ParamDef("Drive", 0f, 48f, 0f, "dB"),
+        ParamDef("Mode", 0f, 4f, 0f, "")
+    )
+    SnapinType.PHASE_DISTORTION -> listOf(
+        ParamDef("Drive", 0f, 100f, 30f, "%"),
+        ParamDef("Normalize", 0f, 1f, 0f, ""),
+        ParamDef("Tone", 0f, 100f, 100f, "%"),
+        ParamDef("Bias", -3.14f, 3.14f, 0f, "rad"),
+        ParamDef("Spread", 0f, 100f, 0f, "%"),
+        ParamDef("Mix", 0f, 100f, 100f, "%")
+    )
+    SnapinType.PITCH_SHIFTER -> listOf(
+        ParamDef("Pitch", -24f, 24f, 0f, "st"),
+        ParamDef("Jitter", 0f, 100f, 0f, "%"),
+        ParamDef("Grain Size", 10f, 200f, 50f, "ms"),
+        ParamDef("Mix", 0f, 100f, 100f, "%")
+    )
+    SnapinType.RESONATOR -> listOf(
+        ParamDef("Pitch", 0f, 127f, 69f, ""),
+        ParamDef("Decay", 0f, 100f, 50f, "%"),
+        ParamDef("Intensity", 0f, 100f, 50f, "%"),
+        ParamDef("Timbre", 0f, 1f, 0f, ""),
+        ParamDef("Mix", 0f, 100f, 50f, "%")
+    )
+    SnapinType.REVERSER -> listOf(
+        ParamDef("Time", 50f, 2000f, 250f, "ms"),
+        ParamDef("Sync", 0f, 1f, 0f, ""),
+        ParamDef("Crossfade", 1f, 50f, 10f, "%"),
+        ParamDef("Mix", 0f, 100f, 50f, "%")
+    )
+    SnapinType.RING_MOD -> listOf(
+        ParamDef("Frequency", 1f, 5000f, 440f, "Hz"),
+        ParamDef("Bias", 0f, 100f, 0f, "%"),
+        ParamDef("Rectify", -100f, 100f, 0f, "%"),
+        ParamDef("Spread", 0f, 100f, 0f, "%"),
+        ParamDef("Mix", 0f, 100f, 100f, "%")
+    )
+    SnapinType.TAPE_STOP -> listOf(
+        ParamDef("Play", 0f, 1f, 1f, ""),
+        ParamDef("Stop Time", 50f, 5000f, 500f, "ms"),
+        ParamDef("Start Time", 50f, 5000f, 500f, "ms"),
+        ParamDef("Curve", 0f, 100f, 50f, "%")
+    )
+    SnapinType.TRANCE_GATE -> listOf(
+        ParamDef("Pattern", 0f, 7f, 0f, ""),
+        ParamDef("Length", 1f, 32f, 16f, ""),
+        ParamDef("Attack", 0.1f, 100f, 1f, "ms"),
+        ParamDef("Decay", 0.1f, 500f, 50f, "ms"),
+        ParamDef("Sustain", 0f, 100f, 100f, "%"),
+        ParamDef("Release", 0.1f, 500f, 10f, "ms"),
+        ParamDef("Mix", 0f, 100f, 100f, "%"),
+        ParamDef("Resolution", 0f, 3f, 2f, "")
+    )
     else -> emptyList()
 }
 

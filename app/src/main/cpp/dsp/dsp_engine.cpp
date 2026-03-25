@@ -17,6 +17,21 @@
 #include "snapins/phaser.h"
 #include "snapins/delay.h"
 #include "snapins/reverb.h"
+#include "snapins/bitcrush.h"
+#include "snapins/comb_filter.h"
+#include "snapins/channel_mixer.h"
+#include "snapins/formant_filter.h"
+#include "snapins/frequency_shifter.h"
+#include "snapins/haas.h"
+#include "snapins/ladder_filter.h"
+#include "snapins/nonlinear_filter.h"
+#include "snapins/phase_distortion.h"
+#include "snapins/pitch_shifter.h"
+#include "snapins/resonator.h"
+#include "snapins/reverser.h"
+#include "snapins/ring_mod.h"
+#include "snapins/tape_stop.h"
+#include "snapins/trance_gate.h"
 #include <algorithm>
 #include <cstring>
 #include <sstream>
@@ -48,7 +63,21 @@ SnapinProcessor* createSnapin(SnapinType type) {
         case SnapinType::PHASER:     return new PhaserProcessor();
         case SnapinType::DELAY:      return new DelayProcessor();
         case SnapinType::REVERB:     return new ReverbProcessor();
-        // Phase 4+ snapins — return nullptr until implemented
+        case SnapinType::BITCRUSH:   return new BitcrushProcessor();
+        case SnapinType::COMB_FILTER: return new CombFilterProcessor();
+        case SnapinType::CHANNEL_MIXER: return new ChannelMixerProcessor();
+        case SnapinType::FORMANT_FILTER: return new FormantFilterProcessor();
+        case SnapinType::FREQUENCY_SHIFTER: return new FrequencyShifterProcessor();
+        case SnapinType::HAAS:       return new HaasProcessor();
+        case SnapinType::LADDER_FILTER: return new LadderFilterProcessor();
+        case SnapinType::NONLINEAR_FILTER: return new NonlinearFilterProcessor();
+        case SnapinType::PHASE_DISTORTION: return new PhaseDistortionProcessor();
+        case SnapinType::PITCH_SHIFTER: return new PitchShifterProcessor();
+        case SnapinType::RESONATOR:  return new ResonatorProcessor();
+        case SnapinType::REVERSER:   return new ReverserProcessor();
+        case SnapinType::RING_MOD:   return new RingModProcessor();
+        case SnapinType::TAPE_STOP:  return new TapeStopProcessor();
+        case SnapinType::TRANCE_GATE: return new TranceGateProcessor();
         default:
             LOGE("Unsupported snapin type: %d", static_cast<int>(type));
             return nullptr;
