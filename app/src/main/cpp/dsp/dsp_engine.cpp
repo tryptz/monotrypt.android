@@ -5,6 +5,12 @@
 #include "snapins/eq_3band.h"
 #include "snapins/compressor.h"
 #include "snapins/limiter.h"
+#include "snapins/gate.h"
+#include "snapins/dynamics.h"
+#include "snapins/compactor.h"
+#include "snapins/transient_shaper.h"
+#include "snapins/distortion.h"
+#include "snapins/shaper.h"
 #include <algorithm>
 #include <cstring>
 #include <sstream>
@@ -24,7 +30,13 @@ SnapinProcessor* createSnapin(SnapinType type) {
         case SnapinType::EQ_3BAND:   return new Eq3BandProcessor();
         case SnapinType::COMPRESSOR: return new CompressorProcessor();
         case SnapinType::LIMITER:    return new LimiterProcessor();
-        // Phase 2+ snapins — return nullptr until implemented
+        case SnapinType::GATE:       return new GateProcessor();
+        case SnapinType::DYNAMICS:   return new DynamicsProcessor();
+        case SnapinType::COMPACTOR:  return new CompactorProcessor();
+        case SnapinType::TRANSIENT_SHAPER: return new TransientShaperProcessor();
+        case SnapinType::DISTORTION: return new DistortionProcessor();
+        case SnapinType::SHAPER:     return new ShaperProcessor();
+        // Phase 3+ snapins — return nullptr until implemented
         default:
             LOGE("Unsupported snapin type: %d", static_cast<int>(type));
             return nullptr;
