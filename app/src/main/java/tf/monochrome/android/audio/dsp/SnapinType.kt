@@ -37,7 +37,7 @@ enum class SnapinType(val displayName: String, val category: SnapinCategory) {
     TRANCE_GATE("Trance Gate", SnapinCategory.DYNAMICS);
 
     val isAvailable: Boolean
-        get() = ordinal <= REVERB.ordinal  // Phase 1 + 2 + 3
+        get() = true  // All 33 snapins implemented
 
     companion object {
         fun fromOrdinal(ordinal: Int): SnapinType? =
