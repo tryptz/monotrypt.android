@@ -6,10 +6,12 @@ import tf.monochrome.android.data.db.dao.DownloadDao
 import tf.monochrome.android.data.db.dao.EqPresetDao
 import tf.monochrome.android.data.db.dao.FavoriteDao
 import tf.monochrome.android.data.db.dao.HistoryDao
+import tf.monochrome.android.data.db.dao.MixPresetDao
 import tf.monochrome.android.data.db.dao.PlaylistDao
 import tf.monochrome.android.data.db.entity.CachedLyricsEntity
 import tf.monochrome.android.data.db.entity.DownloadedTrackEntity
 import tf.monochrome.android.data.db.entity.EqPresetEntity
+import tf.monochrome.android.data.db.entity.MixPresetEntity
 import tf.monochrome.android.data.db.entity.FavoriteAlbumEntity
 import tf.monochrome.android.data.db.entity.FavoriteArtistEntity
 import tf.monochrome.android.data.db.entity.FavoriteTrackEntity
@@ -44,6 +46,7 @@ import tf.monochrome.android.data.local.db.ScanStateEntity
         DownloadedTrackEntity::class,
         CachedLyricsEntity::class,
         EqPresetEntity::class,
+        MixPresetEntity::class,
         // Local media
         LocalTrackEntity::class,
         LocalAlbumEntity::class,
@@ -60,7 +63,7 @@ import tf.monochrome.android.data.local.db.ScanStateEntity
         CollectionTrackArtistCrossRef::class,
         CollectionAlbumArtistCrossRef::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class MusicDatabase : RoomDatabase() {
@@ -71,4 +74,5 @@ abstract class MusicDatabase : RoomDatabase() {
     abstract fun eqPresetDao(): EqPresetDao
     abstract fun localMediaDao(): LocalMediaDao
     abstract fun collectionDao(): CollectionDao
+    abstract fun mixPresetDao(): MixPresetDao
 }
