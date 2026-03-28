@@ -368,8 +368,12 @@ fun MonochromeNavHost() {
                 )
             }
         } else if (showMiniPlayer) {
-            // Mini player on non-tab screens
-            Box(modifier = Modifier.align(Alignment.BottomCenter)) {
+            // Mini player on non-tab screens — pad above system nav bar
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = navBarHeight)
+            ) {
                 MiniPlayer(
                     track = currentTrack,
                     isPlaying = isPlaying,

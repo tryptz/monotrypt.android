@@ -3,15 +3,18 @@ package tf.monochrome.android.ui.mixer
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import tf.monochrome.android.audio.dsp.DspEngineManager
 import tf.monochrome.android.audio.dsp.SnapinType
 import tf.monochrome.android.audio.dsp.model.BusConfig
+import tf.monochrome.android.audio.dsp.model.BusLevels
 import tf.monochrome.android.audio.dsp.model.MixPreset
 import tf.monochrome.android.data.repository.MixPresetRepository
 import javax.inject.Inject
@@ -24,9 +27,20 @@ class MixerViewModel @Inject constructor(
 
     val enabled: StateFlow<Boolean> = dspManager.enabled
     val buses: StateFlow<List<BusConfig>> = dspManager.buses
+    val busLevels: StateFlow<List<BusLevels>> = dspManager.busLevels
 
     val presets: StateFlow<List<MixPreset>> = presetRepository.getAllPresets()
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+    init {
+        // Poll meter levels at ~50ms (20 fps) while the ViewModel is alive
+        viewModelScope.launch {
+            while (isActive) {
+                dspManager.pollLevels()
+                delay(50L)
+            }
+        }
+    }
 
     private val _selectedBusIndex = MutableStateFlow(0)
     val selectedBusIndex: StateFlow<Int> = _selectedBusIndex.asStateFlow()

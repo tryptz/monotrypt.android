@@ -120,7 +120,11 @@ void DspEngine::process(float* left, float* right, int numFrames) {
         Bus& bus = buses_[b];
 
         // Skip if muted or (solo mode active and this bus not soloed)
-        if (bus.muted || (hasSolo && !bus.soloed)) continue;
+        if (bus.muted || (hasSolo && !bus.soloed)) {
+            bus.peakL.store(0.0f, std::memory_order_relaxed);
+            bus.peakR.store(0.0f, std::memory_order_relaxed);
+            continue;
+        }
 
         // Copy input to bus scratch buffer
         std::copy(left, left + numFrames, busL_.data());
@@ -137,12 +141,22 @@ void DspEngine::process(float* left, float* right, int numFrames) {
         recalcBusGains(bus);
 
         // Apply bus gain + pan with smoothing, sum into master input
+        float busPeakL = 0.0f, busPeakR = 0.0f;
         for (int i = 0; i < numFrames; i++) {
             bus.smoothGainL += gainSmoothCoeff_ * (bus.targetGainL - bus.smoothGainL);
             bus.smoothGainR += gainSmoothCoeff_ * (bus.targetGainR - bus.smoothGainR);
-            sumL_[i] += busL_[i] * bus.smoothGainL;
-            sumR_[i] += busR_[i] * bus.smoothGainR;
+            float sL = busL_[i] * bus.smoothGainL;
+            float sR = busR_[i] * bus.smoothGainR;
+            sumL_[i] += sL;
+            sumR_[i] += sR;
+            float absL = std::fabs(sL);
+            float absR = std::fabs(sR);
+            if (absL > busPeakL) busPeakL = absL;
+            if (absR > busPeakR) busPeakR = absR;
         }
+        // Update peak meters (relaxed store — UI reads are non-critical)
+        bus.peakL.store(busPeakL, std::memory_order_relaxed);
+        bus.peakR.store(busPeakR, std::memory_order_relaxed);
     }
 
     // Run master bus chain
@@ -155,12 +169,19 @@ void DspEngine::process(float* left, float* right, int numFrames) {
 
     // Apply master gain and write to output
     recalcBusGains(master);
+    float masterPeakL = 0.0f, masterPeakR = 0.0f;
     for (int i = 0; i < numFrames; i++) {
         master.smoothGainL += gainSmoothCoeff_ * (master.targetGainL - master.smoothGainL);
         master.smoothGainR += gainSmoothCoeff_ * (master.targetGainR - master.smoothGainR);
         left[i]  = sumL_[i] * master.smoothGainL;
         right[i] = sumR_[i] * master.smoothGainR;
+        float absL = std::fabs(left[i]);
+        float absR = std::fabs(right[i]);
+        if (absL > masterPeakL) masterPeakL = absL;
+        if (absR > masterPeakR) masterPeakR = absR;
     }
+    master.peakL.store(masterPeakL, std::memory_order_relaxed);
+    master.peakR.store(masterPeakR, std::memory_order_relaxed);
 }
 
 // ── Bus control ─────────────────────────────────────────────────────────
@@ -244,6 +265,19 @@ void DspEngine::setPluginBypassed(int busIndex, int slotIndex, bool bypassed) {
     if (slotIndex < 0 || slotIndex >= static_cast<int>(bus.plugins.size())) return;
     if (bus.plugins[slotIndex]) {
         bus.plugins[slotIndex]->setBypassed(bypassed);
+    }
+}
+
+// ── Metering ────────────────────────────────────────────────────────────
+
+void DspEngine::getBusLevels(float* outLevels, int maxFloats) {
+    int count = std::min(maxFloats, TOTAL_BUSES * 2);
+    for (int b = 0; b < TOTAL_BUSES && b * 2 + 1 < count; b++) {
+        float peakL = buses_[b].peakL.load(std::memory_order_relaxed);
+        float peakR = buses_[b].peakR.load(std::memory_order_relaxed);
+        // Convert to dB, floor at -60
+        outLevels[b * 2]     = (peakL > 1e-10f) ? 20.0f * std::log10(peakL) : -60.0f;
+        outLevels[b * 2 + 1] = (peakR > 1e-10f) ? 20.0f * std::log10(peakR) : -60.0f;
     }
 }
 

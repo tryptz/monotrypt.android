@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -29,6 +30,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import tf.monochrome.android.audio.dsp.model.BusConfig
+import tf.monochrome.android.audio.dsp.model.BusLevels
 
 @Composable
 fun BusStrip(
@@ -39,7 +41,8 @@ fun BusStrip(
     onPanChange: (Float) -> Unit,
     onToggleMute: () -> Unit,
     onToggleSolo: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    levels: BusLevels = BusLevels()
 ) {
     val borderColor = if (isSelected) MaterialTheme.colorScheme.primary
         else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
@@ -103,6 +106,16 @@ fun BusStrip(
             )
         )
 
+        // Stereo level meter
+        LevelMeter(
+            peakDbL = levels.peakDbL,
+            peakDbR = levels.peakDbR,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(60.dp)
+                .padding(horizontal = 4.dp)
+        )
+
         Spacer(modifier = Modifier.height(4.dp))
 
         // Mute / Solo buttons
@@ -149,5 +162,65 @@ fun BusStrip(
                 }
             }
         }
+    }
+}
+
+/**
+ * Stereo level meter with green-yellow-red gradient.
+ * Range: -60 dB (silence) to 0 dB (full scale). Values above 0 dB clip red.
+ */
+@Composable
+private fun LevelMeter(
+    peakDbL: Float,
+    peakDbR: Float,
+    modifier: Modifier = Modifier
+) {
+    // Normalize dB to 0..1 fraction (−60 dB → 0, 0 dB → 1)
+    val fracL = ((peakDbL + 60f) / 60f).coerceIn(0f, 1f)
+    val fracR = ((peakDbR + 60f) / 60f).coerceIn(0f, 1f)
+    val clipL = peakDbL > -0.5f
+    val clipR = peakDbR > -0.5f
+
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(3.dp))
+            .background(Color(0xFF1A1A1A)),
+        horizontalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterHorizontally)
+    ) {
+        MeterBar(fraction = fracL, clipping = clipL, modifier = Modifier.weight(1f).fillMaxHeight())
+        MeterBar(fraction = fracR, clipping = clipR, modifier = Modifier.weight(1f).fillMaxHeight())
+    }
+}
+
+@Composable
+private fun MeterBar(
+    fraction: Float,
+    clipping: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Box(modifier = modifier.padding(vertical = 2.dp, horizontal = 1.dp)) {
+        // Background track
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight()
+                .clip(RoundedCornerShape(2.dp))
+                .background(Color(0xFF2A2A2A))
+        )
+        // Filled level (grows from bottom)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(fraction)
+                .align(Alignment.BottomCenter)
+                .clip(RoundedCornerShape(2.dp))
+                .background(
+                    when {
+                        clipping -> Color(0xFFE53935)       // Red — clipping
+                        fraction > 0.75f -> Color(0xFFFFC107)  // Yellow — hot
+                        else -> Color(0xFF4CAF50)           // Green — normal
+                    }
+                )
+        )
     }
 }

@@ -4,6 +4,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import tf.monochrome.android.audio.dsp.model.BusConfig
+import tf.monochrome.android.audio.dsp.model.BusLevels
 import tf.monochrome.android.audio.dsp.model.PluginInstance
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -17,6 +18,27 @@ class DspEngineManager @Inject constructor(
 
     private val _buses = MutableStateFlow(BusConfig.defaultBuses())
     val buses: StateFlow<List<BusConfig>> = _buses.asStateFlow()
+
+    // Meter levels — polled from UI at ~50ms intervals
+    private val levelsBuffer = FloatArray(TOTAL_BUSES * 2)  // [peakL, peakR] per bus
+    private val _busLevels = MutableStateFlow(List(TOTAL_BUSES) { BusLevels() })
+    val busLevels: StateFlow<List<BusLevels>> = _busLevels.asStateFlow()
+
+    fun pollLevels() {
+        val ptr = processor.getEnginePtr()
+        if (ptr == 0L) return
+        processor.nativeGetBusLevels(ptr, levelsBuffer)
+        _busLevels.value = List(TOTAL_BUSES) { b ->
+            BusLevels(
+                peakDbL = levelsBuffer[b * 2],
+                peakDbR = levelsBuffer[b * 2 + 1]
+            )
+        }
+    }
+
+    companion object {
+        private const val TOTAL_BUSES = 5
+    }
 
     fun setEnabled(enabled: Boolean) {
         _enabled.value = enabled

@@ -5,6 +5,7 @@
 #include <mutex>
 #include <cmath>
 #include <string>
+#include <atomic>
 
 static constexpr int NUM_MIX_BUSES = 4;
 static constexpr int MASTER_BUS = 4;
@@ -23,6 +24,10 @@ struct Bus {
     float smoothGainR = 1.0f;
     float targetGainL = 1.0f;
     float targetGainR = 1.0f;
+
+    // Peak meter levels (written by audio thread, read by UI thread)
+    std::atomic<float> peakL{0.0f};
+    std::atomic<float> peakR{0.0f};
 };
 
 class DspEngine {
@@ -45,6 +50,10 @@ public:
     void movePlugin(int busIndex, int fromSlot, int toSlot);
     void setParameter(int busIndex, int slotIndex, int paramIndex, float value);
     void setPluginBypassed(int busIndex, int slotIndex, bool bypassed);
+
+    // Metering — returns peak levels in dB and resets peaks
+    // Output: [bus0_peakL, bus0_peakR, bus1_peakL, bus1_peakR, ..., master_peakL, master_peakR]
+    void getBusLevels(float* outLevels, int maxFloats);
 
     // State serialization
     std::string getStateJson() const;
