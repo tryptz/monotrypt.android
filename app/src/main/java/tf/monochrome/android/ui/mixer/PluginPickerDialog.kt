@@ -17,6 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import tf.monochrome.android.audio.dsp.SnapinCategory
 import tf.monochrome.android.audio.dsp.SnapinType
+import tf.monochrome.android.ui.theme.MonoDimens
 
 @Composable
 fun PluginPickerDialog(
@@ -25,6 +26,7 @@ fun PluginPickerDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = MonoDimens.cardAlpha),
         title = { Text("Add Plugin") },
         text = {
             Column(

@@ -36,8 +36,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import tf.monochrome.android.ui.components.liquidGlass
+import tf.monochrome.android.ui.theme.MonoDimens
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,13 +82,17 @@ fun MixerScreen(
                     )
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = Color.Transparent
                 )
             )
         },
         floatingActionButton = {
             if (selectedBus != null) {
-                FloatingActionButton(onClick = { viewModel.showAddPlugin() }) {
+                FloatingActionButton(
+                    onClick = { viewModel.showAddPlugin() },
+                    containerColor = Color.Transparent,
+                    modifier = Modifier.liquidGlass(shape = MonoDimens.shapeLg)
+                ) {
                     Icon(Icons.Default.Add, "Add Plugin")
                 }
             }

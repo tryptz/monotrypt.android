@@ -19,6 +19,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import tf.monochrome.android.audio.dsp.SnapinType
 import tf.monochrome.android.audio.dsp.model.PluginInstance
+import tf.monochrome.android.ui.theme.MonoDimens
 
 // Parameter metadata per snapin type
 data class ParamDef(
@@ -289,7 +290,8 @@ fun PluginEditorSheet(
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = sheetState
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = MonoDimens.cardAlpha)
     ) {
         Column(
             modifier = Modifier

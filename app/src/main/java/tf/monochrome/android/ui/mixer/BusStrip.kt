@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import tf.monochrome.android.audio.dsp.model.BusConfig
 import tf.monochrome.android.audio.dsp.model.BusLevels
+import tf.monochrome.android.ui.components.liquidGlass
 
 @Composable
 fun BusStrip(
@@ -52,7 +53,7 @@ fun BusStrip(
             .width(80.dp)
             .clip(RoundedCornerShape(12.dp))
             .border(1.dp, borderColor, RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .liquidGlass(shape = RoundedCornerShape(12.dp))
             .clickable { onSelect() }
             .padding(8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
