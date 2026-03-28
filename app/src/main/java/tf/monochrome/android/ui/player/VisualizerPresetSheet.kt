@@ -39,6 +39,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import tf.monochrome.android.domain.model.VisualizerPreset
+import tf.monochrome.android.ui.components.liquidGlass
+import tf.monochrome.android.ui.theme.MonoDimens
+import androidx.compose.ui.graphics.Color
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -78,7 +81,7 @@ fun VisualizerPresetSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surface,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = MonoDimens.cardAlpha),
         contentColor = MaterialTheme.colorScheme.onSurface
     ) {
         Column(
@@ -219,12 +222,13 @@ private fun VisualizerPresetRow(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
+            .liquidGlass(shape = RoundedCornerShape(20.dp))
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(20.dp),
         color = if (selected) {
             MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
         } else {
-            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
+            Color.Transparent
         }
     ) {
         Row(

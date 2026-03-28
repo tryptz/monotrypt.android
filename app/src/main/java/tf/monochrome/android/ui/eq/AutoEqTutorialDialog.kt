@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import tf.monochrome.android.ui.theme.MonoDimens
 
 private data class TutorialStep(
     val title: String,
@@ -99,7 +100,7 @@ fun AutoEqTutorialDialog(
                 .fillMaxWidth(0.9f)
                 .wrapContentHeight(),
             shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surface,
+            color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = MonoDimens.cardAlpha),
             tonalElevation = 6.dp
         ) {
             Column(
