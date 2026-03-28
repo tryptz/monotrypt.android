@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import tf.monochrome.android.domain.model.Headphone
 import tf.monochrome.android.ui.components.bounceClick
+import tf.monochrome.android.ui.components.liquidGlass
 
 /**
  * Pill-shaped category tab chip (ALL / OVER-EAR / IN-EAR)
@@ -106,11 +107,8 @@ fun ParameterDropdown(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(
-                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        RoundedCornerShape(8.dp)
-                    )
                     .clip(RoundedCornerShape(8.dp))
+                    .liquidGlass(shape = RoundedCornerShape(8.dp))
                     .clickable { expanded = true }
                     .padding(horizontal = 12.dp, vertical = 12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -310,11 +308,8 @@ fun SelectorRow(
         Row(
             modifier = Modifier
                 .weight(1f)
-                .background(
-                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    RoundedCornerShape(8.dp)
-                )
                 .clip(RoundedCornerShape(8.dp))
+                .liquidGlass(shape = RoundedCornerShape(8.dp))
                 .clickable(onClick = onClick)
                 .padding(horizontal = 14.dp, vertical = 14.dp),
             horizontalArrangement = Arrangement.SpaceBetween,

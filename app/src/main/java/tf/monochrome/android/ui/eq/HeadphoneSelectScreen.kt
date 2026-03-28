@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import tf.monochrome.android.domain.model.Headphone
+import tf.monochrome.android.ui.theme.MonoDimens
 
 /**
  * Full-screen headphone browser with A-Z alphabetical index sidebar.
@@ -116,7 +117,7 @@ fun HeadphoneSelectScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surface)
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = MonoDimens.cardAlpha))
     ) {
         // ─── Header ───
         Row(
@@ -177,8 +178,8 @@ fun HeadphoneSelectScreen(
             singleLine = true,
             shape = RoundedCornerShape(12.dp),
             colors = OutlinedTextFieldDefaults.colors(
-                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = MonoDimens.glassAlpha),
+                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = MonoDimens.glassAlpha)
             )
         )
 
@@ -249,7 +250,7 @@ fun HeadphoneSelectScreen(
                                     color = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .background(MaterialTheme.colorScheme.surface)
+                                        .background(MaterialTheme.colorScheme.surface.copy(alpha = MonoDimens.cardAlpha))
                                         .padding(horizontal = 16.dp, vertical = 6.dp)
                                 )
                             }
