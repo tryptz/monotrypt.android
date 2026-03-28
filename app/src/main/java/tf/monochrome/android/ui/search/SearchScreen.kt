@@ -24,6 +24,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
@@ -35,8 +36,10 @@ import tf.monochrome.android.ui.components.LoadingScreen
 import tf.monochrome.android.ui.components.SectionHeader
 import tf.monochrome.android.ui.components.TrackContextMenu
 import tf.monochrome.android.ui.components.TrackItem
+import tf.monochrome.android.ui.components.liquidGlass
 import tf.monochrome.android.ui.navigation.Screen
 import tf.monochrome.android.ui.player.PlayerViewModel
+import tf.monochrome.android.ui.theme.MonoDimens
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -131,9 +134,13 @@ fun SearchScreen(
             },
             expanded = false,
             onExpandedChange = {},
+            colors = SearchBarDefaults.colors(
+                containerColor = Color.Transparent
+            ),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 8.dp)
+                .liquidGlass(shape = MonoDimens.shapePill)
         ) {}
 
         when {

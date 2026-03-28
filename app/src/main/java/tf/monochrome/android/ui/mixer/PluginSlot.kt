@@ -22,6 +22,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import tf.monochrome.android.audio.dsp.model.PluginInstance
+import tf.monochrome.android.ui.components.liquidGlass
 
 @Composable
 fun PluginSlot(
@@ -35,7 +36,7 @@ fun PluginSlot(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .liquidGlass(shape = RoundedCornerShape(8.dp))
             .clickable { onEdit() }
             .alpha(if (plugin.bypassed) 0.5f else 1f)
             .padding(horizontal = 12.dp, vertical = 8.dp),

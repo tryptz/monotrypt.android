@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.flow.StateFlow
 import tf.monochrome.android.domain.model.LyricLine
 import tf.monochrome.android.domain.model.Lyrics
+import tf.monochrome.android.ui.theme.MonoDimens
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -51,7 +52,7 @@ fun LyricsSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surface,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = MonoDimens.cardAlpha),
         contentColor = MaterialTheme.colorScheme.onSurface
     ) {
         Column(

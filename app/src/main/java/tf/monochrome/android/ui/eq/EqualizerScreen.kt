@@ -64,6 +64,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import tf.monochrome.android.domain.model.EqBand
 import tf.monochrome.android.ui.components.bounceClick
+import tf.monochrome.android.ui.components.liquidGlass
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -239,9 +240,8 @@ fun EqualizerScreen(
                                 onClick = { measurementFilePicker.launch("text/*") },
                                 modifier = Modifier
                                     .size(44.dp)
-                                    .background(
-                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                        RoundedCornerShape(8.dp)
+                                    .liquidGlass(
+                                        shape = RoundedCornerShape(8.dp)
                                     )
                             ) {
                                 Icon(
@@ -268,9 +268,8 @@ fun EqualizerScreen(
                                     onClick = { targetFilePicker.launch("text/*") },
                                     modifier = Modifier
                                         .size(44.dp)
-                                        .background(
-                                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                            RoundedCornerShape(8.dp)
+                                        .liquidGlass(
+                                            shape = RoundedCornerShape(8.dp)
                                         )
                                 ) {
                                     Icon(
@@ -373,9 +372,8 @@ fun EqualizerScreen(
                         onClick = { /* export EQ preset */ },
                         modifier = Modifier
                             .size(52.dp)
-                            .background(
-                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                RoundedCornerShape(12.dp)
+                            .liquidGlass(
+                                shape = RoundedCornerShape(12.dp)
                             )
                     ) {
                         Icon(
@@ -426,11 +424,8 @@ fun EqualizerScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(
-                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                RoundedCornerShape(8.dp)
-                            )
                             .clip(RoundedCornerShape(8.dp))
+                            .liquidGlass(shape = RoundedCornerShape(8.dp))
                             .clickable { showHeadphoneSelect = true }
                             .padding(horizontal = 14.dp, vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -551,11 +546,8 @@ fun EqualizerScreen(
                             modifier = Modifier
                                 .weight(1f)
                                 .height(44.dp)
-                                .background(
-                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                    RoundedCornerShape(8.dp)
-                                )
                                 .clip(RoundedCornerShape(8.dp))
+                                .liquidGlass(shape = RoundedCornerShape(8.dp))
                                 .bounceClick(onClick = { viewModel.resetToFlat() }),
                             contentAlignment = Alignment.Center
                         ) {
@@ -565,11 +557,8 @@ fun EqualizerScreen(
                             modifier = Modifier
                                 .weight(1f)
                                 .height(44.dp)
-                                .background(
-                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                    RoundedCornerShape(8.dp)
-                                )
                                 .clip(RoundedCornerShape(8.dp))
+                                .liquidGlass(shape = RoundedCornerShape(8.dp))
                                 .bounceClick(onClick = { showSaveDialog = true }),
                             contentAlignment = Alignment.Center
                         ) {
@@ -711,10 +700,7 @@ fun EqBandSlider(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                RoundedCornerShape(8.dp)
-            )
+            .liquidGlass(shape = RoundedCornerShape(8.dp))
             .padding(12.dp)
     ) {
         // --- Frequency Slider ---
