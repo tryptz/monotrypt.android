@@ -140,6 +140,21 @@ Java_tf_monochrome_android_audio_dsp_MixBusProcessor_nativeSetPluginBypassed(
     if (engine) engine->setPluginBypassed(busIndex, slotIndex, bypassed);
 }
 
+// ── Metering ────────────────────────────────────────────────────────────
+
+extern "C" JNIEXPORT void JNICALL
+Java_tf_monochrome_android_audio_dsp_MixBusProcessor_nativeGetBusLevels(
+    JNIEnv* env, jobject /*thiz*/, jlong enginePtr, jfloatArray outLevels) {
+    auto* engine = getEngine(enginePtr);
+    if (!engine || !outLevels) return;
+    int len = env->GetArrayLength(outLevels);
+    float* arr = env->GetFloatArrayElements(outLevels, nullptr);
+    if (arr) {
+        engine->getBusLevels(arr, len);
+        env->ReleaseFloatArrayElements(outLevels, arr, 0);
+    }
+}
+
 // ── State serialization ─────────────────────────────────────────────────
 
 extern "C" JNIEXPORT jstring JNICALL

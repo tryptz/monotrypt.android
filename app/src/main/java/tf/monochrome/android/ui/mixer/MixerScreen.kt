@@ -47,6 +47,7 @@ fun MixerScreen(
 ) {
     val enabled by viewModel.enabled.collectAsState()
     val buses by viewModel.buses.collectAsState()
+    val busLevels by viewModel.busLevels.collectAsState()
     val selectedBusIndex by viewModel.selectedBusIndex.collectAsState()
     val showPluginPicker by viewModel.showPluginPicker.collectAsState()
     val editingPlugin by viewModel.editingPlugin.collectAsState()
@@ -111,7 +112,8 @@ fun MixerScreen(
                         onGainChange = { viewModel.setBusGain(index, it) },
                         onPanChange = { viewModel.setBusPan(index, it) },
                         onToggleMute = { viewModel.toggleMute(index) },
-                        onToggleSolo = { viewModel.toggleSolo(index) }
+                        onToggleSolo = { viewModel.toggleSolo(index) },
+                        levels = busLevels.getOrNull(index) ?: tf.monochrome.android.audio.dsp.model.BusLevels()
                     )
                 }
             }

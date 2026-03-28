@@ -46,6 +46,7 @@ class MixBusProcessor @Inject constructor() : AudioProcessor {
     external fun nativeMovePlugin(enginePtr: Long, busIndex: Int, fromSlot: Int, toSlot: Int)
     external fun nativeSetParameter(enginePtr: Long, busIndex: Int, slotIndex: Int, paramIndex: Int, value: Float)
     external fun nativeSetPluginBypassed(enginePtr: Long, busIndex: Int, slotIndex: Int, bypassed: Boolean)
+    external fun nativeGetBusLevels(enginePtr: Long, outLevels: FloatArray)
     external fun nativeGetStateJson(enginePtr: Long): String
     external fun nativeLoadStateJson(enginePtr: Long, stateJson: String)
 
