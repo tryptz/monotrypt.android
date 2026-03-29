@@ -118,46 +118,39 @@ class EqViewModel @Inject constructor(
 
     private fun loadInitialState() {
         viewModelScope.launch {
-            // Check if tutorial has been seen
             preferences.eqTutorialSeen.collect { seen ->
                 _showTutorial.value = !seen
             }
         }
 
         viewModelScope.launch {
-            // Load enabled state
             preferences.eqEnabled.collect { enabled ->
                 _eqEnabled.value = enabled
             }
         }
 
         viewModelScope.launch {
-            // Load all presets
             eqRepository.getAllPresets().collect { presets ->
                 _allPresets.value = presets
             }
         }
 
         viewModelScope.launch {
-            // Load custom presets
             eqRepository.getCustomPresets().collect { presets ->
                 _customPresets.value = presets
             }
         }
 
         viewModelScope.launch {
-            // Load custom preset count
             eqRepository.getCustomPresetCount().collect { count ->
                 _presetCount.value = count
             }
         }
 
+        // Restore bands + preset + headphone from persistent storage
         viewModelScope.launch {
-            // Load active preset from preferences
             val presetId = preferences.eqActivePresetId.stateIn(
-                viewModelScope,
-                SharingStarted.Eagerly,
-                null
+                viewModelScope, SharingStarted.Eagerly, null
             ).value
 
             if (presetId != null) {
@@ -169,18 +162,42 @@ class EqViewModel @Inject constructor(
                     _selectedTarget.value = FrequencyTargets.getTargetById(preset.targetId)
                         ?: FrequencyTargets.getHarmanOverEar2018()
                 }
+            } else {
+                // No active preset — restore raw bands from DataStore
+                val bandsJson = preferences.eqBandsJson.stateIn(
+                    viewModelScope, SharingStarted.Eagerly, null
+                ).value
+                if (!bandsJson.isNullOrBlank()) {
+                    try {
+                        val jsonParser = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+                        val bands = jsonParser.decodeFromString(
+                            kotlinx.serialization.builtins.ListSerializer(EqBand.serializer()),
+                            bandsJson
+                        )
+                        _currentBands.value = bands
+                    } catch (_: Exception) { }
+                }
+            }
+
+            // Restore saved headphone
+            val headphoneId = preferences.eqSelectedHeadphoneId.stateIn(
+                viewModelScope, SharingStarted.Eagerly, null
+            ).value
+            val headphoneName = preferences.eqSelectedHeadphoneName.stateIn(
+                viewModelScope, SharingStarted.Eagerly, null
+            ).value
+            if (headphoneId != null && headphoneName != null) {
+                _selectedHeadphone.value = Headphone(id = headphoneId, name = headphoneName)
             }
         }
 
         viewModelScope.launch {
-            // Load preamp
             preferences.eqPreamp.collect { preamp ->
                 _currentPreamp.value = preamp.toFloat()
             }
         }
 
         viewModelScope.launch {
-            // Load target
             preferences.eqTargetId.collect { targetId ->
                 val target = FrequencyTargets.getTargetById(targetId)
                     ?: _customTargets.value.find { it.id == targetId }
@@ -191,7 +208,6 @@ class EqViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            // Load custom targets
             preferences.eqCustomTargetsJson.collect { json ->
                 try {
                     val jsonParser = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
@@ -483,6 +499,9 @@ class EqViewModel @Inject constructor(
      */
     fun selectHeadphone(headphone: Headphone) {
         _selectedHeadphone.value = headphone
+        viewModelScope.launch {
+            preferences.setEqSelectedHeadphone(headphone.id, headphone.name)
+        }
         loadHeadphonePreset(headphone.name)
     }
 

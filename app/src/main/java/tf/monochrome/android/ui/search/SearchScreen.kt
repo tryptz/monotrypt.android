@@ -3,7 +3,10 @@ package tf.monochrome.android.ui.search
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -105,43 +108,38 @@ fun SearchScreen(
         )
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        SearchBar(
-            inputField = {
-                SearchBarDefaults.InputField(
-                    query = query,
-                    onQueryChange = viewModel::onQueryChange,
-                    onSearch = {},
-                    expanded = false,
-                    onExpandedChange = {},
-                    placeholder = {
-                        Text(
-                            "Search tracks, albums, artists…",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    },
-                    leadingIcon = {
-                        Icon(Icons.Default.Search, contentDescription = "Search")
-                    },
-                    trailingIcon = {
-                        if (query.isNotEmpty()) {
-                            IconButton(onClick = { viewModel.onQueryChange("") }) {
-                                Icon(Icons.Default.Clear, contentDescription = "Clear")
-                            }
-                        }
-                    }
+    Column(modifier = Modifier.fillMaxSize().padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding())) {
+        androidx.compose.material3.TextField(
+            value = query,
+            onValueChange = viewModel::onQueryChange,
+            placeholder = {
+                Text(
+                    "Search tracks, albums, artists…",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             },
-            expanded = false,
-            onExpandedChange = {},
-            colors = SearchBarDefaults.colors(
-                containerColor = Color.Transparent
+            leadingIcon = {
+                Icon(Icons.Default.Search, contentDescription = "Search")
+            },
+            trailingIcon = {
+                if (query.isNotEmpty()) {
+                    IconButton(onClick = { viewModel.onQueryChange("") }) {
+                        Icon(Icons.Default.Clear, contentDescription = "Clear")
+                    }
+                }
+            },
+            singleLine = true,
+            colors = androidx.compose.material3.TextFieldDefaults.colors(
+                focusedContainerColor = Color.Transparent,
+                unfocusedContainerColor = Color.Transparent,
+                focusedIndicatorColor = Color.Transparent,
+                unfocusedIndicatorColor = Color.Transparent
             ),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 8.dp)
                 .liquidGlass(shape = MonoDimens.shapePill)
-        ) {}
+        )
 
         when {
             isSearching -> LoadingScreen()

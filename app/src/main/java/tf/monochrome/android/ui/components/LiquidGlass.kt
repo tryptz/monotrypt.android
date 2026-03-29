@@ -1,5 +1,6 @@
 package tf.monochrome.android.ui.components
 
+import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.material3.MaterialTheme
@@ -10,9 +11,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.Dp
 import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.HazeTint
 import dev.chrisbanes.haze.hazeEffect
 import tf.monochrome.android.ui.theme.MonoDimens
@@ -20,9 +23,10 @@ import tf.monochrome.android.ui.theme.MonoDimens
 /**
  * Applies a liquid glass (glassmorphism) effect to a composable.
  *
- * When [hazeState] is provided, real backdrop blur is applied (best on API 31+).
- * When null, only the visual glass treatment (tint + border + gradient) is applied,
- * which is suitable for list items where blur would hurt scroll performance.
+ * Rendering tiers (following Android Liquid Glass best practices):
+ * - API 31+ with [hazeState]: Real backdrop blur via Haze + translucent tint + specular rim.
+ * - API 31+ without [hazeState]: Translucent tint fill + specular rim (no blur overhead).
+ * - API < 31: Gradient fallback + specular rim.
  */
 fun Modifier.liquidGlass(
     hazeState: HazeState? = null,
@@ -33,10 +37,12 @@ fun Modifier.liquidGlass(
     blurRadius: Dp = MonoDimens.glassBlurRadius,
     showRefraction: Boolean = true
 ) = composed {
-    val tintColor = MaterialTheme.colorScheme.surfaceVariant
+    val isDark = MaterialTheme.colorScheme.background.luminance() <= 0.5f
+    val tintColor = if (isDark) Color.Black else Color.White
+    val adaptedTintAlpha = if (isDark) (tintAlpha * 1.4f).coerceAtMost(0.50f) else tintAlpha
     val borderColor = MaterialTheme.colorScheme.outline
-    val isLight = MaterialTheme.colorScheme.background.luminance() > 0.5f
 
+    // Specular rim — thin gradient border simulating reflected light on glass edges
     val luminousBorderBrush = Brush.linearGradient(
         colors = listOf(
             borderColor.copy(alpha = borderAlpha * 2f),
@@ -47,8 +53,9 @@ fun Modifier.liquidGlass(
         end = Offset.Infinite
     )
 
+    // Refraction overlay — subtle gradient to enhance glass depth
     val refractionBrush = if (showRefraction) {
-        val refractionColor = if (isLight) Color.Black else Color.White
+        val refractionColor = if (isDark) Color.White else Color.Black
         Brush.linearGradient(
             colors = listOf(
                 refractionColor.copy(alpha = 0.04f),
@@ -62,32 +69,41 @@ fun Modifier.liquidGlass(
 
     var modifier = this
 
-    // Layer 1: Backdrop blur (only when hazeState is provided)
-    if (hazeState != null) {
-        modifier = modifier.hazeEffect(state = hazeState) {
-            this.blurRadius = blurRadius
-            this.tints = listOf(
-                HazeTint(color = tintColor.copy(alpha = tintAlpha))
+    // ── Shape clip (FIRST — ensures all subsequent layers respect the shape) ──
+    modifier = modifier.clip(shape)
+
+    // ── Backdrop blur layer ────────────────────────────────────────────
+    // When hazeState is provided, apply real backdrop blur via Haze.
+    // Must be AFTER clip so the blur is clipped to the rounded shape.
+    if (hazeState != null && Build.VERSION.SDK_INT >= 31) {
+        modifier = modifier.hazeEffect(
+            state = hazeState,
+            style = HazeStyle(
+                backgroundColor = tintColor.copy(alpha = adaptedTintAlpha),
+                blurRadius = blurRadius,
+                tints = listOf(
+                    HazeTint(color = tintColor.copy(alpha = adaptedTintAlpha))
+                )
             )
-        }
+        )
     }
 
-    // Layer 2: Clip + semi-transparent fill
-    modifier = modifier
-        .clip(shape)
-        .background(
-            color = tintColor.copy(alpha = tintAlpha),
+    // ── Tint fill (only when NOT using haze blur) ──────────────────────
+    if (hazeState == null || Build.VERSION.SDK_INT < 31) {
+        modifier = modifier.background(
+            color = tintColor.copy(alpha = adaptedTintAlpha),
             shape = shape
         )
+    }
 
-    // Layer 3: Luminous border
+    // ── Specular rim border ────────────────────────────────────────────
     modifier = modifier.border(
         width = borderWidth,
         brush = luminousBorderBrush,
         shape = shape
     )
 
-    // Layer 4: Refraction gradient overlay
+    // ── Refraction gradient overlay ────────────────────────────────────
     if (refractionBrush != null) {
         modifier = modifier.background(
             brush = refractionBrush,

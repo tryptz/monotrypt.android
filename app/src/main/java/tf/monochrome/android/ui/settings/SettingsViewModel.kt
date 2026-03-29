@@ -289,11 +289,20 @@ class SettingsViewModel @Inject constructor(
         // The actual scanning happens in LocalLibraryViewModel
     }
 
-    // --- Collection settings ---
-    val autoDownloadCollections: StateFlow<Boolean> = preferences.autoDownloadCollections
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    // --- Library tab order ---
+    val libraryTabOrder: StateFlow<List<String>> = preferences.libraryTabOrder
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), listOf("overview", "local", "playlists", "favorites", "downloads"))
 
-    fun setAutoDownloadCollections(enabled: Boolean) { viewModelScope.launch { preferences.setAutoDownloadCollections(enabled) } }
+    fun setLibraryTabOrder(order: List<String>) { viewModelScope.launch { preferences.setLibraryTabOrder(order) } }
+
+    fun moveLibraryTab(fromIndex: Int, toIndex: Int) {
+        val current = libraryTabOrder.value.toMutableList()
+        if (fromIndex in current.indices && toIndex in current.indices) {
+            val item = current.removeAt(fromIndex)
+            current.add(toIndex, item)
+            setLibraryTabOrder(current)
+        }
+    }
  
     // --- Account actions ---
     fun logout() {

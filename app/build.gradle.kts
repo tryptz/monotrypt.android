@@ -197,4 +197,7 @@ dependencies {
     // Haze (Glassmorphism blur)
     implementation(libs.haze)
     implementation(libs.haze.materials)
+
+    // BlurView v3 (real backdrop blur, Compose-safe on API 31+)
+    implementation("com.github.Dimezis:BlurView:version-3.2.0")
 }

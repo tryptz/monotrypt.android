@@ -125,6 +125,8 @@ class PreferencesManager @Inject constructor(
         private val EQ_PREAMP = doublePreferencesKey("eq_preamp")
         private val EQ_BANDS_JSON = stringPreferencesKey("eq_bands_json")
         private val EQ_CUSTOM_TARGETS_JSON = stringPreferencesKey("eq_custom_targets_json")
+        private val EQ_SELECTED_HEADPHONE_ID = stringPreferencesKey("eq_selected_headphone_id")
+        private val EQ_SELECTED_HEADPHONE_NAME = stringPreferencesKey("eq_selected_headphone_name")
 
         // Library / Local Media
         private val SCAN_ON_APP_OPEN = booleanPreferencesKey("scan_on_app_open")
@@ -132,8 +134,8 @@ class PreferencesManager @Inject constructor(
         private val EXCLUDED_PATHS_JSON = stringPreferencesKey("excluded_paths_json")
         private val BACKGROUND_SCAN_INTERVAL = stringPreferencesKey("background_scan_interval")
 
-        // Collections
-        private val AUTO_DOWNLOAD_COLLECTIONS = booleanPreferencesKey("auto_download_collections")
+        // Library tab order
+        private val LIBRARY_TAB_ORDER = stringPreferencesKey("library_tab_order")
     }
 
     // Audio Quality
@@ -584,6 +586,21 @@ class PreferencesManager @Inject constructor(
         dataStore.edit { it[EQ_CUSTOM_TARGETS_JSON] = json }
     }
 
+    val eqSelectedHeadphoneId: Flow<String?> = dataStore.data.map { it[EQ_SELECTED_HEADPHONE_ID] }
+    val eqSelectedHeadphoneName: Flow<String?> = dataStore.data.map { it[EQ_SELECTED_HEADPHONE_NAME] }
+    suspend fun setEqSelectedHeadphone(id: String, name: String) {
+        dataStore.edit {
+            it[EQ_SELECTED_HEADPHONE_ID] = id
+            it[EQ_SELECTED_HEADPHONE_NAME] = name
+        }
+    }
+    suspend fun clearEqSelectedHeadphone() {
+        dataStore.edit {
+            it.remove(EQ_SELECTED_HEADPHONE_ID)
+            it.remove(EQ_SELECTED_HEADPHONE_NAME)
+        }
+    }
+
     // --- Library / Local Media ---
     val scanOnAppOpen: Flow<Boolean> = dataStore.data.map { it[SCAN_ON_APP_OPEN] ?: true }
     suspend fun setScanOnAppOpen(enabled: Boolean) {
@@ -607,12 +624,13 @@ class PreferencesManager @Inject constructor(
         dataStore.edit { it[BACKGROUND_SCAN_INTERVAL] = interval }
     }
 
-    // --- Collections ---
-    val autoDownloadCollections: Flow<Boolean> = dataStore.data.map {
-        it[AUTO_DOWNLOAD_COLLECTIONS] ?: false
+    // --- Library tab order ---
+    val libraryTabOrder: Flow<List<String>> = dataStore.data.map { prefs ->
+        prefs[LIBRARY_TAB_ORDER]?.split(",")?.filter { it.isNotBlank() }
+            ?: listOf("overview", "local", "playlists", "favorites", "downloads")
     }
-    suspend fun setAutoDownloadCollections(enabled: Boolean) {
-        dataStore.edit { it[AUTO_DOWNLOAD_COLLECTIONS] = enabled }
+    suspend fun setLibraryTabOrder(order: List<String>) {
+        dataStore.edit { it[LIBRARY_TAB_ORDER] = order.joinToString(",") }
     }
 
     // --- Clear all prefs (System) ---

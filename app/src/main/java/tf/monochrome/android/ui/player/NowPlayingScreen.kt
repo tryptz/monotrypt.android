@@ -1,8 +1,13 @@
 package tf.monochrome.android.ui.player
 
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -126,12 +131,10 @@ fun rememberDominantColor(imageUrl: String?): Color {
     return dominantColor
 }
 
-private val PlayerBackdropTop = Color(0xFF6A7440)
-private val PlayerBackdropMid = Color(0xFF434D27)
-private val PlayerBackdropBottom = Color(0xFF161A10)
-private val PlayerGlowBlue = Color(0xFFF4F7EF)
-private val PlayerGlowPink = Color(0xFFB9FF6A)
-private val PlayerGlowMint = Color(0xFF19E27A)
+private val PlayerGlowBlue = Color(0xFF7EB6FF)
+private val PlayerGlowPink = Color(0xFFFF7EB3)
+private val PlayerGlowMint = Color(0xFF6EF0C2)
+private val PlayerGlowGold = Color(0xFFFFC857)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -204,7 +207,7 @@ fun NowPlayingScreen(
             favoritePresetIds = visualizerFavoritePresetIds,
             onPresetSelected = playerViewModel::selectVisualizerPreset,
             onToggleFavorite = playerViewModel::toggleVisualizerFavoritePreset,
-            onSettingsClick = { navController.navigate(tf.monochrome.android.ui.navigation.Screen.Settings.route) },
+            onSettingsClick = { navController.navigate(tf.monochrome.android.ui.navigation.Screen.Settings.createRoute()) },
             onDismiss = { showPresetSheet = false }
         )
     }
@@ -354,37 +357,19 @@ fun NowPlayingScreen(
                     )
                 }
 
-                // Fullscreen button (only show when in visualizer mode and not already fullscreen)
-                if (!isFullscreenActive && viewMode == NowPlayingViewMode.VISUALIZER) {
-                    Box(
+                if (!isFullscreenActive) {
+                    // Track info glass card
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 8.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        FilledIconButton(
-                            onClick = playerViewModel::toggleVisualizerFullscreen,
-                            modifier = Modifier.size(48.dp),
-                            colors = IconButtonDefaults.filledIconButtonColors(
-                                containerColor = Color.White.copy(alpha = 0.15f),
-                                contentColor = Color.White
+                            .liquidGlass(
+                                shape = RoundedCornerShape(22.dp),
+                                tintAlpha = 0.18f,
+                                borderAlpha = 0.12f
                             )
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Fullscreen,
-                                contentDescription = "Fullscreen",
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                    }
-                }
-
-                if (!isFullscreenActive) {
-                    // Track info: title + quality badge + artist
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
+                            .padding(horizontal = 20.dp, vertical = 14.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -414,9 +399,16 @@ fun NowPlayingScreen(
                         )
                     }
 
-                    // Actions row
+                    // Actions row glass card
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .liquidGlass(
+                                shape = RoundedCornerShape(22.dp),
+                                tintAlpha = 0.12f,
+                                borderAlpha = 0.08f
+                            )
+                            .padding(vertical = 2.dp),
                         horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
                         IconButton(onClick = playerViewModel::toggleLikeCurrentTrack) {
@@ -436,9 +428,16 @@ fun NowPlayingScreen(
                         }
                     }
 
-                    // Up Next
+                    // Up Next glass strip
                     Column(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .liquidGlass(
+                                shape = RoundedCornerShape(16.dp),
+                                tintAlpha = 0.10f,
+                                borderAlpha = 0.08f
+                            )
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
@@ -481,9 +480,9 @@ fun NowPlayingScreen(
                             },
                             modifier = Modifier.weight(1f),
                             colors = SliderDefaults.colors(
-                                thumbColor = Color(0xFFFF5722),
-                                activeTrackColor = Color(0xFFFF5722).copy(alpha = 0.7f),
-                                inactiveTrackColor = Color.White.copy(alpha = 0.2f)
+                                thumbColor = PlayerGlowPink,
+                                activeTrackColor = PlayerGlowPink.copy(alpha = 0.7f),
+                                inactiveTrackColor = Color.White.copy(alpha = 0.15f)
                             )
                         )
                         Text(
@@ -493,11 +492,16 @@ fun NowPlayingScreen(
                         )
                     }
 
-                    // Play Controls
+                    // Play Controls glass card
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 8.dp),
+                            .liquidGlass(
+                                shape = RoundedCornerShape(28.dp),
+                                tintAlpha = 0.16f,
+                                borderAlpha = 0.10f
+                            )
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -512,13 +516,13 @@ fun NowPlayingScreen(
                         }
                         FilledIconButton(
                             onClick = playerViewModel::togglePlayPause,
-                            modifier = Modifier.size(76.dp),
+                            modifier = Modifier.size(72.dp),
                             colors = IconButtonDefaults.filledIconButtonColors(
-                                containerColor = Color(0xFFD0D7F4),
-                                contentColor = Color(0xFF1B203E)
+                                containerColor = Color.White.copy(alpha = 0.15f),
+                                contentColor = Color.White
                             )
                         ) {
-                            Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, if (isPlaying) "Pause" else "Play", Modifier.size(40.dp))
+                            Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, if (isPlaying) "Pause" else "Play", Modifier.size(38.dp))
                         }
                         IconButton(onClick = playerViewModel::skipToNext) {
                             Icon(Icons.Default.SkipNext, "Next", Modifier.size(36.dp), tint = Color.White)
@@ -769,25 +773,19 @@ private fun NowPlayingHero(
                             )
                         }
 
-                        // Exit fullscreen button (top-center, only in fullscreen)
-                        if (isFullscreen) {
-                            FilledIconButton(
-                                onClick = onToggleFullscreen,
-                                modifier = Modifier
-                                    .align(Alignment.TopCenter)
-                                    .padding(16.dp)
-                                    .size(48.dp),
-                                colors = IconButtonDefaults.filledIconButtonColors(
-                                    containerColor = Color.Black.copy(alpha = 0.3f),
-                                    contentColor = Color.White
-                                )
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.FullscreenExit,
-                                    contentDescription = "Exit Fullscreen",
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
+                        // Fullscreen toggle (top-center)
+                        IconButton(
+                            onClick = onToggleFullscreen,
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .padding(16.dp)
+                                .background(Color.Black.copy(alpha = 0.3f), shape = RoundedCornerShape(999.dp))
+                        ) {
+                            Icon(
+                                imageVector = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                                contentDescription = if (isFullscreen) "Exit Fullscreen" else "Fullscreen",
+                                tint = Color.White
+                            )
                         }
 
                         // Close button (top-right)
@@ -813,19 +811,17 @@ private fun NowPlayingHero(
                     }
                 }
             } else {
-                Surface(
+                BouncePill(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(16.dp)
-                        .clickable(onClick = onCycleMode),
-                    shape = RoundedCornerShape(999.dp),
-                    color = Color.Black.copy(alpha = 0.32f),
-                    contentColor = Color.White
+                        .padding(16.dp),
+                    onClick = onCycleMode
                 ) {
                     Text(
                         text = "Visualizer",
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        style = MaterialTheme.typography.labelMedium
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Color.White
                     )
                 }
             }
@@ -951,9 +947,14 @@ private fun HeroCoverArt(
         Surface(
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .padding(16.dp),
+                .padding(16.dp)
+                .liquidGlass(
+                    shape = RoundedCornerShape(999.dp),
+                    tintAlpha = 0.15f,
+                    borderAlpha = 0.12f
+                ),
             shape = RoundedCornerShape(999.dp),
-            color = Color.Black.copy(alpha = 0.32f),
+            color = Color.Transparent,
             contentColor = Color.White
         ) {
             Row(
@@ -1147,31 +1148,47 @@ private fun ModePill(
     selected: Boolean,
     onClick: () -> Unit
 ) {
-    Surface(
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.90f else 1f,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "modePillScale"
+    )
+
+    Box(
         modifier = modifier
-            .clickable(onClick = onClick)
-            .clip(RoundedCornerShape(20.dp)),
-        shape = RoundedCornerShape(20.dp),
-        color = if (selected) Color.White else Color.White.copy(alpha = 0.10f),
-        contentColor = if (selected) Color.Black else Color.White
-    ) {
-        Box(
-            modifier = Modifier.padding(vertical = 12.dp, horizontal = 8.dp),
-        contentAlignment = Alignment.Center
-        ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null
-                )
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelMedium
-                )
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
             }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            )
+            .liquidGlass(
+                shape = RoundedCornerShape(20.dp),
+                tintAlpha = if (selected) 0.22f else 0.06f,
+                borderAlpha = if (selected) 0.18f else 0.0f
+            )
+            .padding(vertical = 12.dp, horizontal = 8.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (selected) Color.White else Color.White.copy(alpha = 0.6f)
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = if (selected) Color.White else Color.White.copy(alpha = 0.6f)
+            )
         }
     }
 }
@@ -1292,8 +1309,22 @@ private fun SecondaryActionPill(
     enabled: Boolean,
     onClick: () -> Unit
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.92f else 1f,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "secondaryPillScale"
+    )
+
     Surface(
-        modifier = modifier.clickable(onClick = onClick),
+        modifier = modifier
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            ),
         shape = RoundedCornerShape(999.dp),
         color = if (enabled) {
             Color.White.copy(alpha = 0.12f)
@@ -1322,6 +1353,38 @@ private fun SecondaryActionPill(
 }
 
 @Composable
+private fun BouncePill(
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+    content: @Composable () -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.90f else 1f,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "bouncePillScale"
+    )
+
+    Box(
+        modifier = modifier
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            )
+            .liquidGlass(
+                shape = RoundedCornerShape(999.dp),
+                tintAlpha = 0.15f,
+                borderAlpha = 0.12f
+            )
+    ) {
+        content()
+    }
+}
+
+@Composable
 private fun VisualizerActionPill(
     modifier: Modifier = Modifier,
     icon: ImageVector,
@@ -1329,8 +1392,22 @@ private fun VisualizerActionPill(
     accent: Color,
     onClick: () -> Unit
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.92f else 1f,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "vizActionScale"
+    )
+
     Surface(
-        modifier = modifier.clickable(onClick = onClick),
+        modifier = modifier
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            ),
         shape = RoundedCornerShape(18.dp),
         color = accent.copy(alpha = 0.14f),
         contentColor = accent

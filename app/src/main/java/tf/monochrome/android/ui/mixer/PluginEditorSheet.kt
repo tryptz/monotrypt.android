@@ -30,7 +30,7 @@ data class ParamDef(
     val unit: String = ""
 )
 
-private fun getParamDefs(type: SnapinType?): List<ParamDef> = when (type) {
+internal fun getParamDefs(type: SnapinType?): List<ParamDef> = when (type) {
     SnapinType.GAIN -> listOf(
         ParamDef("Gain", -100f, 24f, 0f, "dB")
     )

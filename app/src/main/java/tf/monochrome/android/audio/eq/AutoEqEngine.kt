@@ -14,37 +14,30 @@ import kotlin.math.sqrt
 import kotlin.math.max
 
 /**
- * AutoEqEngine - Calculates optimal peaking EQ bands to match a target frequency response.
- * Peaks-only mode: only boosts dips where measurement falls below target.
+ * AutoEqEngine — Headphone correction filter generator.
+ * Greedy iterative algorithm matching the SeapEngine implementation.
  */
 object AutoEqEngine {
 
-    private const val MAX_BOOST = 12.0f
-    private const val MIN_Q = 0.6f
+    private const val MAX_BOOST = 12.0
+    private const val MAX_CUT = 12.0
+    private const val MIN_Q = 0.6
+    private const val MAX_Q = 5.0
     private const val DEFAULT_SAMPLE_RATE = 48000f
 
-    /**
-     * Calculate biquad filter response at a given frequency.
-     * Uses high-precision Double math and direct complex form for stability.
-     */
     fun calculateBiquadResponse(
         freqHz: Float,
         band: EqBand,
         sampleRate: Float = DEFAULT_SAMPLE_RATE
     ): Float {
-        if (!band.enabled || abs(band.gain) < 0.01f) return 0f
+        if (!band.enabled) return 0f
 
-        val q = maxOf(0.1, band.q.toDouble())
-        val f0 = band.freq.toDouble()
-        val fs = sampleRate.toDouble()
-        val gainDb = band.gain.toDouble()
-
-        val w0 = 2.0 * PI * f0 / fs
-        val alpha = sin(w0) / (2.0 * q)
-        val A = 10.0.pow(gainDb / 40.0)
+        val w0 = 2.0 * PI * band.freq.toDouble() / sampleRate.toDouble()
+        val phi = 2.0 * PI * freqHz.toDouble() / sampleRate.toDouble()
+        val alpha = sin(w0) / (2.0 * band.q.toDouble())
+        val A = 10.0.pow(band.gain.toDouble() / 40.0)
         val cosW0 = cos(w0)
 
-        // Peaking filter only
         val b0 = 1.0 + alpha * A
         val b1 = -2.0 * cosW0
         val b2 = 1.0 - alpha * A
@@ -52,83 +45,63 @@ object AutoEqEngine {
         val a1 = -2.0 * cosW0
         val a2 = 1.0 - alpha / A
 
-        if (abs(a0) < 1.0E-15) return 0f
+        val inv = 1.0 / a0
+        val b0n = b0 * inv; val b1n = b1 * inv; val b2n = b2 * inv
+        val a1n = a1 * inv; val a2n = a2 * inv
 
-        // Normalize coefficients and calculate response
-        val a0inv = 1.0 / a0
-        val b0n = b0 * a0inv
-        val b1n = b1 * a0inv
-        val b2n = b2 * a0inv
-        val a1n = a1 * a0inv
-        val a2n = a2 * a0inv
+        val cp = cos(phi); val c2p = cos(2.0 * phi)
+        val num = b0n*b0n + b1n*b1n + b2n*b2n +
+                  2.0*(b0n*b1n + b1n*b2n)*cp + 2.0*b0n*b2n*c2p
+        val den = 1.0 + a1n*a1n + a2n*a2n +
+                  2.0*(a1n + a1n*a2n)*cp + 2.0*a2n*c2p
 
-        // Calculate frequency response
-        val phi = 2.0 * PI * freqHz.toDouble() / fs
-        val cosPhi = cos(phi)
-        val cos2Phi = cos(2.0 * phi)
-
-        val num = b0n*b0n + b1n*b1n + b2n*b2n + 2.0*(b0n*b1n + b1n*b2n)*cosPhi + 2.0*b0n*b2n*cos2Phi
-        val den = 1.0 + a1n*a1n + a2n*a2n + 2.0*(a1n + a1n*a2n)*cosPhi + 2.0*a2n*cos2Phi
-
-        if (den < 1.0E-15) return 0f
-
-        val result = (10.0 * log10(maxOf(1.0E-15, num / den))).toFloat()
-        return if (result.isNaN() || result.isInfinite()) 0f else result
+        return (10.0 * log10(num / den)).toFloat()
     }
 
-    private fun interpolate(freqHz: Float, data: List<FrequencyPoint>): Float {
+    private fun interpolate(freq: Float, data: List<FrequencyPoint>): Float {
         if (data.isEmpty()) return 0f
-        if (freqHz <= data[0].freq) return data[0].gain
-        if (freqHz >= data[data.size - 1].freq) return data[data.size - 1].gain
-
+        if (freq <= data.first().freq) return data.first().gain
+        if (freq >= data.last().freq) return data.last().gain
         for (i in 0 until data.size - 1) {
-            if (freqHz >= data[i].freq && freqHz <= data[i + 1].freq) {
-                val ratio = (freqHz - data[i].freq) / (data[i + 1].freq - data[i].freq)
-                return data[i].gain + ratio * (data[i + 1].gain - data[i].gain)
+            if (freq >= data[i].freq && freq <= data[i + 1].freq) {
+                val t = (freq - data[i].freq) / (data[i + 1].freq - data[i].freq)
+                return data[i].gain + t * (data[i + 1].gain - data[i].gain)
             }
         }
         return 0f
     }
 
     private fun getNormalizationOffset(data: List<FrequencyPoint>): Float {
-        var sum = 0f
-        var count = 0
-        for (point in data) {
-            if (point.freq >= 250 && point.freq <= 2500) {
-                sum += point.gain
-                count++
-            }
-        }
+        var sum = 0f; var count = 0
+        for (p in data) if (p.freq in 250f..2500f) { sum += p.gain; count++ }
         return if (count > 0) sum / count else interpolate(1000f, data)
     }
 
-    /**
-     * Run the AutoEQ algorithm — peaks only (boost-only peaking filters).
-     * Only corrects dips where measurement falls below target.
-     */
     fun runAutoEqAlgorithm(
         measurement: List<FrequencyPoint>,
         target: List<FrequencyPoint>,
         bandCount: Int,
         maxFrequency: Float = 16000f,
         minFrequency: Float = 20f,
-        maxQ: Float = 4.0f,
+        @Suppress("UNUSED_PARAMETER") maxQ: Float = MAX_Q.toFloat(),
         sampleRate: Float = DEFAULT_SAMPLE_RATE
     ): List<EqBand> {
         val offset = getNormalizationOffset(target) - getNormalizationOffset(measurement)
 
+        // Error curve: positive = above target (need cut), negative = below (need boost)
         val error = measurement.map { p ->
             FrequencyPoint(p.freq, (p.gain + offset) - interpolate(p.freq, target))
         }.toMutableList()
 
         val bands = mutableListOf<EqBand>()
 
-        for (bandIdx in 0 until bandCount) {
+        for (i in 0 until bandCount) {
             var maxDev = 0.0
             var maxWeightedDev = 0.0
             var peakFreq = 1000.0
             var peakIdx = 0
 
+            // Scan: find largest weighted deviation (both positive and negative)
             for (j in error.indices) {
                 val freq = error[j].freq.toDouble()
                 if (freq < minFrequency || freq > maxFrequency) continue
@@ -139,15 +112,12 @@ object AutoEqEngine {
                     v = (error[j - 1].gain + v + error[j + 1].gain) / 3.0
                 }
 
-                // Peaks only: only look for dips (negative error = measurement below target)
-                if (v >= 0.0) continue
-
                 // Priority weighting
                 val priority = when {
-                    freq < 300.0 -> 1.5
+                    freq < 300.0  -> 1.5
                     freq < 4000.0 -> 1.0
                     freq < 8000.0 -> 0.5
-                    else -> 0.25
+                    else          -> 0.25
                 }
 
                 val weightedAbs = abs(v * priority)
@@ -159,22 +129,21 @@ object AutoEqEngine {
                 }
             }
 
-            // No dips found, we're done
-            if (maxWeightedDev == 0.0) break
-
-            // Invert for correction (always positive = boost)
+            // Invert for correction
             var gain = -maxDev
 
             // Treble safety: taper max boost in highs
-            var safeBoost = MAX_BOOST.toDouble()
+            var safeBoost = MAX_BOOST
             if (peakFreq > 3000.0) safeBoost = 6.0
             if (peakFreq > 6000.0) safeBoost = 3.0
 
+            // Asymmetric clamping
             if (gain > safeBoost) gain = safeBoost
+            if (gain < -MAX_CUT) gain = -MAX_CUT
 
-            if (gain < 0.2) break
+            if (abs(gain) < 0.2) break
 
-            // Smart Q calculation (half-energy points)
+            // Q calculation: half-energy bandwidth
             val targetEnergy = maxDev / 2.0
             var lowerFreq = peakFreq
             var upperFreq = peakFreq
@@ -196,13 +165,15 @@ object AutoEqEngine {
             if (bandwidth < 0.1) bandwidth = 0.1
 
             var q = sqrt(2.0.pow(bandwidth)) / (2.0.pow(bandwidth) - 1.0)
-            if (q < MIN_Q) q = MIN_Q.toDouble()
-            if (q > maxQ) q = maxQ.toDouble()
-            if (peakFreq > 5000.0 && q > 3.0) q = 3.0
-            if (q > 2.0) q = 2.0
+
+            // Constraints
+            if (q < MIN_Q) q = MIN_Q
+            if (q > MAX_Q) q = MAX_Q
+            if (peakFreq > 5000.0 && q > 3.0) q = 3.0  // treble safety
+            if (gain > 0.0 && q > 2.0) q = 2.0          // boost safety
 
             val newBand = EqBand(
-                id = bandIdx,
+                id = i,
                 type = FilterType.PEAKING,
                 freq = peakFreq.toFloat(),
                 gain = gain.toFloat(),
@@ -218,10 +189,7 @@ object AutoEqEngine {
             }
         }
 
-        // Sort by frequency
-        val sortedBands = bands.sortedBy { it.freq }
-        return sortedBands.mapIndexed { idx, band ->
-            band.copy(id = idx)
-        }
+        // Sort by frequency, re-index
+        return bands.sortedBy { it.freq }.mapIndexed { idx, b -> b.copy(id = idx) }
     }
 }

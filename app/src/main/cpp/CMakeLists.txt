@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.22.1)
 project("monochrome_native")
 
 # ── ProjectM Visualizer ──────────────────────────────────────────────────
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/projectm
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/projectm
     ${CMAKE_CURRENT_BINARY_DIR}/projectm)
 
 add_library(monochrome_visualizer SHARED
@@ -12,7 +12,10 @@ add_library(monochrome_visualizer SHARED
 )
 
 target_include_directories(monochrome_visualizer PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/projectm/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/projectm/src/api/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/projectm/src/playlist/api
+    ${CMAKE_CURRENT_BINARY_DIR}/projectm/src/api/include
+    ${CMAKE_CURRENT_BINARY_DIR}/projectm/src/playlist/include
 )
 
 target_link_libraries(monochrome_visualizer
@@ -20,7 +23,8 @@ target_link_libraries(monochrome_visualizer
     log
     EGL
     GLESv3
-    projectm
+    projectM
+    projectM_playlist
 )
 
 # ── DSP Engine ───────────────────────────────────────────────────────────
@@ -40,6 +44,10 @@ target_compile_options(monochrome_dsp PRIVATE
     # ARM NEON SIMD for float processing on arm64
     $<$<STREQUAL:${ANDROID_ABI},arm64-v8a>:-march=armv8-a+simd>
 )
+
+# Prevent debug 'd' suffix so System.loadLibrary() names match
+set_target_properties(monochrome_dsp PROPERTIES DEBUG_POSTFIX "")
+set_target_properties(monochrome_visualizer PROPERTIES DEBUG_POSTFIX "")
 
 target_link_libraries(monochrome_dsp
     android

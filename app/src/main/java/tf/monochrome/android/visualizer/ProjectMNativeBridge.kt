@@ -122,7 +122,7 @@ class ProjectMNativeBridge {
                 listOf("projectM-4-playlist", "projectM-4-playlistd").forEach { name ->
                     runCatching { System.loadLibrary(name) }
                 }
-                listOf("projectm_android_bridge", "projectm_android_bridged").firstNotNullOfOrNull { name ->
+                listOf("monochrome_visualizer").firstNotNullOfOrNull { name ->
                     runCatching {
                         System.loadLibrary(name)
                         name

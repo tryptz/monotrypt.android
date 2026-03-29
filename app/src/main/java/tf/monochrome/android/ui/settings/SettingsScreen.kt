@@ -27,6 +27,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
@@ -76,20 +78,27 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import tf.monochrome.android.domain.model.AudioQuality
+import androidx.compose.foundation.background
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextOverflow
 import tf.monochrome.android.ui.eq.EqViewModel
+import tf.monochrome.android.ui.eq.EqProfileMiniGraph
 import tf.monochrome.android.domain.model.EqPreset
+import tf.monochrome.android.ui.components.bounceClick
 import tf.monochrome.android.ui.components.liquidGlass
 import tf.monochrome.android.ui.theme.themeDisplayNames
 
-private val settingsTabs = listOf("Appearance", "Interface", "Scrobbling", "Audio", "Equalizer", "Library", "Collections", "Downloads", "Instances", "System")
+private val settingsTabs = listOf("Appearance", "Interface", "Scrobbling", "Audio", "Equalizer", "Library", "Downloads", "Instances", "System")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     navController: NavController,
+    initialTab: Int = 0,
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
-    var selectedTab by remember { mutableIntStateOf(0) }
+    var selectedTab by remember { mutableIntStateOf(initialTab) }
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
@@ -132,10 +141,9 @@ fun SettingsScreen(
             3 -> AudioTab(viewModel)
             4 -> EqualizerTab(navController)
             5 -> LibrarySettingsTab(viewModel)
-            6 -> CollectionSettingsTab(viewModel)
-            7 -> DownloadsTab(viewModel)
-            8 -> InstancesTab(viewModel)
-            9 -> SystemTab(viewModel)
+            6 -> DownloadsTab(viewModel)
+            7 -> InstancesTab(viewModel)
+            8 -> SystemTab(viewModel)
         }
     }
 }
@@ -146,6 +154,9 @@ private fun EqualizerTab(navController: NavController, eqViewModel: EqViewModel 
     val eqEnabled by eqViewModel.eqEnabled.collectAsState()
     val selectedTarget by eqViewModel.selectedTarget.collectAsState()
     val selectedHeadphone by eqViewModel.selectedHeadphone.collectAsState()
+    val allPresets by eqViewModel.allPresets.collectAsState()
+    val activePreset by eqViewModel.activePreset.collectAsState()
+    var presetToDelete by remember { mutableStateOf<EqPreset?>(null) }
 
     SettingsTabContent {
         SettingsGroupHeader("Equalizer")
@@ -173,11 +184,104 @@ private fun EqualizerTab(navController: NavController, eqViewModel: EqViewModel 
         Spacer(modifier = Modifier.height(24.dp))
 
         OutlinedButton(
-            onClick = { navController.navigate("equalizer") },
+            onClick = {
+                navController.navigate("settings?tab=4") {
+                    popUpTo("settings?tab={tab}") { inclusive = true }
+                }
+                navController.navigate("equalizer")
+            },
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("Open Precision AutoEQ")
         }
+
+        // ─── Saved Profiles ───
+        if (allPresets.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(24.dp))
+            SettingsGroupHeader("Saved Profiles")
+
+            allPresets.forEach { preset ->
+                val isActive = activePreset?.id == preset.id
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .liquidGlass(shape = RoundedCornerShape(10.dp))
+                        .bounceClick(onClick = { eqViewModel.loadPreset(preset.id) })
+                ) {
+                    EqProfileMiniGraph(
+                        bands = preset.bands,
+                        preamp = preset.preamp,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 2.dp, vertical = 2.dp)
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        if (isActive) {
+                            Icon(
+                                Icons.Default.CheckCircle,
+                                contentDescription = "Active",
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                preset.name,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isActive) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                "${preset.bands.size} bands · ${preset.targetName}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (preset.isCustom) {
+                            IconButton(
+                                onClick = { presetToDelete = preset },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = "Delete preset",
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    presetToDelete?.let { preset ->
+        AlertDialog(
+            onDismissRequest = { presetToDelete = null },
+            title = { Text("Delete Profile") },
+            text = { Text("Delete \"${preset.name}\"?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    eqViewModel.deletePreset(preset.id)
+                    presetToDelete = null
+                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { presetToDelete = null }) { Text("Cancel") }
+            }
+        )
     }
 }
 
@@ -1170,6 +1274,7 @@ private fun LibrarySettingsTab(viewModel: SettingsViewModel) {
     val scanOnAppOpen by viewModel.scanOnAppOpen.collectAsState()
     val minTrackDuration by viewModel.minTrackDuration.collectAsState()
     val backgroundScanInterval by viewModel.backgroundScanInterval.collectAsState()
+    val libraryTabOrder by viewModel.libraryTabOrder.collectAsState()
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -1262,49 +1367,69 @@ private fun LibrarySettingsTab(viewModel: SettingsViewModel) {
                 Text("Rescan Library Now")
             }
         }
+
+        if (libraryTabOrder.isNotEmpty()) {
+            item {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            }
+
+            item {
+                Text(
+                    "Library Tab Order",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(vertical = 8.dp)
+                )
+            }
+
+            item {
+                Text(
+                    "Reorder the tabs shown in the Library screen",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+            }
+
+            items(libraryTabOrder.size) { index ->
+                val sectionId = libraryTabOrder[index]
+                val displayName = sectionId.replaceFirstChar { it.titlecase(Locale.getDefault()) }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = displayName,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(
+                        onClick = { viewModel.moveLibraryTab(index, index - 1) },
+                        enabled = index > 0
+                    ) {
+                        Icon(
+                            Icons.Default.KeyboardArrowUp,
+                            contentDescription = "Move up",
+                            tint = if (index > 0) MaterialTheme.colorScheme.onSurface
+                                   else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                        )
+                    }
+                    IconButton(
+                        onClick = { viewModel.moveLibraryTab(index, index + 1) },
+                        enabled = index < libraryTabOrder.size - 1
+                    ) {
+                        Icon(
+                            Icons.Default.KeyboardArrowDown,
+                            contentDescription = "Move down",
+                            tint = if (index < libraryTabOrder.size - 1) MaterialTheme.colorScheme.onSurface
+                                   else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                        )
+                    }
+                }
+            }
+        }
     }
 }
-
-// ─── Tab 6: Collection Settings ───────────────────────────────────────
-@Composable
-private fun CollectionSettingsTab(viewModel: SettingsViewModel) {
-    val autoDownload by viewModel.autoDownloadCollections.collectAsState()
-
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        item {
-            Text(
-                "Collection Settings",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(vertical = 8.dp)
-            )
-        }
-
-        item {
-            SettingSwitchItem(
-                title = "Auto-download on Import",
-                subtitle = "Automatically download tracks when importing a collection",
-                checked = autoDownload,
-                onCheckedChange = { viewModel.setAutoDownloadCollections(it) }
-            )
-        }
-
-        item {
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-        }
-
-        item {
-            Text(
-                "Manage imported collections from the Library → Collections tab",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(vertical = 8.dp)
-            )
-        }
-    }
-}
-

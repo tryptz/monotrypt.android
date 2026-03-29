@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
@@ -36,11 +37,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.HazeTint
+import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 import tf.monochrome.android.ui.components.liquidGlass
@@ -88,14 +91,13 @@ sealed class Screen(val route: String) {
     }
     data object Downloads : Screen("downloads")
     data object NowPlaying : Screen("now_playing")
-    data object Settings : Screen("settings")
+    data object Settings : Screen("settings?tab={tab}") {
+        fun createRoute(tab: Int = 0) = "settings?tab=$tab"
+    }
     data object Equalizer : Screen("equalizer")
     data object Profile : Screen("profile")
     data object FolderBrowser : Screen("folder/{folderPath}") {
         fun createRoute(folderPath: String) = "folder/${java.net.URLEncoder.encode(folderPath, "UTF-8")}"
-    }
-    data object CollectionDetail : Screen("collection/{collectionId}") {
-        fun createRoute(collectionId: String) = "collection/$collectionId"
     }
     data object LocalAlbumDetail : Screen("local_album/{albumId}") {
         fun createRoute(albumId: Long) = "local_album/$albumId"
@@ -113,14 +115,8 @@ data class BottomNavItem(
     val unselectedIcon: ImageVector
 )
 
-val bottomNavItems = listOf(
-    BottomNavItem(Screen.Home, "Home", Icons.Filled.Home, Icons.Outlined.Home),
-    BottomNavItem(Screen.Search, "Search", Icons.Filled.Search, Icons.Outlined.Search),
-    BottomNavItem(Screen.Library, "Library", Icons.Filled.LibraryMusic, Icons.Outlined.LibraryMusic)
-)
-
-// The three main tab screens, in pager order
-private val tabRoutes = listOf(Screen.Home.route, Screen.Search.route, Screen.Library.route)
+// The two main tab screens, in pager order
+private val tabRoutes = listOf(Screen.Home.route, Screen.Library.route)
 
 @Composable
 fun MonochromeNavHost() {
@@ -140,8 +136,8 @@ fun MonochromeNavHost() {
 
     val showMiniPlayer = currentTrack != null && currentDestination?.route != Screen.NowPlaying.route
 
-    // Pager state for the three main tabs
-    val pagerState = rememberPagerState(initialPage = 0, pageCount = { 3 })
+    // Pager state for the two main tabs
+    val pagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
     val scope = rememberCoroutineScope()
 
     // When the user swipes the pager, keep the NavController in sync.
@@ -159,7 +155,6 @@ fun MonochromeNavHost() {
     }
 
     val themeBackground = MaterialTheme.colorScheme.background
-    val themeSurface = MaterialTheme.colorScheme.surface
 
     val hazeState = rememberHazeState()
 
@@ -183,12 +178,11 @@ fun MonochromeNavHost() {
                 HorizontalPager(
                     state = pagerState,
                     modifier = Modifier.fillMaxSize(),
-                    beyondViewportPageCount = 1
+                    beyondViewportPageCount = 0
                 ) { page ->
                     when (page) {
                         0 -> HomeScreen(navController = navController, playerViewModel = playerViewModel)
-                        1 -> SearchScreen(navController = navController, playerViewModel = playerViewModel)
-                        2 -> LibraryScreen(navController = navController, playerViewModel = playerViewModel)
+                        1 -> LibraryScreen(navController = navController, playerViewModel = playerViewModel)
                     }
                 }
             }
@@ -204,7 +198,6 @@ fun MonochromeNavHost() {
             ) {
                 // Tab stubs – content is rendered by the pager above
                 composable(Screen.Home.route) { }
-                composable(Screen.Search.route) { }
                 composable(Screen.Library.route) { }
 
                 composable(
@@ -228,8 +221,15 @@ fun MonochromeNavHost() {
                 composable(Screen.NowPlaying.route) {
                     NowPlayingScreen(navController = navController, playerViewModel = playerViewModel)
                 }
-                composable(Screen.Settings.route) {
-                    SettingsScreen(navController = navController)
+                composable(
+                    route = Screen.Settings.route,
+                    arguments = listOf(navArgument("tab") {
+                        type = NavType.IntType
+                        defaultValue = 0
+                    })
+                ) { backStackEntry ->
+                    val tab = backStackEntry.arguments?.getInt("tab") ?: 0
+                    SettingsScreen(navController = navController, initialTab = tab)
                 }
                 composable(Screen.Equalizer.route) {
                     EqualizerScreen(navController = navController)
@@ -307,10 +307,10 @@ fun MonochromeNavHost() {
             }
         }
 
-        // ── Layer 2: Frosted bottom bar + mini player (overlays content) ─
+        // ── Layer 2: Navigation bar + mini player (overlays content) ──
         if (isOnMainTab) {
             Column(modifier = Modifier.align(Alignment.BottomCenter)) {
-                // Mini player
+                // Mini player — sits below nav bar with its own space
                 if (showMiniPlayer) {
                     MiniPlayer(
                         track = currentTrack,
@@ -320,52 +320,13 @@ fun MonochromeNavHost() {
                         onSkipNextClick = { playerViewModel.skipToNext() },
                         onSkipPreviousClick = { playerViewModel.skipToPrevious() },
                         onClick = { navController.navigate(Screen.NowPlaying.route) },
+                        modifier = Modifier.padding(horizontal = 8.dp),
                         hazeState = hazeState
                     )
                 }
 
-                // Frosted navigation bar
-                NavigationBar(
-                    containerColor = Color.Transparent,
-                    contentColor = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier
-                        .liquidGlass(hazeState = hazeState)
-                ) {
-                    bottomNavItems.forEachIndexed { index, item ->
-                        val selected = pagerState.currentPage == index
-
-                        NavigationBarItem(
-                            selected = selected,
-                            onClick = {
-                                scope.launch {
-                                    pagerState.animateScrollToPage(index)
-                                }
-                            },
-                            icon = {
-                                Icon(
-                                    imageVector = if (selected) item.selectedIcon else item.unselectedIcon,
-                                    contentDescription = item.label
-                                )
-                            },
-                            label = { Text(item.label) },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = MaterialTheme.colorScheme.primary,
-                                selectedTextColor = MaterialTheme.colorScheme.primary,
-                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                indicatorColor = MaterialTheme.colorScheme.surfaceVariant
-                            )
-                        )
-                    }
-                }
-
                 // Fill the system nav bar area
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(navBarHeight)
-                        .liquidGlass(hazeState = hazeState)
-                )
+                Spacer(modifier = Modifier.height(navBarHeight))
             }
         } else if (showMiniPlayer) {
             // Mini player on non-tab screens — pad above system nav bar

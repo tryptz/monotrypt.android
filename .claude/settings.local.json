@@ -13,7 +13,15 @@
       "Bash(adb shell:*)",
       "Bash(adb pull:*)",
       "Bash(curl:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(export PATH=$PATH:$LOCALAPPDATA/Android/Sdk/platform-tools:/c/Users/felix/AppData/Local/Android/Sdk/platform-tools)",
+      "Bash(find 'S:/1_ACTIVE/Audio Projects/monochrome-android/app/build/intermediates/cxx/Debug' -name *.so)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "Bash(where adb:*)",
+      "Read(//c/Users/felix/AppData/Local/Android/**)",
+      "Bash(/c/Users/felix/AppData/Local/Android/Sdk/platform-tools/adb.exe logcat:*)",
+      "WebFetch(domain:chrisbanes.github.io)"
     ]
   }
 }
