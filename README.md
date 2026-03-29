@@ -1,8 +1,8 @@
-# Monochrome Android
+# MonoTrypT Android
 
 A music player for Android that unifies TIDAL HiFi streaming, local file playback, and encrypted collection manifests into a single library. Built for audiophiles — features a fully parametric AutoEQ engine, a 33-processor native DSP mixer, and a ProjectM visualizer.
 
-[**Download APK**](https://github.com/tryptz/tf.monochrome.android/releases/download/Android-beta-release.apk/release_1.0.1.apk) — sideload or install via ADB.
+[**Download APK**]([(https://github.com/tryptz/monotrypt.android/releases/tag/1.0.3)]) — sideload or install via ADB.
 
 Android 8.0+ (API 26). Alpha.
 
