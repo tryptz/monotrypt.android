@@ -6,6 +6,7 @@ import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import tf.monochrome.android.audio.dsp.DspEngineManager
 import tf.monochrome.android.audio.dsp.MixBusProcessor
+import tf.monochrome.android.data.preferences.PreferencesManager
 import javax.inject.Singleton
 
 @Module
@@ -18,6 +19,6 @@ object DspModule {
 
     @Provides
     @Singleton
-    fun provideDspEngineManager(processor: MixBusProcessor): DspEngineManager =
-        DspEngineManager(processor)
+    fun provideDspEngineManager(processor: MixBusProcessor, preferences: PreferencesManager): DspEngineManager =
+        DspEngineManager(processor, preferences)
 }

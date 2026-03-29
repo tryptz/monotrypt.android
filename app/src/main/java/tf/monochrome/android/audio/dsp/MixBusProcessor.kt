@@ -5,6 +5,9 @@ import androidx.media3.common.C
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.AudioProcessor.AudioFormat
 import androidx.media3.common.util.UnstableApi
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import javax.inject.Inject
@@ -20,6 +23,8 @@ class MixBusProcessor @Inject constructor() : AudioProcessor {
     private var outputBuffer: ByteBuffer = AudioProcessor.EMPTY_BUFFER
     private var inputEnded = false
     private var enabled = false
+    private val _engineReady = MutableStateFlow(false)
+    val engineReady: StateFlow<Boolean> = _engineReady.asStateFlow()
 
     // Scratch float arrays — allocated once per format change
     private var scratchInL = FloatArray(0)
@@ -176,10 +181,12 @@ class MixBusProcessor @Inject constructor() : AudioProcessor {
             }
             inputFormat = pendingFormat
             enginePtr = nativeCreate(inputFormat.sampleRate, MAX_BLOCK_SIZE)
+            _engineReady.value = true
         }
     }
 
     override fun reset() {
+        _engineReady.value = false
         flush()
         if (enginePtr != 0L) {
             nativeDestroy(enginePtr)

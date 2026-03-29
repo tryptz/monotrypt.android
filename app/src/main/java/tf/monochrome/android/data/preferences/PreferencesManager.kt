@@ -134,6 +134,10 @@ class PreferencesManager @Inject constructor(
         private val EXCLUDED_PATHS_JSON = stringPreferencesKey("excluded_paths_json")
         private val BACKGROUND_SCAN_INTERVAL = stringPreferencesKey("background_scan_interval")
 
+        // DSP Mixer
+        private val DSP_ENABLED = booleanPreferencesKey("dsp_enabled")
+        private val DSP_STATE_JSON = stringPreferencesKey("dsp_state_json")
+
         // Library tab order
         private val LIBRARY_TAB_ORDER = stringPreferencesKey("library_tab_order")
     }
@@ -598,6 +602,20 @@ class PreferencesManager @Inject constructor(
         dataStore.edit {
             it.remove(EQ_SELECTED_HEADPHONE_ID)
             it.remove(EQ_SELECTED_HEADPHONE_NAME)
+        }
+    }
+
+    // --- DSP Mixer ---
+    val dspEnabled: Flow<Boolean> = dataStore.data.map { it[DSP_ENABLED] ?: true }
+    suspend fun setDspEnabled(enabled: Boolean) {
+        dataStore.edit { it[DSP_ENABLED] = enabled }
+    }
+
+    val dspStateJson: Flow<String?> = dataStore.data.map { it[DSP_STATE_JSON] }
+    suspend fun setDspStateJson(json: String?) {
+        dataStore.edit {
+            if (json.isNullOrBlank()) it.remove(DSP_STATE_JSON)
+            else it[DSP_STATE_JSON] = json
         }
     }
 
