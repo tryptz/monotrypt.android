@@ -1,0 +1,4 @@
+[submodule "third_party/projectm"]
+	path = third_party/projectm
+	url = https://github.com/projectM-visualizer/projectm.git
+	branch = v4.1.6
