@@ -124,7 +124,6 @@ Ktor with OkHttp engine. 200-entry LRU cache with 30-minute TTL. Instance failov
 | Serialization | Kotlinx Serialization 1.7.3 |
 | Auth | Appwrite 7.0.0, Google Credentials API |
 | Encryption | AES-256-GCM (AndroidX Security Crypto) |
-| AI | Gemini 2.0 Flash |
 | Background | WorkManager 2.10.0 |
 | Widgets | Glance 1.1.1 |
 | Build | AGP 9.0.0, KSP 2.1.0-1.0.29, CMake 3.22.1 |
