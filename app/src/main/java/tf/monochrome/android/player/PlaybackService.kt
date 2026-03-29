@@ -30,6 +30,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+import tf.monochrome.android.audio.dsp.DspEngineManager
 import tf.monochrome.android.audio.dsp.MixBusProcessor
 import tf.monochrome.android.audio.eq.EqProcessor
 import tf.monochrome.android.data.preferences.PreferencesManager
@@ -53,6 +54,7 @@ class PlaybackService : MediaSessionService() {
     @Inject lateinit var scrobblingService: ScrobblingService
     @Inject lateinit var projectMEngineRepository: ProjectMEngineRepository
     @Inject lateinit var mixBusProcessor: MixBusProcessor
+    @Inject lateinit var dspManager: DspEngineManager
 
     private var mediaSession: MediaSession? = null
     private lateinit var player: ExoPlayer
@@ -159,6 +161,22 @@ class PlaybackService : MediaSessionService() {
                 Triple(enabled, bandsJson, preamp)
             }.collect { (enabled, bandsJson, preamp) ->
                 applyEqSettings(enabled, bandsJson, preamp)
+            }
+        }
+
+        // Restore DSP mixer state when the native engine becomes ready
+        serviceScope.launch {
+            var hasRestored = false
+            mixBusProcessor.engineReady.collect { ready ->
+                if (ready && !hasRestored) {
+                    dspManager.restoreState()
+                    hasRestored = true
+                } else if (ready && hasRestored) {
+                    // Re-apply saved state on engine recreation (format change)
+                    val stateJson = preferences.dspStateJson.first()
+                    if (!stateJson.isNullOrEmpty()) dspManager.loadStateJson(stateJson)
+                    if (dspManager.enabled.value) mixBusProcessor.setEnabled(true)
+                }
             }
         }
     }

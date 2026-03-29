@@ -1,17 +1,27 @@
 package tf.monochrome.android.audio.dsp
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import tf.monochrome.android.audio.dsp.model.BusConfig
 import tf.monochrome.android.audio.dsp.model.BusLevels
 import tf.monochrome.android.audio.dsp.model.PluginInstance
+import tf.monochrome.android.data.preferences.PreferencesManager
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class DspEngineManager @Inject constructor(
-    private val processor: MixBusProcessor
+    private val processor: MixBusProcessor,
+    private val preferences: PreferencesManager
 ) {
     private val _enabled = MutableStateFlow(false)
     val enabled: StateFlow<Boolean> = _enabled.asStateFlow()
@@ -23,6 +33,21 @@ class DspEngineManager @Inject constructor(
     private val levelsBuffer = FloatArray(TOTAL_BUSES * 2)  // [peakL, peakR] per bus
     private val _busLevels = MutableStateFlow(List(TOTAL_BUSES) { BusLevels() })
     val busLevels: StateFlow<List<BusLevels>> = _busLevels.asStateFlow()
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val saveSignal = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+
+    init {
+        @OptIn(FlowPreview::class)
+        scope.launch {
+            saveSignal.debounce(500L).collect {
+                val json = getStateJson()
+                if (json != "{}") preferences.setDspStateJson(json)
+            }
+        }
+    }
+
+    private fun requestSave() { saveSignal.tryEmit(Unit) }
 
     fun pollLevels() {
         val ptr = processor.getEnginePtr()
@@ -43,6 +68,21 @@ class DspEngineManager @Inject constructor(
     fun setEnabled(enabled: Boolean) {
         _enabled.value = enabled
         processor.setEnabled(enabled)
+        scope.launch { preferences.setDspEnabled(enabled) }
+    }
+
+    suspend fun restoreState() {
+        val enabled = preferences.dspEnabled.first()
+        val stateJson = preferences.dspStateJson.first()
+
+        if (!stateJson.isNullOrEmpty() && stateJson != "{}") {
+            loadStateJson(stateJson)
+        }
+
+        if (enabled) {
+            _enabled.value = true
+            processor.setEnabled(true)
+        }
     }
 
     // ── Bus controls ────────────────────────────────────────────────────
@@ -51,24 +91,28 @@ class DspEngineManager @Inject constructor(
         val ptr = processor.getEnginePtr()
         if (ptr != 0L) processor.nativeSetBusGain(ptr, busIndex, gainDb)
         updateBus(busIndex) { it.copy(gainDb = gainDb) }
+        requestSave()
     }
 
     fun setBusPan(busIndex: Int, pan: Float) {
         val ptr = processor.getEnginePtr()
         if (ptr != 0L) processor.nativeSetBusPan(ptr, busIndex, pan)
         updateBus(busIndex) { it.copy(pan = pan) }
+        requestSave()
     }
 
     fun setBusMute(busIndex: Int, muted: Boolean) {
         val ptr = processor.getEnginePtr()
         if (ptr != 0L) processor.nativeSetBusMute(ptr, busIndex, muted)
         updateBus(busIndex) { it.copy(muted = muted) }
+        requestSave()
     }
 
     fun setBusSolo(busIndex: Int, soloed: Boolean) {
         val ptr = processor.getEnginePtr()
         if (ptr != 0L) processor.nativeSetBusSolo(ptr, busIndex, soloed)
         updateBus(busIndex) { it.copy(soloed = soloed) }
+        requestSave()
     }
 
     // ── Plugin chain ────────────────────────────────────────────────────
@@ -87,6 +131,7 @@ class DspEngineManager @Inject constructor(
                 // Re-index
                 bus.copy(plugins = plugins.mapIndexed { i, p -> p.copy(slotIndex = i) })
             }
+            requestSave()
         }
         return resultSlot
     }
@@ -101,6 +146,7 @@ class DspEngineManager @Inject constructor(
             }
             bus.copy(plugins = plugins.mapIndexed { i, p -> p.copy(slotIndex = i) })
         }
+        requestSave()
     }
 
     fun movePlugin(busIndex: Int, fromSlot: Int, toSlot: Int) {
@@ -114,6 +160,7 @@ class DspEngineManager @Inject constructor(
             }
             bus.copy(plugins = plugins.mapIndexed { i, p -> p.copy(slotIndex = i) })
         }
+        requestSave()
     }
 
     fun setParameter(busIndex: Int, slotIndex: Int, paramIndex: Int, value: Float) {
@@ -129,6 +176,7 @@ class DspEngineManager @Inject constructor(
             }
             bus.copy(plugins = plugins)
         }
+        requestSave()
     }
 
     fun setPluginBypassed(busIndex: Int, slotIndex: Int, bypassed: Boolean) {
@@ -141,6 +189,7 @@ class DspEngineManager @Inject constructor(
             }
             bus.copy(plugins = plugins)
         }
+        requestSave()
     }
 
     // ── State serialization ─────────────────────────────────────────────
