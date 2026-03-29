@@ -50,6 +50,7 @@ import tf.monochrome.android.ui.components.TrackContextMenu
 import tf.monochrome.android.ui.components.TrackItem
 import tf.monochrome.android.ui.navigation.Screen
 import tf.monochrome.android.ui.player.PlayerViewModel
+import tf.monochrome.android.ui.settings.SettingsViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -57,7 +58,8 @@ fun LibraryScreen(
     navController: NavController,
     playerViewModel: PlayerViewModel,
     viewModel: LibraryViewModel = hiltViewModel(),
-    localLibraryViewModel: LocalLibraryViewModel = hiltViewModel()
+    localLibraryViewModel: LocalLibraryViewModel = hiltViewModel(),
+    settingsViewModel: SettingsViewModel = hiltViewModel()
 ) {
     val favoriteTracks by viewModel.favoriteTracks.collectAsState()
     val recentTracks by viewModel.recentTracks.collectAsState()
@@ -66,8 +68,18 @@ fun LibraryScreen(
     val playlists by viewModel.playlists.collectAsState()
     val favoriteTrackIds by playerViewModel.favoriteTrackIds.collectAsState()
 
+    val libraryTabOrder by settingsViewModel.libraryTabOrder.collectAsState()
+
+    val tabDisplayNames = mapOf(
+        "overview" to "Overview",
+        "local" to "Local",
+        "playlists" to "Playlists",
+        "favorites" to "Favorites",
+        "downloads" to "Downloads"
+    )
+    val tabs = libraryTabOrder.mapNotNull { id -> tabDisplayNames[id]?.let { id to it } }
+
     var selectedTabIndex by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Overview", "Local", "Collections", "Playlists", "Favorites", "Downloads")
 
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var showContextMenuForTrack by remember { mutableStateOf<Track?>(null) }
@@ -131,7 +143,7 @@ fun LibraryScreen(
                 )
             },
             actions = {
-                IconButton(onClick = { navController.navigate(Screen.Settings.route) }) {
+                IconButton(onClick = { navController.navigate(Screen.Settings.createRoute()) }) {
                     Icon(
                         Icons.Default.Settings,
                         contentDescription = "Settings",
@@ -149,7 +161,7 @@ fun LibraryScreen(
             containerColor = Color.Transparent,
             edgePadding = 8.dp
         ) {
-            tabs.forEachIndexed { index, title ->
+            tabs.forEachIndexed { index, (_, title) ->
                 Tab(
                     selected = selectedTabIndex == index,
                     onClick = { selectedTabIndex = index },
@@ -158,8 +170,10 @@ fun LibraryScreen(
             }
         }
 
-        when (selectedTabIndex) {
-            0 -> // Overview
+        val currentSectionId = tabs.getOrNull(selectedTabIndex)?.first ?: "overview"
+
+        when (currentSectionId) {
+            "overview" ->
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 80.dp)
@@ -203,14 +217,13 @@ fun LibraryScreen(
                     }
                 }
 
-            1 -> // Local
+            "local" ->
                 LocalLibraryTab(
                     viewModel = localLibraryViewModel,
                     onTrackClick = { track, queue ->
                         playerViewModel.playUnifiedTrack(track, queue)
                     },
                     onAlbumClick = { album ->
-                        // Navigate to local album detail
                         val albumId = album.id.removePrefix("local_album_").toLongOrNull()
                         if (albumId != null) {
                             navController.navigate("local_album/$albumId")
@@ -227,15 +240,7 @@ fun LibraryScreen(
                     }
                 )
 
-            2 -> // Collections
-                CollectionsTab(
-                    viewModel = localLibraryViewModel,
-                    onCollectionClick = { collectionId ->
-                        navController.navigate("collection/$collectionId")
-                    }
-                )
-
-            3 -> // Playlists
+            "playlists" ->
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 80.dp)
@@ -299,7 +304,7 @@ fun LibraryScreen(
                     }
                 }
 
-            4 -> // Favorites
+            "favorites" ->
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 80.dp)
@@ -356,7 +361,7 @@ fun LibraryScreen(
                     }
                 }
 
-            5 -> // Downloads
+            "downloads" ->
                 DownloadsScreen(navController = navController)
         }
     }

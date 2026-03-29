@@ -317,6 +317,95 @@ private fun LegendDot(label: String, color: Color) {
     }
 }
 
+/**
+ * Compact read-only mini graph showing per-band filter shapes for a profile card.
+ * No axes, labels, or interaction — just the colored band fills on a dark background.
+ */
+@Composable
+fun EqProfileMiniGraph(
+    bands: List<EqBand>,
+    preamp: Float = 0f,
+    sampleRate: Float = 48000f,
+    modifier: Modifier = Modifier
+) {
+    if (bands.isEmpty()) return
+
+    val gainRange = 12f // ±12 dB display range
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(56.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color(0xFF0D0D0D))
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+            val midY = h / 2f
+            val yScale = midY / gainRange
+
+            // Zero center line
+            drawLine(
+                color = Color(0x20FFFFFF),
+                start = Offset(0f, midY),
+                end = Offset(w, midY),
+                strokeWidth = 1f
+            )
+
+            // Draw each band as a filled shape from zero line
+            val freqPoints = buildFreqSamples(MIN_FREQ, MAX_FREQ, 256)
+
+            bands.forEach { band ->
+                if (!band.enabled) return@forEach
+
+                val hue = ((log10(band.freq) - log10(MIN_FREQ)) /
+                        (log10(MAX_FREQ) - log10(MIN_FREQ)) * 300f).coerceIn(0f, 300f)
+                val bandColor = Color.hsl(hue, 0.85f, 0.55f)
+
+                val gainValues = freqPoints.map { freq ->
+                    AutoEqEngine.calculateBiquadResponse(freq, band, sampleRate)
+                }
+
+                val fillPath = Path()
+                val linePath = Path()
+                var started = false
+                freqPoints.forEachIndexed { i, freq ->
+                    val x = freqToX(freq, w)
+                    val g = gainValues[i].coerceIn(-gainRange, gainRange)
+                    val y = midY - g * yScale
+                    if (!started) {
+                        fillPath.moveTo(x, midY)
+                        fillPath.lineTo(x, y)
+                        linePath.moveTo(x, y)
+                        started = true
+                    } else {
+                        fillPath.lineTo(x, y)
+                        linePath.lineTo(x, y)
+                    }
+                }
+                // Close fill back to zero line
+                val lastX = freqToX(freqPoints.last(), w)
+                val firstX = freqToX(freqPoints.first(), w)
+                fillPath.lineTo(lastX, midY)
+                fillPath.lineTo(firstX, midY)
+                fillPath.close()
+
+                drawPath(fillPath, bandColor.copy(alpha = 0.35f))
+                drawPath(linePath, bandColor, style = Stroke(width = 1.5f))
+            }
+        }
+    }
+}
+
+private fun buildFreqSamples(minF: Float, maxF: Float, count: Int): List<Float> {
+    val logMin = log10(minF)
+    val logMax = log10(maxF)
+    return (0 until count).map { i ->
+        10f.pow(logMin + i.toFloat() / (count - 1) * (logMax - logMin))
+    }
+}
+
 // ===== Normalization (matching SeapEngine) =====
 
 /**

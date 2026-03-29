@@ -31,6 +31,9 @@ public:
         return buffer_[idx % sz];
     }
 
+    // Read backwards from most-recent write (0 = latest, 1 = one before, ...)
+    float readReverse(int offset) const { return read(offset); }
+
     // Read at fractional delay with cubic interpolation
     float readCubic(float delaySamples) const {
         int sz = static_cast<int>(buffer_.size());

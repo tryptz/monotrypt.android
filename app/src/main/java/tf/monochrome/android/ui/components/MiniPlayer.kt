@@ -1,7 +1,9 @@
 package tf.monochrome.android.ui.components
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -17,7 +19,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -45,11 +46,18 @@ fun MiniPlayer(
 ) {
     if (track == null) return
 
-    Surface(
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-            .bounceClick(onClick = onClick)
+            .liquidGlass(
+                hazeState = hazeState,
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
+            )
+            .clickable(
+                interactionSource = null,
+                indication = null,
+                onClick = onClick
+            )
             .pointerInput(Unit) {
                 var totalHorizontalDrag = 0f
                 var totalVerticalDrag = 0f
@@ -77,13 +85,6 @@ fun MiniPlayer(
                     }
                 )
             }
-            .liquidGlass(
-                hazeState = hazeState,
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(32.dp)
-            ),
-        color = Color.Transparent,
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(32.dp),
-        shadowElevation = MonoDimens.glassElevation
     ) {
         Column {
             LinearProgressIndicator(

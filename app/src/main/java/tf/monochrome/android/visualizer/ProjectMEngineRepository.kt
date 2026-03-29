@@ -209,11 +209,7 @@ class ProjectMEngineRepository @Inject constructor(
             val assets = installedAssets ?: return
             nativeBridge.configureQuality(meshX, meshY)
             nativeBridge.configureTargetFps(targetFps)
-            val maxDim = max(width, height)
-            val scale = if (maxDim > textureSize) textureSize.toFloat() / maxDim else 1f
-            val scaledWidth = max(1, (width * scale).toInt())
-            val scaledHeight = max(1, (height * scale).toInt())
-            val initialized = nativeBridge.initialize(assets.rootDir.absolutePath, scaledWidth, scaledHeight, meshX, meshY)
+            val initialized = nativeBridge.initialize(assets.rootDir.absolutePath, width, height, meshX, meshY)
             if (!initialized) {
                 updateStatus(
                     phase = VisualizerEnginePhase.ERROR,
@@ -236,11 +232,7 @@ class ProjectMEngineRepository @Inject constructor(
 
     fun onSurfaceResized(width: Int, height: Int) {
         synchronized(engineLock) {
-            val maxDim = max(width, height)
-            val scale = if (maxDim > textureSize) textureSize.toFloat() / maxDim else 1f
-            val scaledWidth = max(1, (width * scale).toInt())
-            val scaledHeight = max(1, (height * scale).toInt())
-            nativeBridge.resize(scaledWidth, scaledHeight)
+            nativeBridge.resize(width, height)
         }
     }
 

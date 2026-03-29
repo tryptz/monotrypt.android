@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.UploadFile
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -41,6 +42,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -97,11 +99,13 @@ fun EqualizerScreen(
     var showMeasurementUpload by remember { mutableStateOf(false) }
     var showPresetMenu by remember { mutableStateOf(false) }
     var showBandsExpanded by remember { mutableStateOf(true) }
+    var showProfilesExpanded by remember { mutableStateOf(true) }
     var saveName by remember { mutableStateOf("") }
     var saveDescription by remember { mutableStateOf("") }
     var showTargetNameDialog by remember { mutableStateOf(false) }
     var pendingTargetData by remember { mutableStateOf("") }
     var targetName by remember { mutableStateOf("") }
+    var presetToDelete by remember { mutableStateOf<tf.monochrome.android.domain.model.EqPreset?>(null) }
 
     val context = LocalContext.current
 
@@ -166,7 +170,7 @@ fun EqualizerScreen(
                             )
                         }
                         Spacer(modifier = Modifier.width(4.dp))
-                        Column {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 "PRECISION AUTOEQ",
                                 style = MaterialTheme.typography.headlineSmall,
@@ -180,6 +184,10 @@ fun EqualizerScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
+                        Switch(
+                            checked = eqEnabled,
+                            onCheckedChange = { viewModel.toggleEq() }
+                        )
                     }
                 }
             }
@@ -387,6 +395,144 @@ fun EqualizerScreen(
                         onClick = { viewModel.runAutoEq() },
                         modifier = Modifier.weight(1f)
                     )
+                }
+            }
+
+            // ─── Saved Profiles Section ───
+            item {
+                HorizontalDivider(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showProfilesExpanded = !showProfilesExpanded }
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            "SAVED PROFILES",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.sp
+                        )
+                        if (allPresets.isNotEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(MaterialTheme.colorScheme.primary)
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    allPresets.size.toString(),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                    Icon(
+                        imageVector = if (showProfilesExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            if (showProfilesExpanded) {
+                if (allPresets.isEmpty()) {
+                    item {
+                        Text(
+                            "No saved profiles yet. Use the Save button in the EQ filters section.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
+                    }
+                } else {
+                    items(allPresets) { preset ->
+                        val isActive = activePreset?.id == preset.id
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .liquidGlass(shape = RoundedCornerShape(10.dp))
+                                .bounceClick(onClick = { viewModel.loadPreset(preset.id) })
+                        ) {
+                            // Mini graph
+                            EqProfileMiniGraph(
+                                bands = preset.bands,
+                                preamp = preset.preamp,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 2.dp, vertical = 2.dp)
+                            )
+                            // Info row
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                if (isActive) {
+                                    Icon(
+                                        Icons.Default.CheckCircle,
+                                        contentDescription = "Active",
+                                        modifier = Modifier.size(16.dp),
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        preset.name,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (isActive) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    if (preset.description.isNotBlank()) {
+                                        Text(
+                                            preset.description,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    Text(
+                                        "${preset.bands.size} bands · ${preset.targetName}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                if (preset.isCustom) {
+                                    IconButton(
+                                        onClick = { presetToDelete = preset },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Delete,
+                                            contentDescription = "Delete preset",
+                                            modifier = Modifier.size(16.dp),
+                                            tint = MaterialTheme.colorScheme.error
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -686,6 +832,23 @@ fun EqualizerScreen(
                     onDismiss = { showMeasurementUpload = false },
                     onCalibrationComplete = { showMeasurementUpload = false }
                 )
+            }
+        )
+    }
+
+    presetToDelete?.let { preset ->
+        AlertDialog(
+            onDismissRequest = { presetToDelete = null },
+            title = { Text("Delete Profile") },
+            text = { Text("Delete \"${preset.name}\"?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deletePreset(preset.id)
+                    presetToDelete = null
+                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { presetToDelete = null }) { Text("Cancel") }
             }
         )
     }

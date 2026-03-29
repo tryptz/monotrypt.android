@@ -81,7 +81,7 @@ object MonoDimens {
     /** Thin luminous border width */
     val glassBorderWidth = 0.5.dp
     /** Backdrop blur radius for glass surfaces */
-    val glassBlurRadius = 20.dp
+    val glassBlurRadius = 80.dp
     /** Soft shadow elevation for glass cards */
     val glassElevation = 4.dp
 }

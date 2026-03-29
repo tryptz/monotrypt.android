@@ -47,6 +47,7 @@ import kotlin.math.sin
 import tf.monochrome.android.domain.model.VisualizerEnginePhase
 import tf.monochrome.android.domain.model.VisualizerEngineStatus
 import tf.monochrome.android.visualizer.ProjectMEngineRepository
+import tf.monochrome.android.ui.components.liquidGlass
 import tf.monochrome.android.visualizer.ProjectMRendererView
 
 private val VisualizerInk = Color(0xFF060913)
@@ -196,9 +197,14 @@ fun VisualizerComponent(
             Surface(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .padding(16.dp),
+                    .padding(16.dp)
+                    .liquidGlass(
+                        shape = RoundedCornerShape(18.dp),
+                        tintAlpha = 0.15f,
+                        borderAlpha = 0.10f
+                    ),
                 shape = RoundedCornerShape(18.dp),
-                color = Color.Black.copy(alpha = 0.28f),
+                color = Color.Transparent,
                 contentColor = Color.White
             ) {
                 Text(
@@ -367,9 +373,15 @@ private fun ProjectMStatusOverlay(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        modifier = modifier.padding(16.dp),
+        modifier = modifier
+            .padding(16.dp)
+            .liquidGlass(
+                shape = RoundedCornerShape(999.dp),
+                tintAlpha = 0.12f,
+                borderAlpha = 0.10f
+            ),
         shape = RoundedCornerShape(999.dp),
-        color = Color.White.copy(alpha = 0.09f),
+        color = Color.Transparent,
         contentColor = Color.White
     ) {
         Row(
