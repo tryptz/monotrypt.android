@@ -83,7 +83,7 @@ object AutoEqEngine {
         bandCount: Int,
         maxFrequency: Float = 16000f,
         minFrequency: Float = 20f,
-        @Suppress("UNUSED_PARAMETER") maxQ: Float = MAX_Q.toFloat(),
+        maxQ: Float = MAX_Q.toFloat(),
         sampleRate: Float = DEFAULT_SAMPLE_RATE
     ): List<EqBand> {
         val offset = getNormalizationOffset(target) - getNormalizationOffset(measurement)
@@ -168,7 +168,7 @@ object AutoEqEngine {
 
             // Constraints
             if (q < MIN_Q) q = MIN_Q
-            if (q > MAX_Q) q = MAX_Q
+            if (q > maxQ.toDouble()) q = maxQ.toDouble()
             if (peakFreq > 5000.0 && q > 3.0) q = 3.0  // treble safety
             if (gain > 0.0 && q > 2.0) q = 2.0          // boost safety
 

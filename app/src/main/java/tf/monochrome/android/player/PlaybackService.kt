@@ -40,10 +40,16 @@ import tf.monochrome.android.domain.model.ReplayGainValues
 import tf.monochrome.android.ui.main.MainActivity
 import tf.monochrome.android.visualizer.ProjectMAudioTapProcessor
 import tf.monochrome.android.visualizer.ProjectMEngineRepository
+import android.util.Log
 import javax.inject.Inject
 
 @AndroidEntryPoint
 class PlaybackService : MediaSessionService() {
+
+    companion object {
+        private const val TAG = "PlaybackService"
+        private val eqJson = Json { ignoreUnknownKeys = true }
+    }
 
     @Inject lateinit var queueManager: QueueManager
     @Inject lateinit var streamResolver: StreamResolver
@@ -235,7 +241,7 @@ class PlaybackService : MediaSessionService() {
 
                 libraryRepository.addToHistory(track)
             } catch (e: Exception) {
-                // Skip to next on error
+                Log.w(TAG, "playTrack failed", e)
                 onTrackEnded()
             }
         }
@@ -277,6 +283,7 @@ class PlaybackService : MediaSessionService() {
                 // Preload next tracks
                 preloadNextTracks()
             } catch (e: Exception) {
+                Log.w(TAG, "playQueue failed", e)
                 onTrackEnded()
             }
         }
@@ -351,8 +358,8 @@ class PlaybackService : MediaSessionService() {
             if (nextIdx < queue.size) {
                 try {
                     streamResolver.resolveMediaItem(queue[nextIdx])
-                } catch (_: Exception) {
-                    // Preload failure is non-critical
+                } catch (e: Exception) {
+                    Log.w(TAG, "Preload failed for track", e)
                 }
             }
         }
@@ -369,7 +376,7 @@ class PlaybackService : MediaSessionService() {
                 val preamp = preferences.eqPreamp.first()
                 applyEqSettings(enabled, bandsJson, preamp)
             } catch (e: Exception) {
-                // EQ application non-critical
+                Log.w(TAG, "Failed to apply EQ", e)
             }
         }
     }
@@ -380,15 +387,14 @@ class PlaybackService : MediaSessionService() {
     private fun applyEqSettings(enabled: Boolean, bandsJson: String?, preamp: Double) {
         try {
             if (enabled && !bandsJson.isNullOrEmpty()) {
-                val json = Json { ignoreUnknownKeys = true }
-                val bands = json.decodeFromString<List<EqBand>>(bandsJson)
-                eqProcessor?.applyBands(bands, preamp.toFloat())
+                val bands = eqJson.decodeFromString<List<EqBand>>(bandsJson)
                 eqProcessor?.enable()
+                eqProcessor?.applyBands(bands, preamp.toFloat())
             } else {
                 eqProcessor?.disable()
             }
         } catch (e: Exception) {
-            // Gracefully handle EQ application errors
+            Log.w(TAG, "Failed to apply EQ settings", e)
         }
     }
 }

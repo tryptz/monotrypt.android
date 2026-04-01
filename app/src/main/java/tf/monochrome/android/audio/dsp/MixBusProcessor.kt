@@ -5,6 +5,7 @@ import androidx.media3.common.C
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.AudioProcessor.AudioFormat
 import androidx.media3.common.util.UnstableApi
+import android.util.Log
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import javax.inject.Inject
@@ -51,10 +52,18 @@ class MixBusProcessor @Inject constructor() : AudioProcessor {
     external fun nativeLoadStateJson(enginePtr: Long, stateJson: String)
 
     companion object {
-        init {
-            System.loadLibrary("monochrome_dsp")
-        }
+        private const val TAG = "MixBusProcessor"
         const val MAX_BLOCK_SIZE = 4096
+
+        val isLibraryLoaded: Boolean by lazy {
+            runCatching {
+                System.loadLibrary("monochrome_dsp")
+                true
+            }.getOrElse { error ->
+                Log.w(TAG, "monochrome_dsp native library unavailable", error)
+                false
+            }
+        }
     }
 
     fun getEnginePtr(): Long = enginePtr
@@ -169,6 +178,8 @@ class MixBusProcessor @Inject constructor() : AudioProcessor {
         outputBuffer = AudioProcessor.EMPTY_BUFFER
         inputEnded = false
 
+        if (!isLibraryLoaded) return
+
         // (Re)create native engine if format changed
         if (pendingFormat != AudioFormat.NOT_SET) {
             if (enginePtr != 0L) {
@@ -181,7 +192,7 @@ class MixBusProcessor @Inject constructor() : AudioProcessor {
 
     override fun reset() {
         flush()
-        if (enginePtr != 0L) {
+        if (isLibraryLoaded && enginePtr != 0L) {
             nativeDestroy(enginePtr)
             enginePtr = 0L
         }

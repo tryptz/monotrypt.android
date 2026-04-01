@@ -4,7 +4,6 @@ import android.media.audiofx.Equalizer
 import android.util.Log
 import tf.monochrome.android.domain.model.EqBand
 import tf.monochrome.android.domain.model.FilterType
-import kotlin.math.abs
 import kotlin.math.log2
 import kotlin.math.pow
 
@@ -69,10 +68,6 @@ class EqProcessor(
             customDspBands = bands
         }
 
-        // Apply preamp gain separately if needed
-        if (abs(preamp) > 0.1f) {
-            applyPreamp(preamp)
-        }
     }
 
     /**
@@ -134,7 +129,8 @@ class EqProcessor(
             }
 
             eq.enabled = true
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to apply system EQ bands", e)
         }
     }
 
@@ -187,16 +183,6 @@ class EqProcessor(
     }
 
     /**
-     * Apply preamp gain
-     * Can be done through audio volume or by adjusting all bands uniformly
-     */
-    private fun applyPreamp(preamp: Float) {
-        // In a real implementation, this could adjust the output volume
-        // or apply to all bands uniformly
-        // Note: Actual implementation depends on integration point
-    }
-
-    /**
      * Enable EQ processing
      */
     fun enable() {
@@ -222,7 +208,8 @@ class EqProcessor(
                     eq.setBandLevel(i.toShort(), 0)
                 }
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to reset EQ bands", e)
         }
     }
 
@@ -247,7 +234,8 @@ class EqProcessor(
         try {
             equalizer?.release()
             equalizer = null
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to release EQ", e)
         }
     }
 
