@@ -97,7 +97,8 @@ class MixBusProcessor @Inject constructor() : AudioProcessor {
     // Always active so ExoPlayer keeps us in the pipeline.
     // When disabled, queueInput() passes audio through unchanged
     // but the engine still runs for metering.
-    override fun isActive(): Boolean = pendingFormat != AudioFormat.NOT_SET
+    override fun isActive(): Boolean =
+        pendingFormat != AudioFormat.NOT_SET || inputFormat != AudioFormat.NOT_SET
 
     override fun queueInput(inputBuffer: ByteBuffer) {
         if (enginePtr == 0L) {
@@ -218,15 +219,39 @@ class MixBusProcessor @Inject constructor() : AudioProcessor {
         outputBuffer = AudioProcessor.EMPTY_BUFFER
         inputEnded = false
 
-        // (Re)create native engine if format changed
-        if (pendingFormat != AudioFormat.NOT_SET) {
+        if (pendingFormat == AudioFormat.NOT_SET) return
+
+        // Only recreate the native engine when the audio format actually changes.
+        // ExoPlayer calls configure()+flush() on every track change and seek —
+        // recreating needlessly destroys all plugin state (bus gains, chains, etc.)
+        val formatChanged = inputFormat == AudioFormat.NOT_SET
+            || inputFormat.sampleRate != pendingFormat.sampleRate
+            || inputFormat.encoding != pendingFormat.encoding
+            || inputFormat.channelCount != pendingFormat.channelCount
+
+        if (formatChanged) {
+            // Save current state so it survives engine recreation
+            val savedState = if (enginePtr != 0L) nativeGetStateJson(enginePtr) else null
+            val wasEnabled = enabled
+
             if (enginePtr != 0L) {
                 nativeDestroy(enginePtr)
             }
             inputFormat = pendingFormat
             enginePtr = nativeCreate(inputFormat.sampleRate, MAX_BLOCK_SIZE)
+
+            // Restore state into the new engine immediately (same thread, no race)
+            if (!savedState.isNullOrEmpty() && savedState != "{}") {
+                nativeLoadStateJson(enginePtr, savedState)
+            }
+            enabled = wasEnabled
+
+            // Signal ready (false→true transition ensures StateFlow emits)
+            _engineReady.value = false
             _engineReady.value = true
         }
+        // Clear pending so seeks within the same track don't recreate
+        pendingFormat = AudioFormat.NOT_SET
     }
 
     override fun reset() {
