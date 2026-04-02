@@ -99,6 +99,13 @@ public:
         }
     }
 
+    void reset() override {
+        bufL_.reset(); bufR_.reset();
+        currentRate_ = 1.0f;
+        readPhase_ = 0.0;
+        playing_ = true;
+    }
+
     int getNumParameters() const override { return NUM_PARAMS; }
     const char* getName() const override { return "Tape Stop"; }
     SnapinType getType() const override { return SnapinType::TAPE_STOP; }

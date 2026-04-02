@@ -65,6 +65,11 @@ public:
         }
     }
 
+    void reset() override {
+        delayL_.reset();
+        delayR_.reset();
+    }
+
     int getNumParameters() const override { return NUM_PARAMS; }
     const char* getName() const override { return "Comb Filter"; }
     SnapinType getType() const override { return SnapinType::COMB_FILTER; }

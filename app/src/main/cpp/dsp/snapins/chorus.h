@@ -9,77 +9,105 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-// Multi-voice chorus with LFO-modulated delay lines and stereo spread.
+// Modern multi-voice chorus with staggered LFO phases, stereo spread, and feedback.
 class ChorusProcessor : public SnapinProcessor {
 public:
     enum Params {
-        DELAY_MS = 0, RATE, DEPTH, SPREAD, MIX, TAPS, NUM_PARAMS
+        DELAY_MS = 0,   // 1-40 ms base delay
+        RATE,           // 0.01-10 Hz
+        DEPTH,          // 0-100%
+        VOICES,         // 1-8 integer
+        SPREAD,         // 0-100% stereo
+        FEEDBACK,       // 0-50%
+        MIX,            // 0-100%
+        NUM_PARAMS
     };
 
-    static constexpr int MAX_TAPS = 6;
+    static constexpr int MAX_VOICES = 8;
 
     void prepare(double sampleRate, int maxBlockSize) override {
         sampleRate_ = sampleRate;
         maxBlockSize_ = maxBlockSize;
-        // Max delay: 50ms at any sample rate
-        int maxSamples = static_cast<int>(0.05 * sampleRate) + 64;
-        for (int t = 0; t < MAX_TAPS; t++) {
-            delayL_[t].prepare(maxSamples);
-            delayR_[t].prepare(maxSamples);
-            lfoL_[t].prepare(sampleRate);
-            lfoR_[t].prepare(sampleRate);
-            lfoL_[t].setShape(LfoShape::Sine);
-            lfoR_[t].setShape(LfoShape::Sine);
+
+        // Max delay: base 40ms + modulation depth headroom
+        int maxSamples = static_cast<int>(0.08 * sampleRate) + 64;
+        for (int v = 0; v < MAX_VOICES; v++) {
+            delayL_[v].prepare(maxSamples);
+            delayR_[v].prepare(maxSamples);
+            lfo_[v].prepare(sampleRate);
+            lfo_[v].setShape(LfoShape::Sine);
         }
         updateLfos();
     }
 
     void process(float* left, float* right, int numFrames) override {
-        float baseDelaySamples = delayMs_ * 0.001f * static_cast<float>(sampleRate_);
-        float depthSamples = baseDelaySamples * (depth_ / 100.0f);
-        int taps = std::max(1, std::min(MAX_TAPS, taps_));
+        const float baseDelaySamples = delayMs_ * 0.001f * static_cast<float>(sampleRate_);
+        const float depthSamples = baseDelaySamples * (depth_ * 0.01f);
+        const int voices = std::max(1, std::min(MAX_VOICES, voices_));
+        const float fb = feedback_ * 0.01f;
+        const float m = mix_ * 0.01f;
+        const float spreadNorm = spread_ * 0.01f;
+        const float norm = 1.0f / std::sqrt(static_cast<float>(voices));
 
         for (int i = 0; i < numFrames; i++) {
-            float dryL = left[i];
-            float dryR = right[i];
+            const float dryL = left[i];
+            const float dryR = right[i];
             float wetL = 0.0f;
             float wetR = 0.0f;
 
-            for (int t = 0; t < taps; t++) {
-                // Write input to each tap's delay line
-                delayL_[t].write(dryL);
-                delayR_[t].write(dryR);
+            for (int v = 0; v < voices; v++) {
+                // Input to delay: dry signal + feedback through first voice only
+                float inputL = dryL;
+                float inputR = dryR;
+                if (v == 0) {
+                    inputL += feedbackL_ * fb;
+                    inputR += feedbackR_ * fb;
+                }
+
+                delayL_[v].write(inputL);
+                delayR_[v].write(inputR);
+
+                // Per-voice base delay offset for richness
+                float voiceOffset = baseDelaySamples * 0.1f *
+                    (static_cast<float>(v) / std::max(1.0f, static_cast<float>(voices - 1)) - 0.5f);
+                if (voices == 1) voiceOffset = 0.0f;
 
                 // Modulated delay read position
-                float modL = lfoL_[t].next();
-                float modR = lfoR_[t].next();
-                float readL = baseDelaySamples + modL * depthSamples;
-                float readR = baseDelaySamples + modR * depthSamples;
+                float mod = lfo_[v].next();
+                float readPos = baseDelaySamples + voiceOffset + mod * depthSamples;
+                readPos = std::max(1.0f, readPos);
 
-                // Clamp to valid range
-                readL = std::max(1.0f, readL);
-                readR = std::max(1.0f, readR);
+                float tapL = delayL_[v].readCubic(readPos);
+                float tapR = delayR_[v].readCubic(readPos);
 
-                float tapL = delayL_[t].readCubic(readL);
-                float tapR = delayR_[t].readCubic(readR);
-
-                // Stereo spread panning per voice
-                float panAngle = (spread_ / 100.0f) * (static_cast<float>(t) / std::max(1, taps - 1) - 0.5f);
-                float panNorm = (panAngle + 0.5f);  // 0..1
-                float gainL = std::cos(panNorm * static_cast<float>(M_PI) * 0.5f);
-                float gainR = std::sin(panNorm * static_cast<float>(M_PI) * 0.5f);
+                // Equal-power stereo panning per voice
+                float panPos;
+                if (voices == 1) {
+                    panPos = 0.5f; // center
+                } else {
+                    // Distribute voices across stereo field based on spread
+                    float voicePos = static_cast<float>(v) / static_cast<float>(voices - 1); // 0..1
+                    panPos = 0.5f + spreadNorm * (voicePos - 0.5f);
+                }
+                float panAngle = panPos * static_cast<float>(M_PI) * 0.5f;
+                float gainL = std::cos(panAngle);
+                float gainR = std::sin(panAngle);
 
                 wetL += tapL * gainL;
                 wetR += tapR * gainR;
+
+                // Store first voice output for feedback
+                if (v == 0) {
+                    feedbackL_ = tapL;
+                    feedbackR_ = tapR;
+                }
             }
 
-            // Normalize by tap count
-            float norm = 1.0f / static_cast<float>(taps);
+            // Normalize by sqrt(voices) for equal energy
             wetL *= norm;
             wetR *= norm;
 
-            // Mix
-            float m = mix_ / 100.0f;
+            // Mix dry/wet
             left[i]  = dryL * (1.0f - m) + wetL * m;
             right[i] = dryR * (1.0f - m) + wetR * m;
         }
@@ -87,17 +115,28 @@ public:
 
     void setParameter(int index, float value) override {
         switch (index) {
-            case DELAY_MS: delayMs_ = std::max(1.0f, std::min(40.0f, value)); break;
+            case DELAY_MS:
+                delayMs_ = std::max(1.0f, std::min(40.0f, value));
+                break;
             case RATE:
                 rate_ = std::max(0.01f, std::min(10.0f, value));
                 updateLfos();
                 break;
-            case DEPTH:  depth_ = std::max(0.0f, std::min(100.0f, value)); break;
-            case SPREAD: spread_ = std::max(0.0f, std::min(100.0f, value)); break;
-            case MIX:    mix_ = std::max(0.0f, std::min(100.0f, value)); break;
-            case TAPS:
-                taps_ = static_cast<int>(std::max(1.0f, std::min(6.0f, value)));
+            case DEPTH:
+                depth_ = std::max(0.0f, std::min(100.0f, value));
+                break;
+            case VOICES:
+                voices_ = static_cast<int>(std::max(1.0f, std::min(8.0f, value)));
                 updateLfos();
+                break;
+            case SPREAD:
+                spread_ = std::max(0.0f, std::min(100.0f, value));
+                break;
+            case FEEDBACK:
+                feedback_ = std::max(0.0f, std::min(50.0f, value));
+                break;
+            case MIX:
+                mix_ = std::max(0.0f, std::min(100.0f, value));
                 break;
         }
     }
@@ -107,11 +146,22 @@ public:
             case DELAY_MS: return delayMs_;
             case RATE:     return rate_;
             case DEPTH:    return depth_;
+            case VOICES:   return static_cast<float>(voices_);
             case SPREAD:   return spread_;
+            case FEEDBACK: return feedback_;
             case MIX:      return mix_;
-            case TAPS:     return static_cast<float>(taps_);
-            default: return 0.0f;
+            default:       return 0.0f;
         }
+    }
+
+    void reset() override {
+        for (int v = 0; v < MAX_VOICES; v++) {
+            delayL_[v].reset();
+            delayR_[v].reset();
+            lfo_[v].reset();
+        }
+        feedbackL_ = 0.0f;
+        feedbackR_ = 0.0f;
     }
 
     int getNumParameters() const override { return NUM_PARAMS; }
@@ -120,23 +170,25 @@ public:
 
 private:
     void updateLfos() {
-        for (int t = 0; t < MAX_TAPS; t++) {
-            lfoL_[t].setRate(rate_);
-            lfoR_[t].setRate(rate_);
-            // Phase offset: evenly distributed + slight L/R offset
-            float phaseOffset = 360.0f * static_cast<float>(t) / static_cast<float>(std::max(1, taps_));
-            lfoL_[t].setPhaseOffset(phaseOffset);
-            lfoR_[t].setPhaseOffset(phaseOffset + 90.0f);
+        for (int v = 0; v < MAX_VOICES; v++) {
+            lfo_[v].setRate(rate_);
+            // Stagger LFO phases: 360/voices degrees apart
+            float phaseOffset = 360.0f * static_cast<float>(v) / static_cast<float>(std::max(1, voices_));
+            lfo_[v].setPhaseOffset(phaseOffset);
         }
     }
 
+    // Parameters
     float delayMs_ = 7.0f;
     float rate_ = 1.0f;
     float depth_ = 50.0f;
+    int voices_ = 3;
     float spread_ = 50.0f;
+    float feedback_ = 0.0f;
     float mix_ = 50.0f;
-    int taps_ = 2;
 
-    DelayLine delayL_[MAX_TAPS], delayR_[MAX_TAPS];
-    Lfo lfoL_[MAX_TAPS], lfoR_[MAX_TAPS];
+    // DSP state
+    DelayLine delayL_[MAX_VOICES], delayR_[MAX_VOICES];
+    Lfo lfo_[MAX_VOICES];
+    float feedbackL_ = 0.0f, feedbackR_ = 0.0f;
 };

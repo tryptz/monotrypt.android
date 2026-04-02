@@ -121,6 +121,18 @@ public:
         }
     }
 
+    void reset() override {
+        for (int v = 0; v < MAX_VOICES; v++) {
+            delayL_[v].reset();
+            delayR_[v].reset();
+            lfo_[v].reset();
+            for (int s = 0; s < AP_STAGES; s++) {
+                apL_[v][s].reset();
+                apR_[v][s].reset();
+            }
+        }
+    }
+
     int getNumParameters() const override { return NUM_PARAMS; }
     const char* getName() const override { return "Ensemble"; }
     SnapinType getType() const override { return SnapinType::ENSEMBLE; }

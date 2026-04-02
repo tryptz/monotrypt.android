@@ -32,6 +32,9 @@ class MixBusProcessor @Inject constructor() : AudioProcessor {
     private var scratchOutL = FloatArray(0)
     private var scratchOutR = FloatArray(0)
 
+    // TPDF dither state for PCM16 output (triangular probability density function)
+    private var ditherState: Long = 1L
+
     // JNI native methods
     private external fun nativeCreate(sampleRate: Int, maxBlockSize: Int): Long
     private external fun nativeDestroy(enginePtr: Long)
@@ -51,7 +54,11 @@ class MixBusProcessor @Inject constructor() : AudioProcessor {
     external fun nativeMovePlugin(enginePtr: Long, busIndex: Int, fromSlot: Int, toSlot: Int)
     external fun nativeSetParameter(enginePtr: Long, busIndex: Int, slotIndex: Int, paramIndex: Int, value: Float)
     external fun nativeSetPluginBypassed(enginePtr: Long, busIndex: Int, slotIndex: Int, bypassed: Boolean)
+    external fun nativeSetPluginDryWet(enginePtr: Long, busIndex: Int, slotIndex: Int, dryWet: Float)
+    external fun nativeSetBusInputEnabled(enginePtr: Long, busIndex: Int, enabled: Boolean)
     external fun nativeGetBusLevels(enginePtr: Long, outLevels: FloatArray)
+    external fun nativeGetAndResetClipped(enginePtr: Long): Boolean
+    external fun nativeResetPluginState(enginePtr: Long)
     external fun nativeGetStateJson(enginePtr: Long): String
     external fun nativeLoadStateJson(enginePtr: Long, stateJson: String)
 
@@ -69,24 +76,32 @@ class MixBusProcessor @Inject constructor() : AudioProcessor {
     // ── AudioProcessor implementation ────────────────────────────────────
 
     override fun configure(inputAudioFormat: AudioFormat): AudioFormat {
-        // Accept 16-bit PCM or float PCM, stereo
+        // Accept 16-bit PCM or float PCM, mono or stereo
         if (inputAudioFormat.encoding != C.ENCODING_PCM_16BIT &&
             inputAudioFormat.encoding != C.ENCODING_PCM_FLOAT) {
             throw AudioProcessor.UnhandledAudioFormatException(inputAudioFormat)
         }
-        if (inputAudioFormat.channelCount != 2) {
+        if (inputAudioFormat.channelCount != 1 && inputAudioFormat.channelCount != 2) {
             throw AudioProcessor.UnhandledAudioFormatException(inputAudioFormat)
         }
 
         pendingFormat = inputAudioFormat
-        return inputAudioFormat  // same format in and out
+        // Always output stereo — mono is duplicated to both channels
+        return if (inputAudioFormat.channelCount == 1) {
+            AudioFormat(inputAudioFormat.sampleRate, 2, inputAudioFormat.encoding)
+        } else {
+            inputAudioFormat
+        }
     }
 
-    override fun isActive(): Boolean = enabled && pendingFormat != AudioFormat.NOT_SET
+    // Always active so ExoPlayer keeps us in the pipeline.
+    // When disabled, queueInput() passes audio through unchanged
+    // but the engine still runs for metering.
+    override fun isActive(): Boolean = pendingFormat != AudioFormat.NOT_SET
 
     override fun queueInput(inputBuffer: ByteBuffer) {
-        if (!enabled || enginePtr == 0L) {
-            // Pass through
+        if (enginePtr == 0L) {
+            // No engine — pass through
             val size = inputBuffer.remaining()
             if (outputBuffer.capacity() < size) {
                 outputBuffer = ByteBuffer.allocateDirect(size).order(ByteOrder.nativeOrder())
@@ -99,8 +114,9 @@ class MixBusProcessor @Inject constructor() : AudioProcessor {
         }
 
         val encoding = inputFormat.encoding
+        val inputChannels = inputFormat.channelCount
         val bytesPerSample = if (encoding == C.ENCODING_PCM_FLOAT) 4 else 2
-        val frameSize = bytesPerSample * 2  // stereo
+        val frameSize = bytesPerSample * inputChannels
         val numFrames = inputBuffer.remaining() / frameSize
 
         if (numFrames <= 0) return
@@ -114,27 +130,51 @@ class MixBusProcessor @Inject constructor() : AudioProcessor {
         }
 
         // Deinterleave input to L/R float arrays
-        if (encoding == C.ENCODING_PCM_FLOAT) {
-            val fb = inputBuffer.asFloatBuffer()
-            for (i in 0 until numFrames) {
-                scratchInL[i] = fb.get()
-                scratchInR[i] = fb.get()
+        if (inputChannels == 1) {
+            // Mono: duplicate to both channels
+            if (encoding == C.ENCODING_PCM_FLOAT) {
+                val fb = inputBuffer.asFloatBuffer()
+                for (i in 0 until numFrames) {
+                    val s = fb.get()
+                    scratchInL[i] = s
+                    scratchInR[i] = s
+                }
+            } else {
+                val sb = inputBuffer.asShortBuffer()
+                for (i in 0 until numFrames) {
+                    val s = sb.get().toFloat() / 32768f
+                    scratchInL[i] = s
+                    scratchInR[i] = s
+                }
             }
         } else {
-            // PCM16
-            val sb = inputBuffer.asShortBuffer()
-            for (i in 0 until numFrames) {
-                scratchInL[i] = sb.get().toFloat() / 32768f
-                scratchInR[i] = sb.get().toFloat() / 32768f
+            // Stereo
+            if (encoding == C.ENCODING_PCM_FLOAT) {
+                val fb = inputBuffer.asFloatBuffer()
+                for (i in 0 until numFrames) {
+                    scratchInL[i] = fb.get()
+                    scratchInR[i] = fb.get()
+                }
+            } else {
+                val sb = inputBuffer.asShortBuffer()
+                for (i in 0 until numFrames) {
+                    scratchInL[i] = sb.get().toFloat() / 32768f
+                    scratchInR[i] = sb.get().toFloat() / 32768f
+                }
             }
         }
         inputBuffer.position(inputBuffer.position() + numFrames * frameSize)
 
-        // Process through native engine
+        // Always process through native engine (for metering)
         nativeProcess(enginePtr, scratchInL, scratchInR, scratchOutL, scratchOutR, numFrames)
 
-        // Interleave output back to ByteBuffer
-        val outBytes = numFrames * frameSize
+        // When disabled, output original input (dry) instead of processed
+        val useL = if (enabled) scratchOutL else scratchInL
+        val useR = if (enabled) scratchOutR else scratchInR
+
+        // Interleave output back to ByteBuffer (always stereo output)
+        val outFrameSize = bytesPerSample * 2  // stereo
+        val outBytes = numFrames * outFrameSize
         if (outputBuffer.capacity() < outBytes) {
             outputBuffer = ByteBuffer.allocateDirect(outBytes).order(ByteOrder.nativeOrder())
         } else {
@@ -144,14 +184,18 @@ class MixBusProcessor @Inject constructor() : AudioProcessor {
         if (encoding == C.ENCODING_PCM_FLOAT) {
             val fb = outputBuffer.asFloatBuffer()
             for (i in 0 until numFrames) {
-                fb.put(scratchOutL[i])
-                fb.put(scratchOutR[i])
+                fb.put(useL[i])
+                fb.put(useR[i])
             }
         } else {
+            // PCM16 output with TPDF dithering (triangular 1-LSB noise)
             val sb = outputBuffer.asShortBuffer()
             for (i in 0 until numFrames) {
-                sb.put((scratchOutL[i] * 32768f).toInt().coerceIn(-32768, 32767).toShort())
-                sb.put((scratchOutR[i] * 32768f).toInt().coerceIn(-32768, 32767).toShort())
+                val d1 = nextDitherSample()
+                val d2 = nextDitherSample()
+                val dither = (d1 + d2) // TPDF: sum of two uniform = triangular
+                sb.put(((useL[i] * 32768f) + dither).toInt().coerceIn(-32768, 32767).toShort())
+                sb.put(((useR[i] * 32768f) + dither).toInt().coerceIn(-32768, 32767).toShort())
             }
         }
         outputBuffer.position(0)
@@ -195,5 +239,11 @@ class MixBusProcessor @Inject constructor() : AudioProcessor {
         pendingFormat = AudioFormat.NOT_SET
         inputFormat = AudioFormat.NOT_SET
         enabled = false
+    }
+
+    // LCG PRNG for TPDF dither — returns uniform value in [-0.5, 0.5) LSB range
+    private fun nextDitherSample(): Float {
+        ditherState = ditherState * 1103515245L + 12345L
+        return ((ditherState shr 16) and 0x7FFF).toFloat() / 32768f - 0.5f
     }
 }
