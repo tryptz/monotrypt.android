@@ -90,8 +90,19 @@ class ReplayGainProcessor @Inject constructor(
         }
 
         val adjustedGainDb = gainDb + preamp.toFloat()
-        val linear = 10f.pow(adjustedGainDb / 20f)
+        var scale = 10f.pow(adjustedGainDb / 20f)
 
-        return (userVolume * linear).coerceIn(0f, 1.5f)
+        // Peak protection: prevent clipping (use API peak data when available)
+        val peak: Double? = when (mode) {
+            ReplayGainMode.ALBUM -> apiReplayGain?.albumPeakAmplitude
+                ?: apiReplayGain?.trackPeakAmplitude
+            ReplayGainMode.TRACK -> apiReplayGain?.trackPeakAmplitude
+            else -> null
+        }
+        if (peak != null && peak > 0.0 && scale * peak > 1.0) {
+            scale = (1.0 / peak).toFloat()
+        }
+
+        return (userVolume * scale).coerceIn(0f, 1f)
     }
 }

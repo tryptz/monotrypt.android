@@ -122,6 +122,14 @@ public:
         }
     }
 
+    void reset() override {
+        envL_.reset(); envR_.reset();
+        lookaheadL_.reset(); lookaheadR_.reset();
+        gateGain_ = 0.0f;
+        holdCounter_ = 0;
+        gateOpen_ = false;
+    }
+
     int getNumParameters() const override { return NUM_PARAMS; }
     const char* getName() const override { return "Gate"; }
     SnapinType getType() const override { return SnapinType::GATE; }
