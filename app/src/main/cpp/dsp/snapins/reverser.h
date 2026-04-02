@@ -84,6 +84,12 @@ public:
         }
     }
 
+    void reset() override {
+        bufL_.reset(); bufR_.reset();
+        writeCount_ = 0;
+        readPos_ = 0;
+    }
+
     int getNumParameters() const override { return NUM_PARAMS; }
     const char* getName() const override { return "Reverser"; }
     SnapinType getType() const override { return SnapinType::REVERSER; }

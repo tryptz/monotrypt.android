@@ -29,6 +29,7 @@ class EqProcessor(
 
     private var equalizer: Equalizer? = null
     private var customDspBands: List<EqBand> = emptyList()
+    private var lastPreamp: Float = 0f
     private var isEnabled = false
 
     /**
@@ -59,19 +60,15 @@ class EqProcessor(
      * @param preamp Preamp gain in dB
      */
     fun applyBands(bands: List<EqBand>, preamp: Float = 0f) {
+        // Always store bands so they can be re-applied when enabled
+        customDspBands = bands
+        lastPreamp = preamp
+
         if (!isEnabled) return
 
-        // If system EQ is available, try to use it
+        // If system EQ is available, use it (preamp is applied inside as band offset)
         if (equalizer != null) {
             applyBandsToSystemEq(bands, preamp)
-        } else {
-            // Fall back to custom DSP (store for later use)
-            customDspBands = bands
-        }
-
-        // Apply preamp gain separately if needed
-        if (abs(preamp) > 0.1f) {
-            applyPreamp(preamp)
         }
     }
 
@@ -187,21 +184,15 @@ class EqProcessor(
     }
 
     /**
-     * Apply preamp gain
-     * Can be done through audio volume or by adjusting all bands uniformly
-     */
-    private fun applyPreamp(preamp: Float) {
-        // In a real implementation, this could adjust the output volume
-        // or apply to all bands uniformly
-        // Note: Actual implementation depends on integration point
-    }
-
-    /**
      * Enable EQ processing
      */
     fun enable() {
         isEnabled = true
         equalizer?.enabled = true
+        // Re-apply any bands that were stored before enable was called
+        if (customDspBands.isNotEmpty()) {
+            applyBands(customDspBands, lastPreamp)
+        }
     }
 
     /**
