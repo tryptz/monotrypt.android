@@ -100,6 +100,11 @@ public:
         }
     }
 
+    void reset() override {
+        envL_.reset(); envR_.reset();
+        gainSmooth_ = 0.0f;
+    }
+
     int getNumParameters() const override { return NUM_PARAMS; }
     const char* getName() const override { return "Dynamics"; }
     SnapinType getType() const override { return SnapinType::DYNAMICS; }

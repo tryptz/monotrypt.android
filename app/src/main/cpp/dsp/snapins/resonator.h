@@ -86,6 +86,12 @@ public:
         }
     }
 
+    void reset() override {
+        combL_.reset(); combR_.reset();
+        dampL_ = 0.0f;
+        dampR_ = 0.0f;
+    }
+
     int getNumParameters() const override { return NUM_PARAMS; }
     const char* getName() const override { return "Resonator"; }
     SnapinType getType() const override { return SnapinType::RESONATOR; }
