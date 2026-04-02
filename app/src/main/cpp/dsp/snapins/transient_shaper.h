@@ -121,6 +121,13 @@ public:
         }
     }
 
+    void reset() override {
+        fastEnvL_.reset(); fastEnvR_.reset();
+        slowEnvL_.reset(); slowEnvR_.reset();
+        pumpEnvL_ = 0.0f;
+        pumpEnvR_ = 0.0f;
+    }
+
     int getNumParameters() const override { return NUM_PARAMS; }
     const char* getName() const override { return "Transient Shaper"; }
     SnapinType getType() const override { return SnapinType::TRANSIENT_SHAPER; }

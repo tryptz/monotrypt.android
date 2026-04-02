@@ -122,6 +122,16 @@ public:
         }
     }
 
+    void reset() override {
+        for (int s = 0; s < 4; s++) {
+            stageL_[s] = 0.0f;
+            stageR_[s] = 0.0f;
+        }
+        feedbackL_ = 0.0f;
+        feedbackR_ = 0.0f;
+        osL_.reset(); osR_.reset();
+    }
+
     int getNumParameters() const override { return NUM_PARAMS; }
     const char* getName() const override { return "Ladder Filter"; }
     SnapinType getType() const override { return SnapinType::LADDER_FILTER; }

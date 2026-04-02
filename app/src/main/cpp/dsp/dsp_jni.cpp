@@ -140,6 +140,22 @@ Java_tf_monochrome_android_audio_dsp_MixBusProcessor_nativeSetPluginBypassed(
     if (engine) engine->setPluginBypassed(busIndex, slotIndex, bypassed);
 }
 
+extern "C" JNIEXPORT void JNICALL
+Java_tf_monochrome_android_audio_dsp_MixBusProcessor_nativeSetBusInputEnabled(
+    JNIEnv* /*env*/, jobject /*thiz*/, jlong enginePtr,
+    jint busIndex, jboolean enabled) {
+    auto* engine = getEngine(enginePtr);
+    if (engine) engine->setBusInputEnabled(busIndex, enabled);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_tf_monochrome_android_audio_dsp_MixBusProcessor_nativeSetPluginDryWet(
+    JNIEnv* /*env*/, jobject /*thiz*/, jlong enginePtr,
+    jint busIndex, jint slotIndex, jfloat dryWet) {
+    auto* engine = getEngine(enginePtr);
+    if (engine) engine->setPluginDryWet(busIndex, slotIndex, dryWet);
+}
+
 // ── Metering ────────────────────────────────────────────────────────────
 
 extern "C" JNIEXPORT void JNICALL
@@ -153,6 +169,21 @@ Java_tf_monochrome_android_audio_dsp_MixBusProcessor_nativeGetBusLevels(
         engine->getBusLevels(arr, len);
         env->ReleaseFloatArrayElements(outLevels, arr, 0);
     }
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_tf_monochrome_android_audio_dsp_MixBusProcessor_nativeResetPluginState(
+    JNIEnv* /*env*/, jobject /*thiz*/, jlong enginePtr) {
+    auto* engine = getEngine(enginePtr);
+    if (engine) engine->resetPluginState();
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_tf_monochrome_android_audio_dsp_MixBusProcessor_nativeGetAndResetClipped(
+    JNIEnv* /*env*/, jobject /*thiz*/, jlong enginePtr) {
+    auto* engine = getEngine(enginePtr);
+    if (!engine) return false;
+    return engine->getAndResetClipped();
 }
 
 // ── State serialization ─────────────────────────────────────────────────

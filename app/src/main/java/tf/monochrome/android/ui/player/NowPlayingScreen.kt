@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -157,6 +158,7 @@ fun NowPlayingScreen(
     val visualizerSensitivity by playerViewModel.visualizerSensitivity.collectAsState()
     val visualizerBrightness by playerViewModel.visualizerBrightness.collectAsState()
     val visualizerFullscreen by playerViewModel.visualizerFullscreen.collectAsState()
+    val visualizerTouchWaveform by playerViewModel.visualizerTouchWaveform.collectAsState()
     val visualizerShowFps by playerViewModel.visualizerShowFps.collectAsState()
     val playbackSpeed by playerViewModel.playbackSpeed.collectAsState()
     val visualizerEngineStatus by playerViewModel.visualizerEngineStatus.collectAsState()
@@ -345,12 +347,15 @@ fun NowPlayingScreen(
                         visualizerEngineEnabled = visualizerEngineEnabled,
                         visualizerShowFps = visualizerShowFps,
                         visualizerRepository = playerViewModel.visualizerRepository,
+                        visualizerTouchWaveform = visualizerTouchWaveform,
                         currentVisualizerPreset = currentVisualizerPreset,
                         visualizerAutoShuffle = visualizerAutoShuffle,
                         onToggleVisualizerShuffle = playerViewModel::setVisualizerShuffle,
                         onNextPreset = playerViewModel::nextVisualizerPreset,
                         onOpenPresetBrowser = { showPresetSheet = true },
                         onCycleMode = playerViewModel::cycleNowPlayingViewMode,
+                        isPresetFavorite = currentVisualizerPreset?.id?.let { it in visualizerFavoritePresetIds } ?: false,
+                        onTogglePresetFavorite = { currentVisualizerPreset?.id?.let { playerViewModel.toggleVisualizerFavoritePreset(it) } },
                         visualizerCompact = visualizerCompact,
                         onToggleCompact = playerViewModel::toggleVisualizerCompact,
                         onToggleFullscreen = playerViewModel::toggleVisualizerFullscreen
@@ -598,7 +603,8 @@ fun NowPlayingScreen(
 
                 ModeSelector(
                     selectedMode = viewMode,
-                    onModeSelected = playerViewModel::setNowPlayingViewMode
+                    onModeSelected = playerViewModel::setNowPlayingViewMode,
+                    onDspMixClick = { navController.navigate(tf.monochrome.android.ui.navigation.Screen.Mixer.route) }
                 )
             }
         }
@@ -657,12 +663,15 @@ private fun NowPlayingHero(
     visualizerEngineEnabled: Boolean,
     visualizerShowFps: Boolean,
     visualizerRepository: ProjectMEngineRepository,
+    visualizerTouchWaveform: Boolean,
     currentVisualizerPreset: VisualizerPreset?,
     visualizerAutoShuffle: Boolean,
     onToggleVisualizerShuffle: (Boolean) -> Unit,
     onNextPreset: () -> Unit,
     onOpenPresetBrowser: () -> Unit,
     onCycleMode: () -> Unit,
+    isPresetFavorite: Boolean,
+    onTogglePresetFavorite: () -> Unit,
     visualizerCompact: Boolean = false,
     onToggleCompact: () -> Unit = {},
     onToggleFullscreen: () -> Unit = {}
@@ -718,6 +727,7 @@ private fun NowPlayingHero(
                             engineEnabled = visualizerEngineEnabled,
                             showFps = false,
                             isFullscreen = false,
+                            touchWaveformEnabled = visualizerTouchWaveform,
                             repository = visualizerRepository
                         )
                     }
@@ -739,6 +749,7 @@ private fun NowPlayingHero(
                             engineEnabled = visualizerEngineEnabled,
                             showFps = visualizerShowFps,
                             isFullscreen = isFullscreen,
+                            touchWaveformEnabled = visualizerTouchWaveform,
                             repository = visualizerRepository
                         )
                         NowPlayingViewMode.LYRICS -> LyricsHeroPanel(
@@ -806,6 +817,8 @@ private fun NowPlayingHero(
                             onToggleShuffle = onToggleVisualizerShuffle,
                             onNextPreset = onNextPreset,
                             onOpenPresetBrowser = onOpenPresetBrowser,
+                            isFavorite = isPresetFavorite,
+                            onToggleFavorite = onTogglePresetFavorite,
                             modifier = Modifier.align(Alignment.BottomCenter)
                         )
                     }
@@ -837,6 +850,8 @@ private fun VisualizerHeroOverlay(
     onToggleShuffle: (Boolean) -> Unit,
     onNextPreset: () -> Unit,
     onOpenPresetBrowser: () -> Unit,
+    isFavorite: Boolean,
+    onToggleFavorite: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -901,6 +916,13 @@ private fun VisualizerHeroOverlay(
                 )
                 VisualizerActionPill(
                     modifier = Modifier.weight(1f),
+                    icon = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                    label = if (isFavorite) "Liked" else "Like",
+                    accent = if (isFavorite) PlayerGlowPink else Color.White,
+                    onClick = onToggleFavorite
+                )
+                VisualizerActionPill(
+                    modifier = Modifier.weight(1f),
                     icon = Icons.Default.SkipNext,
                     label = "Next",
                     accent = PlayerGlowBlue,
@@ -910,7 +932,7 @@ private fun VisualizerHeroOverlay(
                     modifier = Modifier.weight(1f),
                     icon = Icons.Default.LibraryMusic,
                     label = "Presets",
-                    accent = PlayerGlowPink,
+                    accent = PlayerGlowGold,
                     onClick = onOpenPresetBrowser
                 )
             }
@@ -1103,7 +1125,8 @@ private fun QueueHeroPanel(queuePreview: List<Track>) {
 @Composable
 private fun ModeSelector(
     selectedMode: NowPlayingViewMode,
-    onModeSelected: (NowPlayingViewMode) -> Unit
+    onModeSelected: (NowPlayingViewMode) -> Unit,
+    onDspMixClick: () -> Unit
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -1136,6 +1159,13 @@ private fun ModeSelector(
             label = "Queue",
             selected = selectedMode == NowPlayingViewMode.QUEUE,
             onClick = { onModeSelected(NowPlayingViewMode.QUEUE) }
+        )
+        ModePill(
+            modifier = Modifier.weight(1f),
+            icon = Icons.Default.Tune,
+            label = "DSP Mix",
+            selected = false,
+            onClick = onDspMixClick
         )
     }
 }

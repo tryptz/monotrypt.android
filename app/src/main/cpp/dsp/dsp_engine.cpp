@@ -41,6 +41,30 @@
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
+// ── Denormal protection ────────────────────────────────────────────────
+#if defined(__aarch64__)
+static inline void enableFlushToZero() {
+    uint64_t fpcr;
+    asm volatile("mrs %0, fpcr" : "=r"(fpcr));
+    fpcr |= (1 << 24);  // FZ bit — flush denormals to zero
+    asm volatile("msr fpcr, %0" :: "r"(fpcr));
+}
+#elif defined(__arm__)
+static inline void enableFlushToZero() {
+    uint32_t fpscr;
+    asm volatile("vmrs %0, fpscr" : "=r"(fpscr));
+    fpscr |= (1 << 24);
+    asm volatile("vmsr fpscr, %0" :: "r"(fpscr));
+}
+#elif defined(__i386__) || defined(__x86_64__)
+#include <xmmintrin.h>
+static inline void enableFlushToZero() {
+    _mm_setcsr(_mm_getcsr() | 0x8040);  // FTZ + DAZ
+}
+#else
+static inline void enableFlushToZero() {}
+#endif
+
 // ── Factory ─────────────────────────────────────────────────────────────
 
 SnapinProcessor* createSnapin(SnapinType type) {
@@ -92,9 +116,19 @@ DspEngine::DspEngine(int sampleRate, int maxBlockSize)
     sumR_.resize(maxBlockSize, 0.0f);
     busL_.resize(maxBlockSize, 0.0f);
     busR_.resize(maxBlockSize, 0.0f);
+    dryBufL_.resize(maxBlockSize, 0.0f);
+    dryBufR_.resize(maxBlockSize, 0.0f);
 
     // Smoothing coeff: ~5ms time constant
     gainSmoothCoeff_ = 1.0f - std::exp(-1.0f / (0.005f * sampleRate));
+
+    // By default only bus 0 receives audio input
+    buses_[0].inputEnabled.store(true, std::memory_order_relaxed);
+
+    // Meter ballistics: ~20dB/sec decay, 1.5s peak hold
+    // Decay per sample: 20dB / sampleRate (in linear domain per sample)
+    meterDecayPerSample_ = 20.0f / static_cast<float>(sampleRate);  // dB per sample
+    meterHoldSamples_ = static_cast<int>(1.5f * sampleRate);
 
     LOGD("DspEngine created: sr=%d, maxBlock=%d", sampleRate, maxBlockSize);
 }
@@ -106,6 +140,9 @@ DspEngine::~DspEngine() {
 // ── Audio processing ────────────────────────────────────────────────────
 
 void DspEngine::process(float* left, float* right, int numFrames) {
+    // Flush denormals to zero — prevents 10-100x CPU spikes in feedback tails
+    enableFlushToZero();
+
     // Clear sum buffers
     std::fill(sumL_.begin(), sumL_.begin() + numFrames, 0.0f);
     std::fill(sumR_.begin(), sumR_.begin() + numFrames, 0.0f);
@@ -119,8 +156,15 @@ void DspEngine::process(float* left, float* right, int numFrames) {
     for (int b = 0; b < NUM_MIX_BUSES; b++) {
         Bus& bus = buses_[b];
 
-        // Skip if muted or (solo mode active and this bus not soloed)
-        if (bus.muted || (hasSolo && !bus.soloed)) {
+        // Load atomic parameters once into locals
+        bool busInputEnabled = bus.inputEnabled.load(std::memory_order_relaxed);
+        bool busMuted = bus.muted.load(std::memory_order_relaxed);
+        bool busSoloed = bus.soloed.load(std::memory_order_relaxed);
+        float busGainDb = bus.gainDb.load(std::memory_order_relaxed);
+        float busPan = bus.pan.load(std::memory_order_relaxed);
+
+        // Skip if no input, muted, or (solo mode active and this bus not soloed)
+        if (!busInputEnabled || busMuted || (hasSolo && !busSoloed)) {
             bus.peakL.store(0.0f, std::memory_order_relaxed);
             bus.peakR.store(0.0f, std::memory_order_relaxed);
             continue;
@@ -130,15 +174,31 @@ void DspEngine::process(float* left, float* right, int numFrames) {
         std::copy(left, left + numFrames, busL_.data());
         std::copy(right, right + numFrames, busR_.data());
 
-        // Run plugin chain
+        // Run plugin chain with dry/wet blending
         for (auto& plugin : bus.plugins) {
             if (plugin && !plugin->isBypassed()) {
-                plugin->process(busL_.data(), busR_.data(), numFrames);
+                float dw = plugin->getDryWet();
+                if (dw >= 0.999f) {
+                    // Fully wet — no copy needed
+                    plugin->process(busL_.data(), busR_.data(), numFrames);
+                } else if (dw <= 0.001f) {
+                    // Fully dry — skip processing
+                } else {
+                    // Blend: save dry into pre-allocated buffers, process, mix
+                    std::copy(busL_.begin(), busL_.begin() + numFrames, dryBufL_.begin());
+                    std::copy(busR_.begin(), busR_.begin() + numFrames, dryBufR_.begin());
+                    plugin->process(busL_.data(), busR_.data(), numFrames);
+                    float wet = dw, dry = 1.0f - dw;
+                    for (int i = 0; i < numFrames; i++) {
+                        busL_[i] = dryBufL_[i] * dry + busL_[i] * wet;
+                        busR_[i] = dryBufR_[i] * dry + busR_[i] * wet;
+                    }
+                }
             }
         }
 
         // Recalculate target gains from dB + pan
-        recalcBusGains(bus);
+        recalcBusGains(busGainDb, busPan, bus.targetGainL, bus.targetGainR);
 
         // Apply bus gain + pan with smoothing, sum into master input
         float busPeakL = 0.0f, busPeakR = 0.0f;
@@ -159,17 +219,34 @@ void DspEngine::process(float* left, float* right, int numFrames) {
         bus.peakR.store(busPeakR, std::memory_order_relaxed);
     }
 
-    // Run master bus chain
+    // Run master bus chain with dry/wet blending
     Bus& master = buses_[MASTER_BUS];
     for (auto& plugin : master.plugins) {
         if (plugin && !plugin->isBypassed()) {
-            plugin->process(sumL_.data(), sumR_.data(), numFrames);
+            float dw = plugin->getDryWet();
+            if (dw >= 0.999f) {
+                plugin->process(sumL_.data(), sumR_.data(), numFrames);
+            } else if (dw <= 0.001f) {
+                // Fully dry — skip
+            } else {
+                std::copy(sumL_.begin(), sumL_.begin() + numFrames, dryBufL_.begin());
+                std::copy(sumR_.begin(), sumR_.begin() + numFrames, dryBufR_.begin());
+                plugin->process(sumL_.data(), sumR_.data(), numFrames);
+                float wet = dw, dry = 1.0f - dw;
+                for (int i = 0; i < numFrames; i++) {
+                    sumL_[i] = dryBufL_[i] * dry + sumL_[i] * wet;
+                    sumR_[i] = dryBufR_[i] * dry + sumR_[i] * wet;
+                }
+            }
         }
     }
 
     // Apply master gain and write to output
-    recalcBusGains(master);
+    float masterGainDb = master.gainDb.load(std::memory_order_relaxed);
+    float masterPan = master.pan.load(std::memory_order_relaxed);
+    recalcBusGains(masterGainDb, masterPan, master.targetGainL, master.targetGainR);
     float masterPeakL = 0.0f, masterPeakR = 0.0f;
+    bool clipped = false;
     for (int i = 0; i < numFrames; i++) {
         master.smoothGainL += gainSmoothCoeff_ * (master.targetGainL - master.smoothGainL);
         master.smoothGainR += gainSmoothCoeff_ * (master.targetGainR - master.smoothGainR);
@@ -179,31 +256,81 @@ void DspEngine::process(float* left, float* right, int numFrames) {
         float absR = std::fabs(right[i]);
         if (absL > masterPeakL) masterPeakL = absL;
         if (absR > masterPeakR) masterPeakR = absR;
+        if (absL > 1.0f || absR > 1.0f) clipped = true;
     }
     master.peakL.store(masterPeakL, std::memory_order_relaxed);
     master.peakR.store(masterPeakR, std::memory_order_relaxed);
+    if (clipped) clipped_.store(true, std::memory_order_relaxed);
+
+    // Update meter ballistics for all buses
+    float decayAmount = meterDecayPerSample_ * static_cast<float>(numFrames);
+    for (int b = 0; b < TOTAL_BUSES; b++) {
+        Bus& bus = buses_[b];
+        float peakL = bus.peakL.load(std::memory_order_relaxed);
+        float peakR = bus.peakR.load(std::memory_order_relaxed);
+
+        // Convert to dB for ballistics
+        float peakDbL = (peakL > 1e-10f) ? 20.0f * std::log10(peakL) : -60.0f;
+        float peakDbR = (peakR > 1e-10f) ? 20.0f * std::log10(peakR) : -60.0f;
+
+        // Decay: meter falls at 20dB/sec
+        if (peakDbL >= bus.decayL) {
+            bus.decayL = peakDbL;
+        } else {
+            bus.decayL -= decayAmount;
+            if (bus.decayL < -60.0f) bus.decayL = -60.0f;
+        }
+        if (peakDbR >= bus.decayR) {
+            bus.decayR = peakDbR;
+        } else {
+            bus.decayR -= decayAmount;
+            if (bus.decayR < -60.0f) bus.decayR = -60.0f;
+        }
+
+        // Hold: peak hold for 1.5 seconds
+        if (peakDbL >= bus.holdL) {
+            bus.holdL = peakDbL;
+            bus.holdCounterL = meterHoldSamples_;
+        } else {
+            bus.holdCounterL -= numFrames;
+            if (bus.holdCounterL <= 0) {
+                bus.holdL -= decayAmount;
+                if (bus.holdL < -60.0f) bus.holdL = -60.0f;
+            }
+        }
+        if (peakDbR >= bus.holdR) {
+            bus.holdR = peakDbR;
+            bus.holdCounterR = meterHoldSamples_;
+        } else {
+            bus.holdCounterR -= numFrames;
+            if (bus.holdCounterR <= 0) {
+                bus.holdR -= decayAmount;
+                if (bus.holdR < -60.0f) bus.holdR = -60.0f;
+            }
+        }
+    }
 }
 
 // ── Bus control ─────────────────────────────────────────────────────────
 
 void DspEngine::setBusGain(int busIndex, float gainDb) {
     if (busIndex < 0 || busIndex >= TOTAL_BUSES) return;
-    buses_[busIndex].gainDb = gainDb;
+    buses_[busIndex].gainDb.store(gainDb, std::memory_order_relaxed);
 }
 
 void DspEngine::setBusPan(int busIndex, float pan) {
     if (busIndex < 0 || busIndex >= TOTAL_BUSES) return;
-    buses_[busIndex].pan = std::max(-1.0f, std::min(1.0f, pan));
+    buses_[busIndex].pan.store(std::max(-1.0f, std::min(1.0f, pan)), std::memory_order_relaxed);
 }
 
 void DspEngine::setBusMute(int busIndex, bool muted) {
     if (busIndex < 0 || busIndex >= TOTAL_BUSES) return;
-    buses_[busIndex].muted = muted;
+    buses_[busIndex].muted.store(muted, std::memory_order_relaxed);
 }
 
 void DspEngine::setBusSolo(int busIndex, bool soloed) {
     if (busIndex < 0 || busIndex >= TOTAL_BUSES) return;
-    buses_[busIndex].soloed = soloed;
+    buses_[busIndex].soloed.store(soloed, std::memory_order_relaxed);
 }
 
 // ── Plugin chain management ─────────────────────────────────────────────
@@ -252,6 +379,7 @@ void DspEngine::movePlugin(int busIndex, int fromSlot, int toSlot) {
 
 void DspEngine::setParameter(int busIndex, int slotIndex, int paramIndex, float value) {
     if (busIndex < 0 || busIndex >= TOTAL_BUSES) return;
+    std::lock_guard<std::mutex> lock(chainMutex_);
     Bus& bus = buses_[busIndex];
     if (slotIndex < 0 || slotIndex >= static_cast<int>(bus.plugins.size())) return;
     if (bus.plugins[slotIndex]) {
@@ -261,6 +389,7 @@ void DspEngine::setParameter(int busIndex, int slotIndex, int paramIndex, float 
 
 void DspEngine::setPluginBypassed(int busIndex, int slotIndex, bool bypassed) {
     if (busIndex < 0 || busIndex >= TOTAL_BUSES) return;
+    std::lock_guard<std::mutex> lock(chainMutex_);
     Bus& bus = buses_[busIndex];
     if (slotIndex < 0 || slotIndex >= static_cast<int>(bus.plugins.size())) return;
     if (bus.plugins[slotIndex]) {
@@ -268,36 +397,78 @@ void DspEngine::setPluginBypassed(int busIndex, int slotIndex, bool bypassed) {
     }
 }
 
+void DspEngine::setBusInputEnabled(int busIndex, bool enabled) {
+    if (busIndex < 0 || busIndex >= NUM_MIX_BUSES) return;  // Only mix buses, not master
+    buses_[busIndex].inputEnabled.store(enabled, std::memory_order_relaxed);
+}
+
+void DspEngine::setPluginDryWet(int busIndex, int slotIndex, float dryWet) {
+    if (busIndex < 0 || busIndex >= TOTAL_BUSES) return;
+    std::lock_guard<std::mutex> lock(chainMutex_);
+    Bus& bus = buses_[busIndex];
+    if (slotIndex < 0 || slotIndex >= static_cast<int>(bus.plugins.size())) return;
+    if (bus.plugins[slotIndex]) {
+        bus.plugins[slotIndex]->setDryWet(dryWet);
+    }
+}
+
 // ── Metering ────────────────────────────────────────────────────────────
 
 void DspEngine::getBusLevels(float* outLevels, int maxFloats) {
-    int count = std::min(maxFloats, TOTAL_BUSES * 2);
-    for (int b = 0; b < TOTAL_BUSES && b * 2 + 1 < count; b++) {
-        float peakL = buses_[b].peakL.load(std::memory_order_relaxed);
-        float peakR = buses_[b].peakR.load(std::memory_order_relaxed);
-        // Convert to dB, floor at -60
-        outLevels[b * 2]     = (peakL > 1e-10f) ? 20.0f * std::log10(peakL) : -60.0f;
-        outLevels[b * 2 + 1] = (peakR > 1e-10f) ? 20.0f * std::log10(peakR) : -60.0f;
+    // Output format: [peakL, peakR, holdL, holdR] per bus (4 floats each)
+    int count = std::min(maxFloats, TOTAL_BUSES * 4);
+    for (int b = 0; b < TOTAL_BUSES && b * 4 + 3 < count; b++) {
+        outLevels[b * 4]     = buses_[b].decayL;
+        outLevels[b * 4 + 1] = buses_[b].decayR;
+        outLevels[b * 4 + 2] = buses_[b].holdL;
+        outLevels[b * 4 + 3] = buses_[b].holdR;
     }
+}
+
+bool DspEngine::getAndResetClipped() {
+    return clipped_.exchange(false, std::memory_order_relaxed);
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
 bool DspEngine::anySoloed() const {
     for (int i = 0; i < NUM_MIX_BUSES; i++) {
-        if (buses_[i].soloed) return true;
+        if (buses_[i].soloed.load(std::memory_order_relaxed)) return true;
     }
     return false;
 }
 
-void DspEngine::recalcBusGains(Bus& bus) {
-    float linear = (bus.gainDb <= -100.0f) ? 0.0f
-        : std::pow(10.0f, bus.gainDb / 20.0f);
+void DspEngine::recalcBusGains(float gainDb, float pan, float& targetL, float& targetR) {
+    float linear = (gainDb <= -100.0f) ? 0.0f
+        : std::pow(10.0f, gainDb / 20.0f);
 
     // Equal-power pan law
-    float panNorm = (bus.pan + 1.0f) * 0.5f;  // 0..1
-    bus.targetGainL = linear * std::cos(panNorm * 1.5707963f);  // pi/2
-    bus.targetGainR = linear * std::sin(panNorm * 1.5707963f);
+    float panNorm = (pan + 1.0f) * 0.5f;  // 0..1
+    targetL = linear * std::cos(panNorm * 1.5707963f);  // pi/2
+    targetR = linear * std::sin(panNorm * 1.5707963f);
+}
+
+// ── Plugin state reset ──────────────────────────────────────────────────
+
+void DspEngine::resetPluginState() {
+    std::lock_guard<std::mutex> lock(chainMutex_);
+    for (int b = 0; b < TOTAL_BUSES; b++) {
+        Bus& bus = buses_[b];
+        for (auto& plugin : bus.plugins) {
+            if (plugin) plugin->reset();
+        }
+        // Reset smooth gain to avoid ramp artifacts
+        bus.smoothGainL = bus.targetGainL;
+        bus.smoothGainR = bus.targetGainR;
+        // Reset meter state
+        bus.decayL = -60.0f;
+        bus.decayR = -60.0f;
+        bus.holdL = -60.0f;
+        bus.holdR = -60.0f;
+        bus.holdCounterL = 0;
+        bus.holdCounterR = 0;
+    }
+    LOGD("Plugin state reset");
 }
 
 // ── State serialization (simple JSON) ───────────────────────────────────
@@ -309,16 +480,18 @@ std::string DspEngine::getStateJson() const {
     for (int b = 0; b < TOTAL_BUSES; b++) {
         const Bus& bus = buses_[b];
         if (b > 0) ss << ",";
-        ss << "{\"gain\":" << bus.gainDb
-           << ",\"pan\":" << bus.pan
-           << ",\"muted\":" << (bus.muted ? "true" : "false")
-           << ",\"soloed\":" << (bus.soloed ? "true" : "false")
+        ss << "{\"gain\":" << bus.gainDb.load(std::memory_order_relaxed)
+           << ",\"pan\":" << bus.pan.load(std::memory_order_relaxed)
+           << ",\"muted\":" << (bus.muted.load(std::memory_order_relaxed) ? "true" : "false")
+           << ",\"soloed\":" << (bus.soloed.load(std::memory_order_relaxed) ? "true" : "false")
+           << ",\"inputEnabled\":" << (bus.inputEnabled.load(std::memory_order_relaxed) ? "true" : "false")
            << ",\"plugins\":[";
         for (int p = 0; p < static_cast<int>(bus.plugins.size()); p++) {
             if (p > 0) ss << ",";
             auto& plug = bus.plugins[p];
             ss << "{\"type\":" << static_cast<int>(plug->getType())
                << ",\"bypassed\":" << (plug->isBypassed() ? "true" : "false")
+               << ",\"dryWet\":" << plug->getDryWet()
                << ",\"params\":[";
             for (int i = 0; i < plug->getNumParameters(); i++) {
                 if (i > 0) ss << ",";
@@ -342,10 +515,11 @@ void DspEngine::loadStateJson(const std::string& json) {
     // Clear all buses
     for (int b = 0; b < TOTAL_BUSES; b++) {
         buses_[b].plugins.clear();
-        buses_[b].gainDb = 0.0f;
-        buses_[b].pan = 0.0f;
-        buses_[b].muted = false;
-        buses_[b].soloed = false;
+        buses_[b].gainDb.store(0.0f, std::memory_order_relaxed);
+        buses_[b].pan.store(0.0f, std::memory_order_relaxed);
+        buses_[b].muted.store(false, std::memory_order_relaxed);
+        buses_[b].soloed.store(false, std::memory_order_relaxed);
+        buses_[b].inputEnabled.store(b == 0, std::memory_order_relaxed);
     }
 
     // Minimal JSON parsing
@@ -373,24 +547,30 @@ void DspEngine::loadStateJson(const std::string& json) {
         if (busStart == std::string::npos) break;
 
         pos = busStart + 8;
-        buses_[busIdx].gainDb = readFloat(pos);
+        buses_[busIdx].gainDb.store(readFloat(pos), std::memory_order_relaxed);
 
         size_t panPos = json.find("\"pan\":", pos);
         if (panPos != std::string::npos) {
-            buses_[busIdx].pan = readFloat(panPos + 6);
+            buses_[busIdx].pan.store(readFloat(panPos + 6), std::memory_order_relaxed);
             pos = panPos + 6;
         }
 
         size_t mutedPos = json.find("\"muted\":", pos);
         if (mutedPos != std::string::npos) {
-            buses_[busIdx].muted = readBool(mutedPos + 8);
+            buses_[busIdx].muted.store(readBool(mutedPos + 8), std::memory_order_relaxed);
             pos = mutedPos + 8;
         }
 
         size_t soloedPos = json.find("\"soloed\":", pos);
         if (soloedPos != std::string::npos) {
-            buses_[busIdx].soloed = readBool(soloedPos + 9);
+            buses_[busIdx].soloed.store(readBool(soloedPos + 9), std::memory_order_relaxed);
             pos = soloedPos + 9;
+        }
+
+        size_t inputEnabledPos = json.find("\"inputEnabled\":", pos);
+        if (inputEnabledPos != std::string::npos && inputEnabledPos < json.find("\"plugins\":", pos)) {
+            buses_[busIdx].inputEnabled.store(readBool(inputEnabledPos + 15), std::memory_order_relaxed);
+            pos = inputEnabledPos + 15;
         }
 
         // Parse plugins array
@@ -413,6 +593,12 @@ void DspEngine::loadStateJson(const std::string& json) {
                     if (bypPos != std::string::npos) {
                         proc->setBypassed(readBool(bypPos + 11));
                         pos = bypPos + 11;
+                    }
+
+                    size_t dwPos = json.find("\"dryWet\":", pos);
+                    if (dwPos != std::string::npos && dwPos < json.find("\"params\":", pos)) {
+                        proc->setDryWet(readFloat(dwPos + 9));
+                        pos = dwPos + 9;
                     }
 
                     size_t paramsPos = json.find("\"params\":[", pos);
