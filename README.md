@@ -32,7 +32,6 @@ A high-fidelity music player for Android with TIDAL HiFi streaming, local file p
 - **Offline downloads** — FLAC files via WorkManager with optional LRC lyric export
 - **Android Auto** — full media browsing via `MediaBrowserService`
 - **Chromecast** — Media3 Cast integration
-- **Cloud sync** — favorites, history, and playlists via Appwrite/PocketBase
 - **Glance widget** — Now Playing home screen widget
 
 ---
@@ -172,7 +171,6 @@ Ktor with OkHttp engine. 200-entry LRU cache with 30-minute TTL. Instance failov
 | Network | Ktor 3.0.3 (OkHttp engine) |
 | DI | Hilt 2.57.1 |
 | Serialization | Kotlinx Serialization 1.7.3 |
-| Auth | Appwrite 7.0.0, Google Credentials API |
 | Encryption | AES-256-GCM (AndroidX Security Crypto) |
 | Background | WorkManager 2.10.0 |
 | Widgets | Glance 1.1.1 |
