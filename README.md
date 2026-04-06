@@ -30,7 +30,6 @@ A high-fidelity music player for Android with TIDAL HiFi streaming, local file p
 - **ReplayGain** — track/album modes with adjustable preamp and peak protection
 - **Scrobbling** — dual Last.fm and ListenBrainz support
 - **Offline downloads** — FLAC files via WorkManager with optional LRC lyric export
-- **Android Auto** — full media browsing via `MediaBrowserService`
 - **Chromecast** — Media3 Cast integration
 - **Glance widget** — Now Playing home screen widget
 
