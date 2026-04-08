@@ -47,18 +47,18 @@
             </intent-filter>
         </activity>
 
-        <!-- Appwrite OAuth2 callback -->
+        <!-- Supabase OAuth2 callback -->
         <activity
-            android:name="io.appwrite.views.CallbackActivity"
+            android:name="io.github.jan.supabase.auth.AuthCallbackActivity"
             android:exported="true"
             android:launchMode="singleTop">
-            <intent-filter android:label="Appwrite OAuth Callback">
+            <intent-filter android:label="Supabase OAuth Callback">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data
-                    android:scheme="appwrite-callback-auth-for-monochrome"
-                    android:host="monochrome.tf" />
+                    android:scheme="tf.monochrome.android"
+                    android:host="supabase-callback" />
             </intent-filter>
         </activity>
 

@@ -8,37 +8,36 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Auth repository coordinating Appwrite authentication and PocketBase data sync.
- * Authentication is handled entirely by Appwrite (GoogleAuthManager).
- * PocketBase is used only for cloud data storage, accessed with the Appwrite user ID.
+ * Auth repository coordinating Supabase authentication and PocketBase data sync.
+ * Authentication is handled entirely by Supabase (SupabaseAuthManager).
+ * PocketBase is used only for cloud data storage, accessed with the Supabase user ID.
  */
 @Singleton
 class AuthRepository @Inject constructor(
-    private val googleAuthManager: GoogleAuthManager,
+    private val supabaseAuthManager: SupabaseAuthManager,
     private val pocketBaseClient: PocketBaseClient,
     private val preferences: PreferencesManager
 ) {
-    val isLoggedIn: Flow<Boolean> = googleAuthManager.userProfile.map { it != null }
-    val userEmail: Flow<String?> = googleAuthManager.userProfile.map { it?.email }
+    val isLoggedIn: Flow<Boolean> = supabaseAuthManager.userProfile.map { it != null }
+    val userEmail: Flow<String?> = supabaseAuthManager.userProfile.map { it?.email }
 
     /**
-     * Get the current Appwrite user ID (used as firebase_id in PocketBase).
+     * Get the current Supabase user ID (used as firebase_id in PocketBase).
      */
-    fun getAppwriteUserId(): String? = googleAuthManager.userProfile.value?.id
+    fun getSupabaseUserId(): String? = supabaseAuthManager.userProfile.value?.id
 
     /**
      * Ensure the user has a PocketBase DB_users record.
-     * Called after successful Appwrite sign-in.
+     * Called after successful Supabase sign-in.
      */
     suspend fun ensurePocketBaseRecord(): Result<Unit> {
-        val uid = getAppwriteUserId() ?: return Result.failure(Exception("Not signed in"))
+        val uid = getSupabaseUserId() ?: return Result.failure(Exception("Not signed in"))
         return try {
             val record = pocketBaseClient.getUserRecord(uid)
             if (record != null) {
-                // Store user info in preferences for offline access
-                val profile = googleAuthManager.userProfile.value
+                val profile = supabaseAuthManager.userProfile.value
                 preferences.setPocketBaseAuth(
-                    token = "", // No PocketBase token needed
+                    token = "",
                     userId = uid,
                     email = profile?.email ?: ""
                 )
@@ -52,7 +51,7 @@ class AuthRepository @Inject constructor(
     }
 
     suspend fun logout() {
-        googleAuthManager.signOut()
+        supabaseAuthManager.signOut()
         pocketBaseClient.clearCache()
         preferences.clearPocketBaseAuth()
     }

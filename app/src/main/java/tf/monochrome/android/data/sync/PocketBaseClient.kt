@@ -28,8 +28,8 @@ import javax.inject.Singleton
  * Mirrors the web reference at js/accounts/pocketbase.js.
  *
  * PocketBase is used ONLY for data storage (DB_users collection),
- * NOT for authentication. Auth is handled by Appwrite (GoogleAuthManager).
- * The Appwrite user ID is stored as `firebase_id` in the DB_users collection.
+ * NOT for authentication. Auth is handled by Supabase (SupabaseAuthManager).
+ * The Supabase user ID is stored as `firebase_id` in the DB_users collection.
  */
 @Singleton
 class PocketBaseClient @Inject constructor(

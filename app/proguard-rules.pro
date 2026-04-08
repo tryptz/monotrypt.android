@@ -22,8 +22,8 @@
 -keep class io.ktor.** { *; }
 -dontwarn io.ktor.**
 
-# Keep Appwrite
--keep class io.appwrite.** { *; }
+# Keep Supabase
+-keep class io.github.jan.supabase.** { *; }
 
 # Keep Media3
 -keep class androidx.media3.** { *; }

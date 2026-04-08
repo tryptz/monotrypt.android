@@ -1,20 +1,18 @@
 package tf.monochrome.android.ui.profile
 
-import android.util.Log
-import androidx.activity.ComponentActivity
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import tf.monochrome.android.data.auth.AuthRepository
-import tf.monochrome.android.data.auth.GoogleAuthManager
+import tf.monochrome.android.data.auth.SupabaseAuthManager
 import tf.monochrome.android.data.auth.UserProfile
 import javax.inject.Inject
 
 @HiltViewModel
 class ProfileViewModel @Inject constructor(
-    private val authManager: GoogleAuthManager,
+    private val authManager: SupabaseAuthManager,
     private val authRepository: AuthRepository
 ) : ViewModel() {
 
@@ -25,17 +23,15 @@ class ProfileViewModel @Inject constructor(
     fun refreshUser() {
         viewModelScope.launch {
             authManager.refreshUser()
-            // If we have an Appwrite session, ensure PocketBase record exists
             if (authManager.userProfile.value != null) {
                 authRepository.ensurePocketBaseRecord()
             }
         }
     }
 
-    fun signInWithGoogle(activity: ComponentActivity) {
+    fun signInWithGoogle() {
         viewModelScope.launch {
-            authManager.signInWithGoogle(activity)
-            // The actual sync happens in refreshUser() when the activity resumes
+            authManager.signInWithGoogle()
         }
     }
 

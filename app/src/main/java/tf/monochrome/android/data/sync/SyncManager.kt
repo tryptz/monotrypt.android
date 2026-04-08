@@ -55,7 +55,7 @@ class SyncManager @Inject constructor(
     }
 
     suspend fun syncNow() {
-        val uid = authRepository.getAppwriteUserId() ?: return
+        val uid = authRepository.getSupabaseUserId() ?: return
         if (isSyncing) return
         isSyncing = true
 

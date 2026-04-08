@@ -8,7 +8,7 @@ hilt = "2.57.1"
 room = "2.7.1"
 ktor = "3.0.3"
 coil = "3.0.4"
-appwrite = "7.0.0"
+supabase = "3.1.1"
 lifecycle = "2.8.7"
 navigation = "2.8.5"
 workmanager = "2.10.0"
@@ -82,8 +82,11 @@ work-runtime = { group = "androidx.work", name = "work-runtime-ktx", version.ref
 kotlinx-coroutines = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 kotlinx-serialization = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serialization" }
 
-# Appwrite
-appwrite = { group = "io.appwrite", name = "sdk-for-android", version.ref = "appwrite" }
+# Supabase
+supabase-bom = { group = "io.github.jan-tennert.supabase", name = "bom", version.ref = "supabase" }
+supabase-gotrue = { group = "io.github.jan-tennert.supabase", name = "gotrue-kt" }
+supabase-compose-auth = { group = "io.github.jan-tennert.supabase", name = "compose-auth" }
+supabase-compose-auth-ui = { group = "io.github.jan-tennert.supabase", name = "compose-auth-ui" }
 
 # Glance (Widgets)
 glance-appwidget = { group = "androidx.glance", name = "glance-appwidget", version.ref = "glance" }

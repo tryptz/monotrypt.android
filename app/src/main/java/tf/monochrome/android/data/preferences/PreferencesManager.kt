@@ -82,11 +82,11 @@ class PreferencesManager @Inject constructor(
         private val FONT_SCALE = floatPreferencesKey("font_scale")
         private val CUSTOM_FONT_URI = stringPreferencesKey("custom_font_uri")
 
-        // Google Auth
-        private val GOOGLE_USER_ID = stringPreferencesKey("google_user_id")
-        private val GOOGLE_DISPLAY_NAME = stringPreferencesKey("google_display_name")
-        private val GOOGLE_EMAIL = stringPreferencesKey("google_email")
-        private val GOOGLE_PHOTO_URL = stringPreferencesKey("google_photo_url")
+        // Supabase Auth
+        private val SUPABASE_USER_ID = stringPreferencesKey("supabase_user_id")
+        private val SUPABASE_DISPLAY_NAME = stringPreferencesKey("supabase_display_name")
+        private val SUPABASE_EMAIL = stringPreferencesKey("supabase_email")
+        private val SUPABASE_PHOTO_URL = stringPreferencesKey("supabase_photo_url")
 
         // Parity features
         private val VISUALIZER_SENSITIVITY = intPreferencesKey("visualizer_sensitivity")
@@ -388,27 +388,27 @@ class PreferencesManager @Inject constructor(
         }
     }
 
-    // --- Google Auth ---
-    val googleUserId: Flow<String?> = dataStore.data.map { it[GOOGLE_USER_ID] }
-    val googleDisplayName: Flow<String?> = dataStore.data.map { it[GOOGLE_DISPLAY_NAME] }
-    val googleEmail: Flow<String?> = dataStore.data.map { it[GOOGLE_EMAIL] }
-    val googlePhotoUrl: Flow<String?> = dataStore.data.map { it[GOOGLE_PHOTO_URL] }
+    // --- Supabase Auth ---
+    val supabaseUserId: Flow<String?> = dataStore.data.map { it[SUPABASE_USER_ID] }
+    val supabaseDisplayName: Flow<String?> = dataStore.data.map { it[SUPABASE_DISPLAY_NAME] }
+    val supabaseEmail: Flow<String?> = dataStore.data.map { it[SUPABASE_EMAIL] }
+    val supabasePhotoUrl: Flow<String?> = dataStore.data.map { it[SUPABASE_PHOTO_URL] }
 
-    suspend fun setGoogleProfile(userId: String, displayName: String?, email: String?, photoUrl: String?) {
+    suspend fun setSupabaseProfile(userId: String, displayName: String?, email: String?, photoUrl: String?) {
         dataStore.edit {
-            it[GOOGLE_USER_ID] = userId
-            displayName?.let { name -> it[GOOGLE_DISPLAY_NAME] = name }
-            email?.let { e -> it[GOOGLE_EMAIL] = e }
-            photoUrl?.let { url -> it[GOOGLE_PHOTO_URL] = url }
+            it[SUPABASE_USER_ID] = userId
+            displayName?.let { name -> it[SUPABASE_DISPLAY_NAME] = name }
+            email?.let { e -> it[SUPABASE_EMAIL] = e }
+            photoUrl?.let { url -> it[SUPABASE_PHOTO_URL] = url }
         }
     }
 
-    suspend fun clearGoogleProfile() {
+    suspend fun clearSupabaseProfile() {
         dataStore.edit {
-            it.remove(GOOGLE_USER_ID)
-            it.remove(GOOGLE_DISPLAY_NAME)
-            it.remove(GOOGLE_EMAIL)
-            it.remove(GOOGLE_PHOTO_URL)
+            it.remove(SUPABASE_USER_ID)
+            it.remove(SUPABASE_DISPLAY_NAME)
+            it.remove(SUPABASE_EMAIL)
+            it.remove(SUPABASE_PHOTO_URL)
         }
     }
 

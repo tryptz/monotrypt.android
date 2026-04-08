@@ -163,8 +163,11 @@ dependencies {
     implementation(libs.kotlinx.coroutines)
     implementation(libs.kotlinx.serialization)
 
-    // Appwrite
-    implementation(libs.appwrite)
+    // Supabase
+    implementation(platform(libs.supabase.bom))
+    implementation(libs.supabase.gotrue)
+    implementation(libs.supabase.compose.auth)
+    implementation(libs.supabase.compose.auth.ui)
 
     // Glance Widgets
     implementation(libs.glance.appwidget)

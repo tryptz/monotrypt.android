@@ -1,6 +1,5 @@
 package tf.monochrome.android.ui.profile
 
-import android.app.Activity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -40,12 +39,10 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -53,7 +50,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -61,19 +57,9 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
-import kotlinx.coroutines.launch
 import tf.monochrome.android.data.auth.UserProfile
 import tf.monochrome.android.ui.components.liquidGlass
-import android.content.Context
-import android.content.ContextWrapper
-import androidx.activity.ComponentActivity
 import androidx.hilt.navigation.compose.hiltViewModel
-
-fun Context.findActivity(): ComponentActivity? = when (this) {
-    is ComponentActivity -> this
-    is ContextWrapper -> baseContext.findActivity()
-    else -> null
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -84,8 +70,6 @@ fun ProfileScreen(
     val userProfile by viewModel.userProfile.collectAsState()
     val isSigningIn by viewModel.isSigningIn.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
-    val scope = rememberCoroutineScope()
-    val context = LocalContext.current
 
     // Refresh user when screen resumes (handles OAuth callback from browser)
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -133,8 +117,7 @@ fun ProfileScreen(
                     isLoading = isSigningIn,
                     errorMessage = errorMessage,
                     onSignInWithGoogle = {
-                        val activity = context.findActivity() ?: return@SignedOutView
-                        viewModel.signInWithGoogle(activity)
+                        viewModel.signInWithGoogle()
                     },
                     onSignInWithEmail = { email, password ->
                         viewModel.signInWithEmail(email, password)
