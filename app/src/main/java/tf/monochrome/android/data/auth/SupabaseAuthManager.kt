@@ -58,9 +58,10 @@ class SupabaseAuthManager @Inject constructor(
         supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx2em9ydmZoaG9waWxsemx3Z2F1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQzNTc0NDQsImV4cCI6MjA4OTkzMzQ0NH0.Y_TN9r19WS96HyVZSQeNa0TyOqyBGuqFARaj8-7Ylow"
     ) {
         install(Auth) {
-            flowType = FlowType.IMPLICIT
+            flowType = FlowType.PKCE
             scheme = "tf.monotrypt.android"
             host = "login-callback"
+            codeVerifierCache = SharedPrefsCodeVerifierCache(context)
         }
         install(Postgrest)
     }
