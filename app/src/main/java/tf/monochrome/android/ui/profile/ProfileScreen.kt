@@ -78,6 +78,7 @@ fun ProfileScreen(
     val userProfile by viewModel.userProfile.collectAsState()
     val isSigningIn by viewModel.isSigningIn.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
+    val successMessage by viewModel.successMessage.collectAsState()
     val isSyncing by viewModel.isSyncing.collectAsState()
     val syncStatus by viewModel.syncStatus.collectAsState()
     val scope = rememberCoroutineScope()
@@ -152,6 +153,7 @@ fun ProfileScreen(
                     SignedOutView(
                         isLoading = false,
                         errorMessage = errorMessage,
+                        successMessage = successMessage,
                         onSignInWithGoogle = {
                             viewModel.signInWithGoogle(context)
                         },
@@ -161,7 +163,7 @@ fun ProfileScreen(
                         onSignUpWithEmail = { email, password ->
                             viewModel.signUpWithEmail(email, password)
                         },
-                        onClearError = { viewModel.clearError() }
+                        onClearError = { viewModel.clearError(); viewModel.clearSuccess() }
                     )
                 }
             }
@@ -290,6 +292,7 @@ private fun SignedInView(
 private fun SignedOutView(
     isLoading: Boolean,
     errorMessage: String?,
+    successMessage: String?,
     onSignInWithGoogle: () -> Unit,
     onSignInWithEmail: (String, String) -> Unit,
     onSignUpWithEmail: (String, String) -> Unit,
@@ -405,6 +408,25 @@ private fun SignedOutView(
         shape = RoundedCornerShape(12.dp)
     )
 
+    // Success message (e.g. after sign-up requiring email confirmation)
+    if (successMessage != null) {
+        Spacer(modifier = Modifier.height(8.dp))
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+            ),
+            shape = RoundedCornerShape(8.dp)
+        ) {
+            Text(
+                text = successMessage,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(12.dp)
+            )
+        }
+    }
+
     // Error message
     if (errorMessage != null) {
         Spacer(modifier = Modifier.height(8.dp))
@@ -416,6 +438,13 @@ private fun SignedOutView(
     }
 
     Spacer(modifier = Modifier.height(16.dp))
+
+    // Switch back to sign-in mode after successful account creation
+    LaunchedEffect(successMessage) {
+        if (successMessage != null && isSignUp) {
+            isSignUp = false
+        }
+    }
 
     // Sign In / Sign Up button
     ElevatedButton(

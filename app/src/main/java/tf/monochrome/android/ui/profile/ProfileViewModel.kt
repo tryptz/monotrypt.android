@@ -24,6 +24,7 @@ class ProfileViewModel @Inject constructor(
     val userProfile: StateFlow<UserProfile?> = authManager.userProfile
     val isSigningIn: StateFlow<Boolean> = authManager.isSigningIn
     val errorMessage: StateFlow<String?> = authManager.errorMessage
+    val successMessage: StateFlow<String?> = authManager.successMessage
 
     private val _isSyncing = MutableStateFlow(false)
     val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
@@ -84,5 +85,9 @@ class ProfileViewModel @Inject constructor(
 
     fun clearError() {
         authManager.clearError()
+    }
+
+    fun clearSuccess() {
+        authManager.clearSuccess()
     }
 }
