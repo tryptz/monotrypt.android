@@ -2,6 +2,12 @@ package tf.monochrome.android.data.sync
 
 import android.util.Log
 import io.github.jan.supabase.postgrest.postgrest
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import tf.monochrome.android.data.auth.SupabaseAuthManager
@@ -155,8 +161,33 @@ class SupabaseSyncRepository @Inject constructor(
 ) {
     private val supabase get() = authManager.supabase
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var autoSyncStarted = false
 
     private fun userId(): String? = authManager.userProfile.value?.id
+
+    /**
+     * Observe auth state and automatically pull the user's library from the cloud
+     * whenever they sign in (profile transitions from null → non-null).
+     * Safe to call multiple times — only the first call starts the observer.
+     */
+    fun startAutoSync() {
+        if (autoSyncStarted) return
+        autoSyncStarted = true
+        scope.launch {
+            var wasPreviouslyNull = authManager.userProfile.value == null
+            authManager.userProfile
+                .map { it != null }
+                .distinctUntilChanged()
+                .collect { isSignedIn ->
+                    if (isSignedIn && wasPreviouslyNull) {
+                        Log.d(TAG, "Sign-in detected, pulling library from cloud")
+                        pullAll()
+                    }
+                    wasPreviouslyNull = !isSignedIn
+                }
+        }
+    }
 
     // ─── EQ Presets ──────────────────────────────────────────────────────────
 

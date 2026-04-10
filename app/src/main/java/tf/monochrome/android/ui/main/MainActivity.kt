@@ -25,6 +25,7 @@ import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 import tf.monochrome.android.data.auth.SupabaseAuthManager
 import tf.monochrome.android.data.preferences.PreferencesManager
+import tf.monochrome.android.data.sync.SupabaseSyncRepository
 import tf.monochrome.android.ui.navigation.MonochromeNavHost
 import tf.monochrome.android.ui.theme.MonochromeTheme
 import java.io.File
@@ -38,6 +39,7 @@ class MainActivity : ComponentActivity() {
 
     @Inject lateinit var preferences: PreferencesManager
     @Inject lateinit var supabaseAuthManager: SupabaseAuthManager
+    @Inject lateinit var supabaseSyncRepository: SupabaseSyncRepository
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
@@ -48,6 +50,9 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             supabaseAuthManager.initialize()
         }
+
+        // Auto-sync library from cloud when user signs in
+        supabaseSyncRepository.startAutoSync()
 
         FrequencyTargets.init(applicationContext)
 
