@@ -77,6 +77,9 @@ class SupabaseAuthManager @Inject constructor(
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
+    private val _successMessage = MutableStateFlow<String?>(null)
+    val successMessage: StateFlow<String?> = _successMessage.asStateFlow()
+
     /** Restore existing session on app start */
     suspend fun initialize() {
         try {
@@ -90,20 +93,21 @@ class SupabaseAuthManager @Inject constructor(
     }
 
     /**
-     * Start Google OAuth via Supabase implicit flow — generates the OAuth URL,
+     * Start Google OAuth via Supabase PKCE flow — generates the OAuth URL,
      * then opens it in a Custom Tab. The app receives the callback via:
-     *   tf.monotrypt.android://login-callback#access_token=...&refresh_token=...
+     *   tf.monotrypt.android://login-callback?code=...
      */
     suspend fun signInWithGoogle(context: Context) {
         _isSigningIn.value = true
         _errorMessage.value = null
+        _successMessage.value = null
         try {
             val url = auth.getOAuthUrl(Google)
             Log.d("SupabaseAuth", "OAuth URL: $url")
             val customTab = CustomTabsIntent.Builder().build()
             customTab.launchUrl(context, Uri.parse(url))
         } catch (e: Exception) {
-            _errorMessage.value = "Google sign-in failed: ${e.message}"
+            _errorMessage.value = "Google sign-in failed: ${parseAuthError(e)}"
             _isSigningIn.value = false
         }
     }
@@ -164,6 +168,7 @@ class SupabaseAuthManager @Inject constructor(
     suspend fun signInWithEmail(email: String, password: String): Result<UserProfile> {
         _isSigningIn.value = true
         _errorMessage.value = null
+        _successMessage.value = null
         return try {
             auth.signInWith(Email) {
                 this.email = email
@@ -175,26 +180,38 @@ class SupabaseAuthManager @Inject constructor(
             _userProfile.value = profile
             Result.success(profile)
         } catch (e: Exception) {
-            _errorMessage.value = e.message ?: "Login failed"
+            _errorMessage.value = parseAuthError(e)
             Result.failure(e)
         } finally {
             _isSigningIn.value = false
         }
     }
 
-    /** Sign up with email + password, then auto sign-in */
+    /** Sign up with email + password */
     suspend fun signUpWithEmail(email: String, password: String): Result<UserProfile> {
         _isSigningIn.value = true
         _errorMessage.value = null
+        _successMessage.value = null
         return try {
             auth.signUpWith(Email) {
                 this.email = email
                 this.password = password
             }
-            // Auto sign-in after registration
-            signInWithEmail(email, password)
+            // Check if auto-confirmed (session created immediately)
+            val user = auth.currentUserOrNull()
+            if (user != null) {
+                val profile = user.toProfile()
+                _userProfile.value = profile
+                _isSigningIn.value = false
+                Result.success(profile)
+            } else {
+                // Email confirmation required — don't attempt sign-in
+                _isSigningIn.value = false
+                _successMessage.value = "Account created! Check your email for a confirmation link, then sign in."
+                Result.failure(Exception("Email confirmation required"))
+            }
         } catch (e: Exception) {
-            _errorMessage.value = e.message ?: "Sign up failed"
+            _errorMessage.value = parseAuthError(e)
             _isSigningIn.value = false
             Result.failure(e)
         }
@@ -222,6 +239,42 @@ class SupabaseAuthManager @Inject constructor(
 
     fun clearError() {
         _errorMessage.value = null
+    }
+
+    fun clearSuccess() {
+        _successMessage.value = null
+    }
+
+    /** Extract a user-friendly message from Supabase auth exceptions */
+    private fun parseAuthError(e: Exception): String {
+        val msg = e.message ?: return "An unknown error occurred"
+        return when {
+            msg.contains("invalid_credentials", ignoreCase = true) ->
+                "Invalid email or password. Please check your credentials and try again."
+            msg.contains("user_already_exists", ignoreCase = true) ||
+            msg.contains("already registered", ignoreCase = true) ->
+                "An account with this email already exists. Try signing in instead."
+            msg.contains("email_not_confirmed", ignoreCase = true) ->
+                "Please check your email and confirm your account before signing in."
+            msg.contains("weak_password", ignoreCase = true) ->
+                "Password is too weak. Please use at least 8 characters with a mix of letters and numbers."
+            msg.contains("signup_disabled", ignoreCase = true) ->
+                "Account registration is currently disabled."
+            msg.contains("over_request_rate_limit", ignoreCase = true) ||
+            msg.contains("rate_limit", ignoreCase = true) ->
+                "Too many attempts. Please wait a moment and try again."
+            msg.contains("validation_failed", ignoreCase = true) ->
+                "Please enter a valid email address."
+            msg.contains("network", ignoreCase = true) ||
+            msg.contains("timeout", ignoreCase = true) ||
+            msg.contains("Unable to resolve host", ignoreCase = true) ->
+                "Network error. Please check your internet connection and try again."
+            else -> {
+                // Fallback: take just the first line, stripping HTTP details
+                val firstLine = msg.lines().firstOrNull() ?: "Authentication failed"
+                if (firstLine.length > 120) firstLine.take(120) + "…" else firstLine
+            }
+        }
     }
 
     private fun UserInfo.toProfile() = UserProfile(
