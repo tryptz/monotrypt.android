@@ -1,12 +1,13 @@
 pluginManagement {
-    repositories {
-        google {
-            content {
-                includeGroupByRegex("com\\.android.*")
-                includeGroupByRegex("com\\.google.*")
-                includeGroupByRegex("androidx.*")
+    resolutionStrategy {
+        eachPlugin {
+            if (requested.id.id.startsWith("com.android.")) {
+                useModule("com.android.tools.build:gradle:${requested.version}")
             }
         }
+    }
+    repositories {
+        google()
         mavenCentral()
         gradlePluginPortal()
     }
