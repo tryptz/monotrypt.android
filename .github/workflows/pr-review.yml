@@ -1,0 +1,60 @@
+name: PR Review (Claude Opus 4.6)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to review"
+        required: true
+        type: number
+
+# Cancel in-progress reviews when a new push arrives on the same PR
+concurrency:
+  group: pr-review-${{ github.event.pull_request.number || github.event.inputs.pr_number }}
+  cancel-in-progress: true
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    # Skip reviews authored by bots to avoid recursive loops
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.pull_request.user.login != 'github-actions[bot]'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: scripts/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements.txt
+
+      - name: Run PR review
+        id: review
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          PR_NUMBER="${{ github.event.pull_request.number || github.event.inputs.pr_number }}"
+          python scripts/pr_review.py --pr "$PR_NUMBER"
+
+      - name: Review summary
+        if: always() && steps.review.outcome == 'success'
+        run: |
+          echo "### Review Results" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Verdict:** ${{ steps.review.outputs.verdict }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Risk Level:** ${{ steps.review.outputs.risk_level }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Comments:** ${{ steps.review.outputs.comment_count }}" >> "$GITHUB_STEP_SUMMARY"

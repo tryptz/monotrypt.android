@@ -80,3 +80,7 @@ monochrome_tf_reference-*.pdf
 *.py
 old_HomeViewModel.kt
 !monochrome-library-2026-03-23.json
+
+# PR review tool
+!scripts/pr_review.py
+!scripts/requirements.txt
