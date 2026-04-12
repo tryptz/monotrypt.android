@@ -1,4 +1,5 @@
 #include "spatial_renderer.h"
+#include <android/asset_manager.h>
 #include <android/log.h>
 #include <algorithm>
 #include <cmath>
@@ -6,8 +7,10 @@
 #define LOG_TAG "SpatialRenderer"
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
 
-SpatialRenderer::SpatialRenderer(int sampleRate, int maxBlockSize)
-    : sampleRate_(sampleRate), maxBlockSize_(maxBlockSize) {
+SpatialRenderer::SpatialRenderer(AAssetManager* assetManager, int sampleRate, int maxBlockSize)
+    : sampleRate_(sampleRate),
+      maxBlockSize_(maxBlockSize),
+      binauralRenderer_(assetManager) {
     memset(channelBufs_, 0, sizeof(channelBufs_));
     memset(speakerFeeds_, 0, sizeof(speakerFeeds_));
     LOGD("SpatialRenderer created: sr=%d, maxBlock=%d", sampleRate, maxBlockSize);
