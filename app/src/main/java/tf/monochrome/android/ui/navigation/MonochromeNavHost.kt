@@ -61,6 +61,8 @@ import tf.monochrome.android.ui.detail.LocalAlbumDetailScreen
 import tf.monochrome.android.ui.detail.LocalArtistDetailScreen
 import tf.monochrome.android.ui.detail.MixScreen
 import tf.monochrome.android.ui.eq.EqualizerScreen
+import tf.monochrome.android.ui.eq.ParametricEqEditScreen
+import tf.monochrome.android.ui.eq.ParametricEqScreen
 import tf.monochrome.android.ui.home.HomeScreen
 import tf.monochrome.android.ui.mixer.MixerScreen
 import tf.monochrome.android.ui.library.LibraryScreen
@@ -98,6 +100,8 @@ sealed class Screen(val route: String) {
         fun createRoute(tab: Int = 0) = "settings?tab=$tab"
     }
     data object Equalizer : Screen("equalizer")
+    data object ParametricEq : Screen("parametric_eq")
+    data object ParametricEqEdit : Screen("parametric_eq_edit")
     data object Profile : Screen("profile")
     data object Stats : Screen("stats")
     data object ListeningStats : Screen("listening_stats")
@@ -241,6 +245,12 @@ fun MonochromeNavHost() {
                 }
                 composable(Screen.Equalizer.route) {
                     EqualizerScreen(navController = navController)
+                }
+                composable(Screen.ParametricEq.route) {
+                    ParametricEqScreen(navController = navController)
+                }
+                composable(Screen.ParametricEqEdit.route) {
+                    ParametricEqEditScreen(navController = navController)
                 }
                 composable(Screen.Mixer.route) {
                     MixerScreen(
