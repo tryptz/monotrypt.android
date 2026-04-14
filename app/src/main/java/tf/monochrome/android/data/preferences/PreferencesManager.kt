@@ -134,6 +134,12 @@ class PreferencesManager @Inject constructor(
         private val EQ_SELECTED_HEADPHONE_ID = stringPreferencesKey("eq_selected_headphone_id")
         private val EQ_SELECTED_HEADPHONE_NAME = stringPreferencesKey("eq_selected_headphone_name")
 
+        // Parametric EQ (independent of AutoEQ)
+        private val PARAM_EQ_ENABLED = booleanPreferencesKey("param_eq_enabled")
+        private val PARAM_EQ_ACTIVE_PRESET_ID = stringPreferencesKey("param_eq_active_preset_id")
+        private val PARAM_EQ_PREAMP = doublePreferencesKey("param_eq_preamp")
+        private val PARAM_EQ_BANDS_JSON = stringPreferencesKey("param_eq_bands_json")
+
         // Library / Local Media
         private val SCAN_ON_APP_OPEN = booleanPreferencesKey("scan_on_app_open")
         private val MIN_TRACK_DURATION_MS = longPreferencesKey("min_track_duration_ms")
@@ -646,6 +652,40 @@ class PreferencesManager @Inject constructor(
         dataStore.edit {
             it.remove(EQ_SELECTED_HEADPHONE_ID)
             it.remove(EQ_SELECTED_HEADPHONE_NAME)
+        }
+    }
+
+    // --- Parametric EQ (independent of AutoEQ) ---
+    val paramEqEnabled: Flow<Boolean> = dataStore.data.map { it[PARAM_EQ_ENABLED] ?: false }
+    val paramEqActivePresetId: Flow<String?> = dataStore.data.map { it[PARAM_EQ_ACTIVE_PRESET_ID] }
+    val paramEqPreamp: Flow<Double> = dataStore.data.map { it[PARAM_EQ_PREAMP] ?: 0.0 }
+    val paramEqBandsJson: Flow<String?> = dataStore.data.map { it[PARAM_EQ_BANDS_JSON] }
+
+    suspend fun setParamEqEnabled(enabled: Boolean) {
+        dataStore.edit { it[PARAM_EQ_ENABLED] = enabled }
+    }
+
+    suspend fun setParamEqActivePreset(presetId: String?) {
+        dataStore.edit {
+            if (presetId != null) {
+                it[PARAM_EQ_ACTIVE_PRESET_ID] = presetId
+            } else {
+                it.remove(PARAM_EQ_ACTIVE_PRESET_ID)
+            }
+        }
+    }
+
+    suspend fun setParamEqPreamp(preamp: Double) {
+        dataStore.edit { it[PARAM_EQ_PREAMP] = preamp }
+    }
+
+    suspend fun setParamEqBands(bandsJson: String?) {
+        dataStore.edit {
+            if (bandsJson != null) {
+                it[PARAM_EQ_BANDS_JSON] = bandsJson
+            } else {
+                it.remove(PARAM_EQ_BANDS_JSON)
+            }
         }
     }
 
