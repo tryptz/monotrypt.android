@@ -195,6 +195,20 @@ private fun EqualizerTab(navController: NavController, eqViewModel: EqViewModel 
             Text("Open Precision AutoEQ")
         }
 
+        Spacer(modifier = Modifier.height(8.dp))
+
+        OutlinedButton(
+            onClick = {
+                navController.navigate("settings?tab=4") {
+                    popUpTo("settings?tab={tab}") { inclusive = true }
+                }
+                navController.navigate("parametric_eq")
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Open Parametric EQ")
+        }
+
         // ─── Saved Profiles ───
         if (allPresets.isNotEmpty()) {
             Spacer(modifier = Modifier.height(24.dp))

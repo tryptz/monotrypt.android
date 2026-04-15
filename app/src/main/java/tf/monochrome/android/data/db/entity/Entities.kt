@@ -158,7 +158,7 @@ data class CachedLyricsEntity(
 
 @Entity(
     tableName = "eq_presets",
-    indices = [Index("id"), Index("isCustom")]
+    indices = [Index("id"), Index("isCustom"), Index("eqType")]
 )
 @Serializable
 data class EqPresetEntity(
@@ -171,5 +171,6 @@ data class EqPresetEntity(
     val targetName: String = "",
     val isCustom: Boolean = false,
     val createdAt: Long = System.currentTimeMillis(),
-    val updatedAt: Long = System.currentTimeMillis()
+    val updatedAt: Long = System.currentTimeMillis(),
+    val eqType: Int = 0  // 0 = AutoEQ, 1 = Parametric
 )

@@ -34,6 +34,8 @@ import tf.monochrome.android.audio.dsp.DspEngineManager
 import tf.monochrome.android.audio.dsp.MixBusProcessor
 import tf.monochrome.android.audio.dsp.SpatialAudioProcessor
 import tf.monochrome.android.audio.eq.AutoEqProcessor
+import tf.monochrome.android.audio.eq.ParametricEqProcessor
+import tf.monochrome.android.audio.eq.SpectrumAnalyzerTap
 import tf.monochrome.android.data.preferences.PreferencesManager
 import tf.monochrome.android.data.repository.LibraryRepository
 import tf.monochrome.android.data.scrobbling.ScrobblingService
@@ -57,6 +59,8 @@ class PlaybackService : MediaSessionService() {
     @Inject lateinit var mixBusProcessor: MixBusProcessor
     @Inject lateinit var dspManager: DspEngineManager
     @Inject lateinit var autoEqProcessor: AutoEqProcessor
+    @Inject lateinit var parametricEqProcessor: ParametricEqProcessor
+    @Inject lateinit var spectrumAnalyzerTap: SpectrumAnalyzerTap
     @Inject lateinit var spatialProcessor: SpatialAudioProcessor
 
     private var mediaSession: MediaSession? = null
@@ -110,6 +114,7 @@ class PlaybackService : MediaSessionService() {
                         applyReplayGain()
                         applyPlaybackSpeed()
                         applyEq()
+                        applyParametricEq()
                     }
                     Player.STATE_BUFFERING, Player.STATE_IDLE -> {
                         // No action needed
@@ -162,6 +167,19 @@ class PlaybackService : MediaSessionService() {
             }
         }
 
+        // Listen to Parametric EQ changes and apply them
+        serviceScope.launch {
+            kotlinx.coroutines.flow.combine(
+                preferences.paramEqEnabled,
+                preferences.paramEqBandsJson,
+                preferences.paramEqPreamp
+            ) { enabled, bandsJson, preamp ->
+                Triple(enabled, bandsJson, preamp)
+            }.collect { (enabled, bandsJson, preamp) ->
+                applyParametricEqSettings(enabled, bandsJson, preamp)
+            }
+        }
+
         // Restore DSP mixer state when the native engine becomes ready
         serviceScope.launch {
             var hasRestored = false
@@ -194,9 +212,11 @@ class PlaybackService : MediaSessionService() {
                         .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
                         .setAudioProcessors(
                             arrayOf(
-                                spatialProcessor,   // Dolby Atmos: multichannel → binaural (first in chain)
-                                mixBusProcessor,    // DSP engine (mixer/effects)
-                                autoEqProcessor,    // AutoEQ (independent, always-on when enabled)
+                                spatialProcessor,       // Dolby Atmos: multichannel → binaural (first in chain)
+                                mixBusProcessor,        // DSP engine (mixer/effects)
+                                autoEqProcessor,        // AutoEQ (independent, always-on when enabled)
+                                parametricEqProcessor,  // Parametric EQ (after AutoEQ, stacks on top)
+                                spectrumAnalyzerTap,    // Passive FFT tap for the Parametric EQ editor visualizer
                                 TeeAudioProcessor(
                                     ProjectMAudioTapProcessor(audioBus)
                                 )
@@ -429,5 +449,34 @@ class PlaybackService : MediaSessionService() {
         } catch (e: Exception) {
             // Gracefully handle EQ application errors
         }
+    }
+
+    /**
+     * Apply current Parametric EQ settings from preferences
+     */
+    private fun applyParametricEq() {
+        serviceScope.launch {
+            try {
+                val enabled = preferences.paramEqEnabled.first()
+                val bandsJson = preferences.paramEqBandsJson.first()
+                val preamp = preferences.paramEqPreamp.first()
+                applyParametricEqSettings(enabled, bandsJson, preamp)
+            } catch (_: Exception) { }
+        }
+    }
+
+    /**
+     * Apply Parametric EQ settings to the standalone ParametricEqProcessor
+     */
+    private fun applyParametricEqSettings(enabled: Boolean, bandsJson: String?, preamp: Double) {
+        try {
+            val bands = if (!bandsJson.isNullOrEmpty()) {
+                val json = Json { ignoreUnknownKeys = true }
+                json.decodeFromString<List<EqBand>>(bandsJson)
+            } else {
+                emptyList()
+            }
+            parametricEqProcessor.applyBands(bands, preamp.toFloat(), enabled)
+        } catch (_: Exception) { }
     }
 }
