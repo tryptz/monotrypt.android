@@ -11,22 +11,24 @@ import tf.monochrome.android.data.db.entity.EqPresetEntity
 
 @Dao
 interface EqPresetDao {
+    // ==================== AutoEQ presets (eqType = 0) ====================
+
     /**
-     * Get all EQ presets (custom + built-in)
+     * Get all AutoEQ presets (custom + built-in)
      */
-    @Query("SELECT * FROM eq_presets ORDER BY isCustom DESC, updatedAt DESC")
+    @Query("SELECT * FROM eq_presets WHERE eqType = 0 ORDER BY isCustom DESC, updatedAt DESC")
     fun getAllPresets(): Flow<List<EqPresetEntity>>
 
     /**
-     * Get all custom user-created presets
+     * Get all custom user-created AutoEQ presets
      */
-    @Query("SELECT * FROM eq_presets WHERE isCustom = 1 ORDER BY updatedAt DESC")
+    @Query("SELECT * FROM eq_presets WHERE isCustom = 1 AND eqType = 0 ORDER BY updatedAt DESC")
     fun getCustomPresets(): Flow<List<EqPresetEntity>>
 
     /**
-     * Get all built-in presets
+     * Get all built-in AutoEQ presets
      */
-    @Query("SELECT * FROM eq_presets WHERE isCustom = 0 ORDER BY name ASC")
+    @Query("SELECT * FROM eq_presets WHERE isCustom = 0 AND eqType = 0 ORDER BY name ASC")
     fun getBuiltInPresets(): Flow<List<EqPresetEntity>>
 
     /**
@@ -66,9 +68,9 @@ interface EqPresetDao {
     suspend fun deletePreset(presetId: String)
 
     /**
-     * Delete all custom presets
+     * Delete all custom AutoEQ presets
      */
-    @Query("DELETE FROM eq_presets WHERE isCustom = 1")
+    @Query("DELETE FROM eq_presets WHERE isCustom = 1 AND eqType = 0")
     suspend fun deleteAllCustomPresets()
 
     /**
@@ -78,26 +80,52 @@ interface EqPresetDao {
     suspend fun presetExists(presetId: String): Boolean
 
     /**
-     * Get count of all presets
+     * Get count of all AutoEQ presets
      */
-    @Query("SELECT COUNT(*) FROM eq_presets")
+    @Query("SELECT COUNT(*) FROM eq_presets WHERE eqType = 0")
     fun getPresetCount(): Flow<Int>
 
     /**
-     * Get count of custom presets
+     * Get count of custom AutoEQ presets
      */
-    @Query("SELECT COUNT(*) FROM eq_presets WHERE isCustom = 1")
+    @Query("SELECT COUNT(*) FROM eq_presets WHERE isCustom = 1 AND eqType = 0")
     fun getCustomPresetCount(): Flow<Int>
 
     /**
-     * Search presets by name
+     * Search AutoEQ presets by name
      */
-    @Query("SELECT * FROM eq_presets WHERE name LIKE '%' || :searchQuery || '%' ORDER BY isCustom DESC, updatedAt DESC")
+    @Query("SELECT * FROM eq_presets WHERE eqType = 0 AND name LIKE '%' || :searchQuery || '%' ORDER BY isCustom DESC, updatedAt DESC")
     fun searchPresets(searchQuery: String): Flow<List<EqPresetEntity>>
 
     /**
-     * Get presets for a specific target curve
+     * Get AutoEQ presets for a specific target curve
      */
-    @Query("SELECT * FROM eq_presets WHERE targetId = :targetId ORDER BY isCustom DESC, updatedAt DESC")
+    @Query("SELECT * FROM eq_presets WHERE eqType = 0 AND targetId = :targetId ORDER BY isCustom DESC, updatedAt DESC")
     fun getPresetsByTarget(targetId: String): Flow<List<EqPresetEntity>>
+
+    // ==================== Parametric EQ presets (eqType = 1) ====================
+
+    /**
+     * Get all Parametric EQ presets (custom + built-in)
+     */
+    @Query("SELECT * FROM eq_presets WHERE eqType = 1 ORDER BY isCustom DESC, updatedAt DESC")
+    fun getAllParametricPresets(): Flow<List<EqPresetEntity>>
+
+    /**
+     * Get custom Parametric EQ presets
+     */
+    @Query("SELECT * FROM eq_presets WHERE isCustom = 1 AND eqType = 1 ORDER BY updatedAt DESC")
+    fun getCustomParametricPresets(): Flow<List<EqPresetEntity>>
+
+    /**
+     * Count of custom Parametric EQ presets
+     */
+    @Query("SELECT COUNT(*) FROM eq_presets WHERE isCustom = 1 AND eqType = 1")
+    fun getCustomParametricPresetCount(): Flow<Int>
+
+    /**
+     * Search Parametric EQ presets by name
+     */
+    @Query("SELECT * FROM eq_presets WHERE eqType = 1 AND name LIKE '%' || :searchQuery || '%' ORDER BY isCustom DESC, updatedAt DESC")
+    fun searchParametricPresets(searchQuery: String): Flow<List<EqPresetEntity>>
 }

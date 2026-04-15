@@ -200,7 +200,8 @@ class EqRepository @Inject constructor(
             targetName = targetName,
             isCustom = isCustom,
             createdAt = createdAt,
-            updatedAt = System.currentTimeMillis()
+            updatedAt = System.currentTimeMillis(),
+            eqType = 0  // AutoEQ
         )
     }
 }

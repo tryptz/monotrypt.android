@@ -73,13 +73,19 @@ fun FrequencyResponseGraph(
     preamp: Float = 0f,
     sampleRate: Float = 48000f,
     onBandDragged: ((bandId: Int, newFreq: Float, newGain: Float) -> Unit)? = null,
+    spectrumBins: FloatArray = FloatArray(0),
+    spectrumColor: Color? = null,
+    centerOnZero: Boolean = false,
+    showLegend: Boolean = true,
 ) {
     val primary = MaterialTheme.colorScheme.primary
 
     // Calculate normalization offset (average gain in 250-2500Hz midband)
-    // This centers the graph around the measurement's midband level, matching SeapEngine
-    val zeroOffset = remember(originalCurve, targetCurve) {
+    // This centers the graph around the measurement's midband level, matching SeapEngine.
+    // For the Parametric EQ editor (no measurement data), centerOnZero forces 0 dB center.
+    val zeroOffset = remember(originalCurve, targetCurve, centerOnZero) {
         when {
+            centerOnZero -> 0f
             originalCurve.isNotEmpty() -> getNormalizationOffset(originalCurve)
             targetCurve.isNotEmpty() -> getNormalizationOffset(targetCurve)
             else -> 75f // Reasonable default for SPL data
@@ -105,19 +111,34 @@ fun FrequencyResponseGraph(
         } else targetCurve
     }
 
-    // Calculate corrected curve (measurement + EQ bands + preamp)
-    val correctedCurve = remember(originalCurve, eqBands, preamp, sampleRate) {
-        if (originalCurve.isEmpty()) emptyList()
-        else originalCurve.map { point ->
-            var correctedGain = point.gain + preamp
-            eqBands.forEach { band ->
-                if (band.enabled) {
-                    correctedGain += AutoEqEngine.calculateBiquadResponse(point.freq, band, sampleRate)
+    // Calculate corrected curve.
+    //  - With measurement: measurement + EQ bands + preamp
+    //  - Without measurement (parametric EQ mode): pure EQ response + preamp around the zero baseline
+    val correctedCurve = remember(originalCurve, eqBands, preamp, sampleRate, zeroOffset) {
+        if (originalCurve.isNotEmpty()) {
+            originalCurve.map { point ->
+                var correctedGain = point.gain + preamp
+                eqBands.forEach { band ->
+                    if (band.enabled) {
+                        correctedGain += AutoEqEngine.calculateBiquadResponse(point.freq, band, sampleRate)
+                    }
                 }
-            }
-            FrequencyPoint(point.freq, correctedGain)
+                FrequencyPoint(point.freq, correctedGain)
+            }.filter { it.gain.isFinite() }
+        } else {
+            // Synthesize a smooth EQ response curve across the log-frequency axis
+            val samples = 256
+            val logMin = log10(MIN_FREQ)
+            val logMax = log10(MAX_FREQ)
+            (0 until samples).map { i ->
+                val freq = 10f.pow(logMin + i.toFloat() / (samples - 1) * (logMax - logMin))
+                var g = preamp + zeroOffset
+                eqBands.forEach { band ->
+                    if (band.enabled) g += AutoEqEngine.calculateBiquadResponse(freq, band, sampleRate)
+                }
+                FrequencyPoint(freq, g)
+            }.filter { it.gain.isFinite() }
         }
-        .filter { it.gain.isFinite() }
     }
 
     var selectedBandId by remember { mutableIntStateOf(-1) }
@@ -185,6 +206,11 @@ fun FrequencyResponseGraph(
 
             // Frequency labels at bottom
             drawFreqLabels(w, h)
+
+            // FFT spectrum behind curves — uses the active theme's primary color
+            if (spectrumBins.isNotEmpty() && spectrumColor != null) {
+                drawSpectrum(spectrumBins, spectrumColor, w, h, minGain, maxGain, zeroOffset)
+            }
 
             // Original measurement curve (bright blue for visibility)
             if (originalCurve.size > 1) {
@@ -282,18 +308,20 @@ fun FrequencyResponseGraph(
             }
         }
 
-        // Legend overlay
-        Row(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .background(Color(0x600A0A0A))
-                .padding(horizontal = 12.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally)
-        ) {
-            LegendDot("Original", Color(0xFF4A9EFF))
-            LegendDot("Target (Primary)", Color.White)
-            LegendDot("Corrected", Color(0xFFFF4444))
+        // Legend overlay (hidden in parametric-only mode since there's no measurement/target curve)
+        if (showLegend) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .background(Color(0x600A0A0A))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally)
+            ) {
+                LegendDot("Original", Color(0xFF4A9EFF))
+                LegendDot("Target (Primary)", Color.White)
+                LegendDot("Corrected", Color(0xFFFF4444))
+            }
         }
     }
 }
@@ -618,6 +646,63 @@ private fun DrawScope.drawDashedCurve(
             pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 6f))
         )
     )
+}
+
+/**
+ * Render FFT spectrum bins as a filled area below a translucent line.
+ * Bins span MIN_FREQ..MAX_FREQ on a log axis; magnitudes are dB relative to 0 dB center.
+ */
+private fun DrawScope.drawSpectrum(
+    bins: FloatArray,
+    color: Color,
+    width: Float,
+    height: Float,
+    minGain: Float,
+    maxGain: Float,
+    zeroOffset: Float
+) {
+    if (bins.isEmpty()) return
+    val n = bins.size
+    val logMin = log10(MIN_FREQ)
+    val logMax = log10(MAX_FREQ)
+    val zeroY = gainToY(zeroOffset, height, minGain, maxGain)
+        .coerceIn(GRAPH_PADDING_TOP, height - GRAPH_PADDING_BOTTOM)
+
+    val line = Path()
+    val fill = Path()
+    var started = false
+    for (i in 0 until n) {
+        val t = i.toFloat() / (n - 1).toFloat()
+        val freq = 10f.pow(logMin + t * (logMax - logMin))
+        val x = freqToX(freq, width)
+        val gain = (zeroOffset + bins[i]).coerceIn(minGain, maxGain)
+        val y = gainToY(gain, height, minGain, maxGain)
+        if (!started) {
+            line.moveTo(x, y)
+            fill.moveTo(x, zeroY)
+            fill.lineTo(x, y)
+            started = true
+        } else {
+            line.lineTo(x, y)
+            fill.lineTo(x, y)
+        }
+    }
+    // Close fill back to zero line
+    val lastX = freqToX(MAX_FREQ, width)
+    val firstX = freqToX(MIN_FREQ, width)
+    fill.lineTo(lastX, zeroY)
+    fill.lineTo(firstX, zeroY)
+    fill.close()
+
+    drawPath(
+        path = fill,
+        brush = Brush.verticalGradient(
+            colors = listOf(color.copy(alpha = 0.45f), color.copy(alpha = 0.05f)),
+            startY = GRAPH_PADDING_TOP,
+            endY = zeroY
+        )
+    )
+    drawPath(line, color.copy(alpha = 0.75f), style = Stroke(width = 1.5f))
 }
 
 private fun DrawScope.drawFilledCurve(
