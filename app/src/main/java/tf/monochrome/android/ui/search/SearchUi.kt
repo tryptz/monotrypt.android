@@ -477,7 +477,7 @@ private fun UnifiedSearchTrackItem(
             }
             IconButton(onClick = onLikeClick) {
                 Icon(
-                    imageVector = if (isLiked) Favorite else FavoriteBorder,
+                    imageVector = if (isLiked) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
                     contentDescription = if (isLiked) "Unlike" else "Like",
                     tint = if (isLiked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                 )
