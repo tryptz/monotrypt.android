@@ -284,6 +284,10 @@ class EqViewModel @Inject constructor(
     fun loadPreset(presetId: String) {
         viewModelScope.launch {
             val preset = eqRepository.getPresetById(presetId) ?: return@launch
+            if (preset.isCorrupted) {
+                _error.value = "Preset \"${preset.name}\" is corrupted and can't be loaded."
+                return@launch
+            }
             _activePreset.value = preset
             _currentBands.value = preset.bands
             _currentPreamp.value = preset.preamp
@@ -318,12 +322,17 @@ class EqViewModel @Inject constructor(
     }
 
     /**
-     * Update preamp gain
+     * Update preamp gain. Clamped so |preamp| + peakBandGain stays within the
+     * AutoEQ total-headroom budget. Otherwise the filter cascade can clip at
+     * resonant peaks before the downstream limiter engages.
      */
     fun setPreamp(preamp: Float) {
-        _currentPreamp.value = preamp
+        val peakBand = _currentBands.value.maxOfOrNull { kotlin.math.abs(it.gain) } ?: 0f
+        val headroom = (EqLimits.AUTOEQ_MAX_TOTAL_DB - peakBand).coerceAtLeast(0f)
+        val clamped = preamp.coerceIn(-headroom, headroom)
+        _currentPreamp.value = clamped
         viewModelScope.launch {
-            preferences.setEqPreamp(preamp.toDouble())
+            preferences.setEqPreamp(clamped.toDouble())
         }
     }
 
@@ -525,7 +534,12 @@ class EqViewModel @Inject constructor(
                 _error.value = null
 
                 val headphoneId = headphoneName.replace(" ", "_").lowercase()
-                val measurementResult = headphoneRepository.loadHeadphoneMeasurement(headphoneId)
+                // Pass the original name through so the repo's fallback URLs
+                // can hit case-sensitive GitHub paths like "AKG K371".
+                val measurementResult = headphoneRepository.loadHeadphoneMeasurement(
+                    headphoneId,
+                    headphoneName
+                )
 
                 measurementResult.collect { result ->
                     result.onSuccess { csvData ->

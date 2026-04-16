@@ -429,7 +429,11 @@ data class EqPreset(
     val targetName: String = "",
     val isCustom: Boolean = false,
     val createdAt: Long = System.currentTimeMillis(),
-    val updatedAt: Long = System.currentTimeMillis()
+    val updatedAt: Long = System.currentTimeMillis(),
+    // Set by EqRepository.toDomain when the stored bandsJson fails to decode.
+    // Loading a corrupted preset would silently flatten the EQ; callers should
+    // refuse to load it and surface the state instead.
+    val isCorrupted: Boolean = false
 )
 
 @Serializable

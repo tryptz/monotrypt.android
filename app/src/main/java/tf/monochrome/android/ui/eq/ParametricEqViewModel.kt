@@ -176,6 +176,10 @@ class ParametricEqViewModel @Inject constructor(
     fun loadPreset(presetId: String) {
         viewModelScope.launch {
             val preset = repository.getPresetById(presetId) ?: return@launch
+            if (preset.isCorrupted) {
+                _error.value = "Preset \"${preset.name}\" is corrupted and can't be loaded."
+                return@launch
+            }
             _activePreset.value = preset
             _currentBands.value = preset.bands
             _currentPreamp.value = preset.preamp

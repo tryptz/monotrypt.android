@@ -247,15 +247,20 @@ fun ParametricEqScreen(
                                     preset.name,
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (isActive) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.onSurface,
+                                    color = when {
+                                        preset.isCorrupted -> MaterialTheme.colorScheme.error
+                                        isActive -> MaterialTheme.colorScheme.primary
+                                        else -> MaterialTheme.colorScheme.onSurface
+                                    },
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
-                                    "${preset.bands.size} bands",
+                                    if (preset.isCorrupted) "Corrupted — cannot load"
+                                    else "${preset.bands.size} bands",
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = if (preset.isCorrupted) MaterialTheme.colorScheme.error
+                                    else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                             IconButton(

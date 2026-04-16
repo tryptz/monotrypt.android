@@ -1,5 +1,6 @@
 package tf.monochrome.android.data.repository
 
+import android.util.Log
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
@@ -161,24 +162,37 @@ class EqRepository @Inject constructor(
     // ===== Conversion Helpers =====
 
     /**
-     * Convert EqPresetEntity to domain model
+     * Convert EqPresetEntity to domain model.
+     *
+     * If bandsJson fails to decode we no longer silently flatten the preset —
+     * that behavior could quietly wipe a user's tuning on any migration or
+     * format glitch. Instead we log, mark the preset corrupted, and leave
+     * bands empty so the UI can refuse to load it and surface the error.
      */
     private fun EqPresetEntity.toDomain(): EqPreset {
+        var corrupted = false
+        val bands = try {
+            json.decodeFromString<List<EqBand>>(bandsJson)
+        } catch (e: Exception) {
+            Log.e(
+                "EqRepository",
+                "Failed to decode bands for preset '$id' (${e.javaClass.simpleName}: ${e.message})"
+            )
+            corrupted = true
+            emptyList()
+        }
         return EqPreset(
             id = id,
             name = name,
             description = description,
-            bands = try {
-                json.decodeFromString<List<EqBand>>(bandsJson)
-            } catch (e: Exception) {
-                emptyList()
-            },
+            bands = bands,
             preamp = preamp,
             targetId = targetId,
             targetName = targetName,
             isCustom = isCustom,
             createdAt = createdAt,
-            updatedAt = updatedAt
+            updatedAt = updatedAt,
+            isCorrupted = corrupted
         )
     }
 
