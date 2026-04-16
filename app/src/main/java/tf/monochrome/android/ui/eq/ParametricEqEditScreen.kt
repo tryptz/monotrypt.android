@@ -168,6 +168,7 @@ fun ParametricEqEditScreen(
                 showLegend = false,
                 spectrumBins = spectrumBins,
                 spectrumColor = spectrumColor,
+                maxAbsDragGain = EqLimits.PARAMETRIC_MAX_BAND_DB,
                 onBandDragged = { id, f, g -> viewModel.updateBandByDrag(id, f, g) }
             )
         }
@@ -286,7 +287,7 @@ fun ParametricEqEditScreen(
                 ValueSlider(
                     label = "Gain",
                     value = selectedBand.gain,
-                    valueRange = -24f..24f,
+                    valueRange = -EqLimits.PARAMETRIC_MAX_BAND_DB..EqLimits.PARAMETRIC_MAX_BAND_DB,
                     display = "%+.1f dB".format(selectedBand.gain),
                     onChange = { viewModel.updateBand(selectedBand.copy(gain = it)) }
                 )
@@ -344,8 +345,11 @@ fun ParametricEqEditScreen(
             },
             confirmButton = {
                 TextButton(onClick = {
-                    if (saveName.isNotBlank()) {
-                        viewModel.saveAsPreset(saveName.trim(), saveDescription.trim())
+                    // Trim before the blank check — "   " should not reach the repository
+                    // as an empty name.
+                    val trimmedName = saveName.trim()
+                    if (trimmedName.isNotEmpty()) {
+                        viewModel.saveAsPreset(trimmedName, saveDescription.trim())
                         showSaveDialog = false
                     }
                 }) { Text("Save") }
