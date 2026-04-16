@@ -13,4 +13,9 @@ object EqLimits {
     const val PARAMETRIC_MAX_BAND_DB = 24f
     const val MIN_FREQ_HZ = 20f
     const val MAX_FREQ_HZ = 20000f
+
+    // Total signal-path headroom for AutoEQ (band gain + preamp). Beyond this,
+    // the biquad cascade drives the ReplayGain limiter into hard clipping at
+    // the band's resonant peak. Preamp is clamped against (TOTAL - peakBand).
+    const val AUTOEQ_MAX_TOTAL_DB = 24f
 }
