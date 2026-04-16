@@ -999,14 +999,13 @@ private fun HeroCoverArt(
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
             ) {
-                // Take ~60% of the artwork height so the envelope is dramatic
-                // and clearly visible like the EQ editor reference, not a
-                // thin strip at the bottom.
+                // Take ~35% of the artwork height — enough to be clearly
+                // visible but capped so the peaks stay in the lower third.
                 SpectrumOverlay(
                     bins = spectrumBins,
                     color = spectrumColor,
                     modifier = Modifier.fillMaxWidth(),
-                    height = maxHeight * 0.6f
+                    height = maxHeight * 0.35f
                 )
             }
         }

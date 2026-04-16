@@ -47,9 +47,9 @@ fun SpectrumOverlay(
     modifier: Modifier = Modifier,
     height: Dp = 240.dp,
     /** dB above 0 (pink-noise reference) that maps to the top of the canvas. */
-    headroomDb: Float = 12f,
+    headroomDb: Float = 36f,
     /** dB below 0 that maps to the baseline. */
-    floorDb: Float = -42f,
+    floorDb: Float = -24f,
     /** Approach factor per 60 fps frame for rising bins (0..1, higher = snappier). */
     attack: Float = 0.55f,
     /** Approach factor per 60 fps frame for falling bins. */
