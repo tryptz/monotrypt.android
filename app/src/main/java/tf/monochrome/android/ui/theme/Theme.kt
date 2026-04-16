@@ -1,9 +1,14 @@
 package tf.monochrome.android.ui.theme
 
+import android.os.Build
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 
 val MonochromeDarkScheme = darkColorScheme(
@@ -477,6 +482,18 @@ fun getColorScheme(themeName: String) = when (themeName) {
     else -> MonochromeDarkScheme
 }
 
+/**
+ * Material You wallpaper-derived scheme. Only available on Android 12 (S) and
+ * above — returns null on older OS versions so callers can fall back to a
+ * built-in theme.
+ */
+@Composable
+fun rememberMaterialYouScheme(dark: Boolean): ColorScheme? {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return null
+    val context = LocalContext.current
+    return if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+}
+
 @Composable
 fun MonochromeTheme(
     themeName: String = "monochrome_dark",
@@ -485,12 +502,16 @@ fun MonochromeTheme(
     dynamicPalette: DynamicPalette? = null,
     content: @Composable () -> Unit
 ) {
+    val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
     // "system" follows the OS dark-mode toggle — light mode gets the
     // rebuilt WhiteScheme, dark mode gets the default Monochrome scheme.
     val resolvedTheme = if (themeName == "system") {
-        if (androidx.compose.foundation.isSystemInDarkTheme()) "monochrome_dark" else "white"
+        if (systemDark) "monochrome_dark" else "white"
     } else themeName
-    val baseScheme = getColorScheme(resolvedTheme)
+    val materialYou = if (resolvedTheme == "material_you") {
+        rememberMaterialYouScheme(dark = systemDark)
+    } else null
+    val baseScheme = materialYou ?: getColorScheme(resolvedTheme)
     // Overlay album-art-derived colors on the selected theme. We only swap
     // primary/secondary slots so backgrounds, text-on-surface, and outlines
     // remain coherent with the user's chosen theme.
