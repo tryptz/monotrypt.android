@@ -107,8 +107,8 @@ data class AlbumColors(val dominant: Color, val vibrant: Color)
 @Composable
 fun rememberAlbumColors(imageUrl: String?): AlbumColors {
     val context = LocalContext.current
-    var dominant by remember { mutableStateOf(Color(0xFF1B1B1B)) }
-    var vibrant by remember { mutableStateOf(Color(0xFF7EB6FF)) }
+    var dominant by remember(imageUrl) { mutableStateOf(Color(0xFF1B1B1B)) }
+    var vibrant by remember(imageUrl) { mutableStateOf(Color(0xFF7EB6FF)) }
 
     Box(modifier = Modifier.size(1.dp).graphicsLayer { alpha = 0f }) {
         SubcomposeAsyncImage(

@@ -64,7 +64,11 @@ fun SpectrumOverlay(
     // The parent re-emits a fresh FloatArray on every FFT frame; without
     // rememberUpdatedState the LaunchedEffect would forever read the array
     // captured at first composition and the envelope would never animate.
+    // rememberUpdatedState so the long-lived LaunchedEffect(Unit) coroutine
+    // always reads the latest values even though it never restarts.
     val currentBins by rememberUpdatedState(bins)
+    val currentAttack by rememberUpdatedState(attack)
+    val currentRelease by rememberUpdatedState(release)
 
     LaunchedEffect(Unit) {
         var lastFrameNanos = 0L
@@ -82,8 +86,8 @@ fun SpectrumOverlay(
             }
             // Frame-rate–independent exponential smoothing with split
             // attack/release for the snappy-on-rise, gentle-on-fall feel.
-            val attackAlpha = (1f - exp(-attack * 60f * dt)).coerceIn(0f, 1f)
-            val releaseAlpha = (1f - exp(-release * 60f * dt)).coerceIn(0f, 1f)
+            val attackAlpha = (1f - exp(-currentAttack * 60f * dt)).coerceIn(0f, 1f)
+            val releaseAlpha = (1f - exp(-currentRelease * 60f * dt)).coerceIn(0f, 1f)
             for (i in 0 until n) {
                 val target = src[i]
                 val cur = smoothed[i]
