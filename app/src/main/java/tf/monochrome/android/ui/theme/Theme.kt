@@ -1,9 +1,14 @@
 package tf.monochrome.android.ui.theme
 
+import android.os.Build
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 
 val MonochromeDarkScheme = darkColorScheme(
@@ -381,17 +386,22 @@ val MintDarkScheme = darkColorScheme(
     onError = MonoBlack
 )
 
+// True light theme. Secondary/tertiary use charcoal/near-black so their
+// onSecondary/onTertiary = white stays at ≥7:1 contrast (previously these
+// paired white text on light-gray MonoTextSecondary/Tertiary, which failed
+// WCAG and rendered as ghost text). onSurfaceVariant is a darker gray so
+// secondary labels on WhiteSurfaceVariant (#EBEBEB) stay readable.
 val WhiteScheme = androidx.compose.material3.lightColorScheme(
     primary = WhitePrimary,
     onPrimary = MonoWhite,
     primaryContainer = WhiteSurfaceVariant,
     onPrimaryContainer = MonoBlack,
-    secondary = MonoTextSecondary,
-    onSecondary = MonoWhite,
+    secondary = WhiteSecondary,
+    onSecondary = WhiteOnSecondary,
     secondaryContainer = WhiteCard,
     onSecondaryContainer = MonoBlack,
-    tertiary = MonoTextTertiary,
-    onTertiary = MonoWhite,
+    tertiary = WhiteTertiary,
+    onTertiary = WhiteOnSecondary,
     tertiaryContainer = WhiteCard,
     onTertiaryContainer = MonoBlack,
     background = WhiteBackground,
@@ -399,7 +409,7 @@ val WhiteScheme = androidx.compose.material3.lightColorScheme(
     surface = WhiteSurface,
     onSurface = MonoBlack,
     surfaceVariant = WhiteSurfaceVariant,
-    onSurfaceVariant = MonoTextSecondary,
+    onSurfaceVariant = WhiteOnSurfaceVariant,
     outline = WhiteOutline,
     outlineVariant = WhiteSurfaceVariant,
     error = ErrorRed,
@@ -432,6 +442,7 @@ val ClearDarkScheme = darkColorScheme(
 )
 /** Display names for theme selection UI */
 val themeDisplayNames = mapOf(
+    "system" to "System",
     "monochrome_dark" to "Monochrome",
     "ocean" to "Ocean",
     "midnight" to "Midnight",
@@ -471,14 +482,48 @@ fun getColorScheme(themeName: String) = when (themeName) {
     else -> MonochromeDarkScheme
 }
 
+/**
+ * Material You wallpaper-derived scheme. Only available on Android 12 (S) and
+ * above — returns null on older OS versions so callers can fall back to a
+ * built-in theme.
+ */
+@Composable
+fun rememberMaterialYouScheme(dark: Boolean): ColorScheme? {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return null
+    val context = LocalContext.current
+    return if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+}
+
 @Composable
 fun MonochromeTheme(
     themeName: String = "monochrome_dark",
     fontScale: Float = 1.0f,
     customFontFamily: FontFamily? = null,
+    dynamicPalette: DynamicPalette? = null,
     content: @Composable () -> Unit
 ) {
-    val colorScheme = getColorScheme(themeName)
+    val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
+    // "system" follows the OS dark-mode toggle — light mode gets the
+    // rebuilt WhiteScheme, dark mode gets the default Monochrome scheme.
+    val resolvedTheme = if (themeName == "system") {
+        if (systemDark) "monochrome_dark" else "white"
+    } else themeName
+    val materialYou = if (resolvedTheme == "material_you") {
+        rememberMaterialYouScheme(dark = systemDark)
+    } else null
+    val baseScheme = materialYou ?: getColorScheme(resolvedTheme)
+    // Overlay album-art-derived colors on the selected theme. We only swap
+    // primary/secondary slots so backgrounds, text-on-surface, and outlines
+    // remain coherent with the user's chosen theme.
+    val colorScheme = if (dynamicPalette != null) {
+        baseScheme.copy(
+            primary = dynamicPalette.primary,
+            onPrimary = dynamicPalette.onPrimary,
+            primaryContainer = dynamicPalette.primaryContainer,
+            secondary = dynamicPalette.secondary,
+            onSecondary = dynamicPalette.onSecondary
+        )
+    } else baseScheme
     val family = customFontFamily ?: InterFontFamily
     val typography = remember(fontScale, family) {
         buildTypography(family, fontScale)

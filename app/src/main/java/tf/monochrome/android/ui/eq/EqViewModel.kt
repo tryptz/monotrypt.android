@@ -3,9 +3,12 @@ package tf.monochrome.android.ui.eq
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -67,6 +70,11 @@ class EqViewModel @Inject constructor(
 
     private val _isCalculating = MutableStateFlow(false)
     val isCalculating: StateFlow<Boolean> = _isCalculating.asStateFlow()
+
+    // Fires when a band drag exceeded the AutoEQ gain cap and got clamped, so the
+    // UI can surface a transient toast instead of silently discarding the overshoot.
+    private val _bandClampEvents = MutableSharedFlow<Float>(extraBufferCapacity = 1)
+    val bandClampEvents: SharedFlow<Float> = _bandClampEvents.asSharedFlow()
 
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
@@ -276,6 +284,10 @@ class EqViewModel @Inject constructor(
     fun loadPreset(presetId: String) {
         viewModelScope.launch {
             val preset = eqRepository.getPresetById(presetId) ?: return@launch
+            if (preset.isCorrupted) {
+                _error.value = "Preset \"${preset.name}\" is corrupted and can't be loaded."
+                return@launch
+            }
             _activePreset.value = preset
             _currentBands.value = preset.bands
             _currentPreamp.value = preset.preamp
@@ -310,12 +322,17 @@ class EqViewModel @Inject constructor(
     }
 
     /**
-     * Update preamp gain
+     * Update preamp gain. Clamped so |preamp| + peakBandGain stays within the
+     * AutoEQ total-headroom budget. Otherwise the filter cascade can clip at
+     * resonant peaks before the downstream limiter engages.
      */
     fun setPreamp(preamp: Float) {
-        _currentPreamp.value = preamp
+        val peakBand = _currentBands.value.maxOfOrNull { kotlin.math.abs(it.gain) } ?: 0f
+        val headroom = (EqLimits.AUTOEQ_MAX_TOTAL_DB - peakBand).coerceAtLeast(0f)
+        val clamped = preamp.coerceIn(-headroom, headroom)
+        _currentPreamp.value = clamped
         viewModelScope.launch {
-            preferences.setEqPreamp(preamp.toDouble())
+            preferences.setEqPreamp(clamped.toDouble())
         }
     }
 
@@ -517,7 +534,12 @@ class EqViewModel @Inject constructor(
                 _error.value = null
 
                 val headphoneId = headphoneName.replace(" ", "_").lowercase()
-                val measurementResult = headphoneRepository.loadHeadphoneMeasurement(headphoneId)
+                // Pass the original name through so the repo's fallback URLs
+                // can hit case-sensitive GitHub paths like "AKG K371".
+                val measurementResult = headphoneRepository.loadHeadphoneMeasurement(
+                    headphoneId,
+                    headphoneName
+                )
 
                 measurementResult.collect { result ->
                     result.onSuccess { csvData ->
@@ -602,9 +624,14 @@ class EqViewModel @Inject constructor(
         val updatedBands = _currentBands.value.toMutableList()
         val index = updatedBands.indexOfFirst { it.id == bandId }
         if (index >= 0) {
+            val cap = EqLimits.AUTOEQ_MAX_BAND_DB
+            val clampedGain = newGain.coerceIn(-cap, cap)
+            if (clampedGain != newGain) {
+                _bandClampEvents.tryEmit(cap)
+            }
             updatedBands[index] = updatedBands[index].copy(
-                freq = newFreq.coerceIn(20f, 20000f),
-                gain = newGain.coerceIn(-12f, 12f)
+                freq = newFreq.coerceIn(EqLimits.MIN_FREQ_HZ, EqLimits.MAX_FREQ_HZ),
+                gain = clampedGain
             )
             _currentBands.value = updatedBands
             saveBandsToPreferences(updatedBands)

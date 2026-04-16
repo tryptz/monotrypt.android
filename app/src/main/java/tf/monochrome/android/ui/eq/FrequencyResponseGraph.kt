@@ -76,6 +76,9 @@ fun FrequencyResponseGraph(
     spectrumColor: Color? = null,
     centerOnZero: Boolean = false,
     showLegend: Boolean = true,
+    // Absolute cap used when mapping a drag's Y-pixel back to a gain value.
+    // Defaults to the AutoEQ cap; Parametric EQ callers pass EqLimits.PARAMETRIC_MAX_BAND_DB.
+    maxAbsDragGain: Float = EqLimits.AUTOEQ_MAX_BAND_DB,
 ) {
     val primary = MaterialTheme.colorScheme.primary
 
@@ -143,12 +146,15 @@ fun FrequencyResponseGraph(
     var selectedBandId by remember { mutableIntStateOf(-1) }
     var isDragging by remember { mutableStateOf(false) }
 
+    val graphBackground = MaterialTheme.colorScheme.surface
+    val legendBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f)
+    val legendLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
     Box(
         modifier = modifier
             .fillMaxWidth()
             .height(260.dp)
             .clip(RoundedCornerShape(12.dp))
-            .background(Color(0xFF0A0A0A))
+            .background(graphBackground)
     ) {
         Canvas(
             modifier = Modifier
@@ -184,7 +190,7 @@ fun FrequencyResponseGraph(
                                 val freq = xToFreq(change.position.x, size.width.toFloat())
                                 val gain = yToGain(
                                     change.position.y, size.height.toFloat(),
-                                    minGain, maxGain
+                                    minGain, maxGain, maxAbsDragGain
                                 )
                                 onBandDragged(selectedBandId, freq, gain)
                             }
@@ -322,20 +328,20 @@ fun FrequencyResponseGraph(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .background(Color(0x600A0A0A))
+                    .background(legendBackground)
                     .padding(horizontal = 12.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally)
             ) {
-                LegendDot("Original", Color(0xFF4A9EFF))
-                LegendDot("Target (Primary)", Color.White)
-                LegendDot("Corrected", Color(0xFFFF4444))
+                LegendDot("Original", Color(0xFF4A9EFF), legendLabelColor)
+                LegendDot("Target (Primary)", Color.White, legendLabelColor)
+                LegendDot("Corrected", Color(0xFFFF4444), legendLabelColor)
             }
         }
     }
 }
 
 @Composable
-private fun LegendDot(label: String, color: Color) {
+private fun LegendDot(label: String, color: Color, labelColor: Color) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -348,7 +354,7 @@ private fun LegendDot(label: String, color: Color) {
         Text(
             label,
             fontSize = 9.sp,
-            color = Color(0xFFB0B0B0)
+            color = labelColor
         )
     }
 }
@@ -363,17 +369,20 @@ fun EqProfileMiniGraph(
     modifier: Modifier = Modifier,
     preamp: Float = 0f,
     sampleRate: Float = 48000f,
+    // ±dB display range. Defaults to the AutoEQ cap; Parametric profile previews pass
+    // EqLimits.PARAMETRIC_MAX_BAND_DB so bigger boosts/cuts aren't clipped off visually.
+    gainRange: Float = EqLimits.AUTOEQ_MAX_BAND_DB,
 ) {
     if (bands.isEmpty()) return
 
-    val gainRange = 12f // ±12 dB display range
-
+    val miniBackground = MaterialTheme.colorScheme.surface
+    val zeroLineColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
     Box(
         modifier = modifier
             .fillMaxWidth()
             .height(56.dp)
             .clip(RoundedCornerShape(8.dp))
-            .background(Color(0xFF0D0D0D))
+            .background(miniBackground)
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val w = size.width
@@ -383,7 +392,7 @@ fun EqProfileMiniGraph(
 
             // Zero center line
             drawLine(
-                color = Color(0x20FFFFFF),
+                color = zeroLineColor,
                 start = Offset(0f, midY),
                 end = Offset(w, midY),
                 strokeWidth = 1f
@@ -483,9 +492,16 @@ private fun xToFreq(x: Float, width: Float): Float {
     return 10f.pow(logFreq).coerceIn(MIN_FREQ, MAX_FREQ)
 }
 
-private fun yToGain(y: Float, height: Float, minGain: Float, maxGain: Float): Float {
+private fun yToGain(
+    y: Float,
+    height: Float,
+    minGain: Float,
+    maxGain: Float,
+    maxAbsDragGain: Float = EqLimits.AUTOEQ_MAX_BAND_DB,
+): Float {
     val ratio = ((height - GRAPH_PADDING_BOTTOM) - y) / (height - GRAPH_PADDING_TOP - GRAPH_PADDING_BOTTOM)
-    return (minGain + ratio.coerceIn(0f, 1f) * (maxGain - minGain)).coerceIn(-12f, 12f)
+    return (minGain + ratio.coerceIn(0f, 1f) * (maxGain - minGain))
+        .coerceIn(-maxAbsDragGain, maxAbsDragGain)
 }
 
 private fun findNearestBand(
