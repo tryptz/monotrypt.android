@@ -1,8 +1,8 @@
 # MonoTrypT Android
 
-A high-fidelity music player for Android with TIDAL HiFi streaming, local file playback, encrypted collections, and a **33-processor native DSP mixing console**. Built for audiophiles who want DAW-grade signal processing in their pocket.
+A hi-fi music player with TIDAL streaming, local library, encrypted collections, a 33-processor native DSP mixing console, a 10-band AutoEQ driven by 4,000+ headphone measurements, and a real-time ProjectM visualizer.
 
-[**Download APK**](https://github.com/tryptz/monotrypt.android/releases/latest) — sideload or install via ADB. Android 8.0+ (API 26).
+[**Download the latest APK**](https://github.com/tryptz/monotrypt.android/releases/latest) — Android 8.0+ (API 26), sideload or `adb install`.
 
 ---
 
@@ -19,152 +19,174 @@ A high-fidelity music player for Android with TIDAL HiFi streaming, local file p
 
 ---
 
-## Features
+## What's inside
 
-- **TIDAL HiFi streaming** — lossless FLAC and 24-bit hi-res, quality auto-switching between WiFi and cellular
-- **Local library** — MediaStore scanner with embedded tag reading, incremental sync, and filesystem watching
-- **Encrypted collections** — AES-256-GCM manifest-based music with transparent decryption during playback
-- **DSP Mixer** — 4 mix buses + 1 master, 16 plugin slots per bus, 33 native audio processors (see below)
-- **AutoEQ** — 10-band parametric headphone correction from 4,000+ measurements, 10 target curves
-- **ProjectM visualizer** — real-time OpenGL audio visualization with preset library
-- **ReplayGain** — track/album modes with adjustable preamp and peak protection
-- **Scrobbling** — dual Last.fm and ListenBrainz support
-- **Offline downloads** — FLAC files via WorkManager with optional LRC lyric export
-- **Chromecast** — Media3 Cast integration
-- **Glance widget** — Now Playing home screen widget
+**Playback**
+- TIDAL HiFi streaming (lossless FLAC, 24-bit hi-res, WiFi/cellular quality auto-switching)
+- Local library via MediaStore with embedded-tag reader, incremental sync, and filesystem watching
+- AES-256-GCM encrypted collections with transparent decryption at playback time
+- ReplayGain (track/album with preamp + peak protection)
+- Offline FLAC downloads via WorkManager with optional LRC export
+- Chromecast through Media3 Cast, Glance home-screen widget, Android Auto
+- Last.fm and ListenBrainz scrobbling
+
+**Audio processing**
+- **DSP Mixer** — 4 buses + master, up to 16 plugin slots each, 33 native processors
+- **AutoEQ** — 10-band parametric generator against 10 target curves, 4,000+ measurements
+- **Parametric EQ** — ±24 dB per band with bundled and user presets
+- **ProjectM visualizer** — OpenGL renderer with album-art color tinting
+
+**Interface**
+- 16 built-in color themes plus a true light "White" scheme
+- "System" theme follows the OS dark-mode toggle
+- **Dynamic colors** — Material You-style palette extracted live from album art
+- Status / navigation bar icons follow the active theme background
+- Custom font loading, configurable text scale
+- Compose + Material 3 throughout
 
 ---
 
 ## DSP Mixer
 
-A full mixing console built as a C++17 native library (`monochrome_dsp`), integrated into the ExoPlayer pipeline via JNI. The engine runs with ARM NEON SIMD auto-vectorization, denormal flush-to-zero, and lock-free atomic parameter updates between the UI and audio threads.
-
-### Architecture
+A mixing console built as a C++17 native library (`monochrome_dsp`) sitting inside the ExoPlayer audio pipeline. ARM NEON SIMD, denormal flush-to-zero, and lock-free atomic updates between the UI and audio threads.
 
 ```
-ExoPlayer → ReplayGain → AutoEQ → MixBusProcessor (JNI) → ProjectM Tap → AudioSink
-                                        │
-                                  Native DspEngine
-                                  ├─ Bus 1  [up to 16 plugins]
-                                  ├─ Bus 2  [up to 16 plugins]
-                                  ├─ Bus 3  [up to 16 plugins]
-                                  ├─ Bus 4  [up to 16 plugins]
-                                  ├─ Sum ──────────────────────┐
-                                  └─ Master [up to 16 plugins] ┘
+ExoPlayer → ReplayGain → AutoEQ → MixBusProcessor (JNI) → ProjectM tap → AudioSink
+                                         │
+                                    Native DspEngine
+                                    ├─ Bus 1  [up to 16 plugins]
+                                    ├─ Bus 2  [up to 16 plugins]
+                                    ├─ Bus 3  [up to 16 plugins]
+                                    ├─ Bus 4  [up to 16 plugins]
+                                    ├─ Sum ───────────────────────┐
+                                    └─ Master [up to 16 plugins] ─┘
 ```
 
-Each bus has independent gain (dB), pan, mute, solo, and input enable controls. The master bus sums all active buses, applies its own plugin chain, and feeds the output with clipping detection. Real-time peak + hold meters with 1.5 s decay ballistics run on every bus.
+Per-bus gain (dB), pan, mute, solo, and input enable. Master sums active buses, runs its own plugin chain, and meters the output with peak + hold ballistics (1.5 s decay). Engine state serializes to JSON and persists in Room DB.
 
-Mixer state serializes to JSON for preset save/load, persisted in Room DB. State is preserved across track changes.
-
-### 33 Processors
+### 33 processors
 
 | Category | Processors |
 |----------|------------|
-| **Utility** | Gain · Stereo (M/S + equal-power pan) · Channel Mixer (2×2 routing matrix) |
-| **EQ & Filter** | Biquad Filter (LP/BP/HP/Notch/Shelf/Peak, 1×–4× slope) · 3-Band EQ (Linkwitz-Riley crossover) · Comb Filter · Formant Filter · Ladder Filter (4-pole Moog/diode model, 2× oversampled) · Nonlinear Filter (SVF + 5 waveshapers) · Resonator |
-| **Dynamics** | Compressor (RMS/peak, soft knee) · Limiter (5 ms lookahead, true peak) · Gate (hysteresis, lookahead, hold) · Dynamics (dual-threshold up/down compression) · Compactor (lookahead limiter/ducker) · Transient Shaper (attack/sustain gain) |
-| **Distortion** | Distortion (6 modes: tanh/saturate/foldback/sine/hardclip/quantize) · Shaper (256-point transfer curve) · Bitcrush (sample rate + bit depth reduction, TPDF dither) · Phase Distortion (Hilbert-based self-phase modulation) |
-| **Modulation** | Chorus (1–6 voice) · Ensemble (2–8 voice allpass) · Flanger (barberpole scroll) · Phaser (2–12 stage) · Ring Mod · Tape Stop · Frequency Shifter (SSB via Hilbert pair) · Pitch Shifter (granular overlap-add) · Haas (precedence-effect widening) |
-| **Space** | Delay (up to 2 s, ping-pong, ducking) · Reverb (8-line FDN, 4 allpass diffusers, Hadamard mixing) · Reverser (segment capture → backwards crossfade) |
-| **Sequenced** | Trance Gate (8-pattern step sequencer, ADSR, 1/4–1/32 resolution) |
+| **Utility** | Gain · Stereo (M/S + equal-power pan) · Channel Mixer (2×2 routing) |
+| **EQ & Filter** | Biquad Filter (LP/BP/HP/Notch/Shelf/Peak, 1×–4× slope) · 3-Band EQ (Linkwitz-Riley) · Comb Filter · Formant Filter · Ladder Filter (Moog/diode, 2× OS) · Nonlinear Filter (SVF + 5 shapers) · Resonator |
+| **Dynamics** | Compressor · Limiter (5 ms lookahead, true peak) · Gate · Dynamics (dual-threshold up/down) · Compactor (lookahead limiter/ducker) · Transient Shaper |
+| **Distortion** | Distortion (6 modes) · Shaper (256-pt transfer LUT) · Bitcrush (SR + bit depth, TPDF dither) · Phase Distortion (Hilbert self-PM) |
+| **Modulation** | Chorus · Ensemble · Flanger (barberpole) · Phaser (2–12 stage) · Ring Mod · Tape Stop · Frequency Shifter (SSB via Hilbert pair) · Pitch Shifter (granular OLA) · Haas |
+| **Space** | Delay (up to 2 s, ping-pong, ducking) · Reverb (8-line FDN + 4 allpass diffusers) · Reverser |
+| **Sequenced** | Trance Gate (8-step, ADSR, 1/4–1/32) |
 
-Every processor supports bypass, dry/wet mix, and 5 ms parameter smoothing to prevent zipper noise.
+Every processor has bypass, dry/wet, and 5 ms parameter smoothing. All setters clamp inputs and reject non-finite values before reaching the real-time thread; biquads fall back to passthrough on pathological f/Q combinations.
 
-### Shared DSP Utilities
+### Shared DSP primitives
 
-The native layer includes reusable signal processing primitives: biquad filters (RBJ cookbook), cubic-interpolated delay lines, peak/RMS envelope followers, LFO (sine/square/saw), allpass chains, DC blocker, Hilbert transform, 2× half-band oversampler, lookahead buffers, Hann overlap-add crossfade, 256-point transfer curve LUT, and exponential parameter smoothers.
+Biquads (RBJ cookbook), cubic-interpolated delay lines, peak/RMS envelopes, LFOs, allpass chains, DC blocker, Hilbert transform, 2× half-band oversampler, lookahead buffers, Hann overlap-add crossfade, 256-point transfer-curve LUT, exponential parameter smoothers.
 
 ---
 
-## AutoEQ Engine
+## AutoEQ
 
-A 10-band fully parametric equalizer that generates headphone correction filters from frequency response measurements.
+10-band parametric EQ that generates headphone-correction filters from frequency-response measurements.
 
 **Algorithm** — greedy iterative peak-finding:
+
 1. Normalize measurement against target over the 250–2500 Hz midrange window
 2. Scan 20 Hz–16 kHz for the worst deviation (sub-50 Hz weighted 1.2×)
 3. Invert deviation as gain (clamped ±12 dB, ±8 dB above 8 kHz), estimate Q from bandwidth
 4. Subtract the new filter's biquad response from the remaining error
 5. Repeat up to 10 bands, or stop early if max error < 0.05 dB
 
-**Built-in target curves:** Harman Over-Ear 2018 · Harman In-Ear 2019 · Diffuse Field · Knowles · Moondrop VDSF · Hi-Fi Endgame 2026 · PEQdB Ultra · SEAP / SEAP Bass · Flat
+**Target curves:** Harman Over-Ear 2018 · Harman In-Ear 2019 · Diffuse Field · Knowles · Moondrop VDSF · Hi-Fi Endgame 2026 · PEQdB Ultra · SEAP · SEAP Bass · Flat
 
-Over 4,000 headphone measurements are available from a remote repository. Custom measurement files can be uploaded. EQ settings persist in DataStore and update in real time without interrupting playback.
+Bundled against 4,000+ measurements, with case-insensitive name resolution and optional custom measurement upload. Preamp is clamped against the peak band gain so the cascade stays inside safe headroom. EQ updates in real time via an atomic snapshot read on each audio block — no clicks during live tweaking.
+
+---
+
+## Themes
+
+Sixteen built-in palettes (Monochrome, Ocean, Midnight, Crimson, Forest, Sunset, Cyberpunk, Nord, Gruvbox, Dracula, Solarized, Lavender, Gold, Rosewater, Mint, White, Clear), plus:
+
+- **System** — follows the OS dark-mode setting live
+- **Dynamic colors** — primary / secondary slots extracted from the current track's album art via AndroidX Palette and cached in memory
+- **Material You hook** — SDK-gated helper ready for a future Android 12+ wallpaper-based scheme
+
+Status- and navigation-bar styles are bound to the resolved theme background, so icons stay legible when switching palettes or track art.
 
 ---
 
 ## Architecture
 
-Single-module Android app (`app/`), package `tf.monochrome.android`.
+Single-module app, package `tf.monochrome.android`.
 
 ```
 tf.monochrome.android/
 ├── audio/
-│   ├── dsp/           # MixBusProcessor (JNI bridge), DspEngineManager, SnapinType enum
-│   └── eq/            # AutoEQ engine (AutoEqEngine, EqProcessor, FrequencyTargets)
-├── auto/              # Android Auto — MonochromeMediaBrowserService
+│   ├── dsp/           # MixBusProcessor (JNI), DspEngineManager, SnapinType
+│   └── eq/            # AutoEqEngine, EqProcessor, FrequencyTargets
+├── auto/              # Android Auto media browser service
 ├── data/
-│   ├── ai/            # Gemini 2.0 Flash integration
-│   ├── api/           # TIDAL HiFi API client + instance failover
+│   ├── api/           # TIDAL HiFi client + instance failover
 │   ├── auth/          # Google Sign-In + Appwrite OAuth
 │   ├── collections/   # Encrypted collection manifests (AES-256-GCM)
-│   ├── db/            # Room database (22 tables), including MixPreset entities
-│   ├── downloads/     # WorkManager offline download
-│   ├── local/         # MediaStore scanner + tag reader + filesystem watcher
-│   ├── preferences/   # DataStore-backed settings
+│   ├── db/            # Room v4, 22 tables
+│   ├── downloads/     # WorkManager offline downloader
+│   ├── local/         # MediaStore scanner + tag reader + fs watcher
+│   ├── preferences/   # DataStore settings
 │   ├── scrobbling/    # Last.fm + ListenBrainz
-│   └── sync/          # Appwrite/PocketBase cloud sync
-├── di/                # Hilt modules (App, API, Database, Network)
-├── domain/            # Domain models + use cases
-├── player/            # Media3 playback service, stream resolution, queue, ReplayGain
+│   └── sync/          # Appwrite / PocketBase cloud sync
+├── di/                # Hilt modules
+├── domain/            # Models + use cases
+├── player/            # Media3 PlaybackService, QueueManager, StreamResolver, ReplayGain
 ├── ui/
-│   ├── mixer/         # DSP mixer UI (BusStrip, PluginSlot, PluginPicker, PluginEditor, DspCanvas)
-│   └── ...            # All other screens and composables (Compose + Material 3)
+│   ├── mixer/         # BusStrip, PluginSlot, PluginPicker, PluginEditor, DspCanvas
+│   ├── eq/            # Parametric + AutoEQ screens, FrequencyResponseGraph
+│   ├── theme/         # Color schemes, Dimens, DynamicColorExtractor
+│   └── ...            # Remaining screens (Compose + Material 3)
 ├── visualizer/        # ProjectM OpenGL renderer + JNI audio tap
 └── widget/            # Glance Now Playing widget
 ```
 
-### Native Code
+### Native code
 
 ```
 app/src/main/cpp/
-├── dsp_engine.h / .cpp    # Core bus/plugin routing, metering, state serialization
-├── dsp_jni.cpp            # JNI entry points for Kotlin ↔ C++ bridge
+├── dsp_engine.h / .cpp    # Bus/plugin routing, metering, state serialization
+├── dsp_jni.cpp            # Kotlin ↔ C++ bridge
 ├── plugins/               # 33 processor implementations
-└── util/                  # Shared DSP primitives (biquad, delay, envelope, LFO, etc.)
+└── util/                  # Shared DSP primitives
 ```
 
-Compiled with `-O3 -ffast-math`, ARM NEON SIMD, and denormal flush-to-zero. Supports arm64-v8a, armeabi-v7a, and x86_64 ABIs.
+Built with `-O3 -ffast-math`, ARM NEON SIMD, denormal flush-to-zero. ABIs: `arm64-v8a`, `armeabi-v7a`, `x86_64`.
 
 ### Database
 
-Room v2 schema, 22 tables across four domains:
+Room v4, 22 tables:
 
-- **Core:** favorites, play history, playlists, downloads, cached lyrics, EQ presets
-- **Local media:** tracks, albums, artists, genres, folders, scan state
-- **Collections:** collection metadata, streaming URLs, artist/album cross-references
-- **Mixer:** DSP mix presets (JSON-serialized engine state)
+- **Core** — favorites, play history, playlists, downloads, cached lyrics, EQ presets
+- **Local media** — tracks, albums, artists, genres, folders, scan state
+- **Collections** — collection metadata, streaming URLs, artist/album cross-refs
+- **Mixer** — DSP mix presets (JSON-serialized engine state)
 
-All queries are Flow-based for reactive UI updates.
+All DAOs expose `Flow<T>` for reactive UI.
 
 ### Networking
 
-Ktor with OkHttp engine. 200-entry LRU cache with 30-minute TTL. Instance failover: pulls available API endpoints from uptime workers, falls back to hardcoded instances, shuffles per request. 429 responses rotate to the next instance.
+Ktor with the OkHttp engine. 200-entry LRU cache, 30-minute TTL. Instance failover pulls live API endpoints from uptime workers, falls back to a hardcoded pool, shuffles per request; 429 responses rotate to the next instance.
 
 ---
 
-## Tech Stack
+## Tech stack
 
 | Component | Version |
 |-----------|---------|
 | Language | Kotlin 2.1.0 |
-| DSP Engine | C++17 via JNI (`monochrome_dsp`) |
+| DSP engine | C++17 via JNI (`monochrome_dsp`) |
 | UI | Jetpack Compose, Material 3 (BOM 2024.12.01) |
 | Audio | Media3 / ExoPlayer 1.5.1 |
 | Casting | Media3 Cast, Google Cast Framework 22.0.0 |
 | Visualizer | ProjectM (C++17 via JNI) |
 | Images | Coil 3.0.4 |
+| Palette extraction | AndroidX Palette |
 | Database | Room 2.7.1 |
 | Preferences | DataStore 1.1.1 |
 | Network | Ktor 3.0.3 (OkHttp engine) |
@@ -174,37 +196,41 @@ Ktor with OkHttp engine. 200-entry LRU cache with 30-minute TTL. Instance failov
 | Background | WorkManager 2.10.0 |
 | Widgets | Glance 1.1.1 |
 | Build | AGP 9.0.0, KSP 2.1.0-1.0.29, CMake 3.22.1 |
-| Min SDK | 26 (Android 8.0) |
-| Target SDK | 36 |
-| ABI | arm64-v8a, armeabi-v7a, x86_64 |
+| Min / target SDK | 26 / 36 |
 
 ---
 
 ## Build
 
-**Requirements:** JDK 17+, Android SDK 36, NDK `28.2.13676358`
+**Requirements:** JDK 17+, Android SDK 36, NDK `28.2.13676358`.
 
 ```bash
-git clone https://github.com/tryptz/monotrypt.android.git
+git clone --recurse-submodules https://github.com/tryptz/monotrypt.android.git
 cd monotrypt.android
 ./gradlew assembleDebug
 ```
 
+The `--recurse-submodules` flag pulls the ProjectM v4.1.6 submodule used by the native visualizer.
+
 **Optional — TIDAL streaming:** add credentials to `local.properties`:
+
 ```
 TIDAL_CLIENT_ID=...
 TIDAL_CLIENT_SECRET=...
 ```
-Without these the app builds and runs — TIDAL content just won't load.
 
-**Optional — release builds:** copy `keystore.properties.example` → `keystore.properties` and fill in signing keys, then:
+Without these the app still builds and runs; TIDAL content just won't resolve.
+
+**Optional — signed release:** copy `keystore.properties.example` → `keystore.properties`, fill in the signing config, then:
+
 ```bash
 ./gradlew assembleRelease
 ```
 
-**Install to device:**
+**Install to a connected device:**
+
 ```bash
 ./gradlew installDebug
 ```
 
-The NDK is required for the ProjectM visualizer and DSP engine native code (`third_party/projectm/`, `app/src/main/cpp/`). Install NDK `28.2.13676358` via Android Studio SDK Manager.
+The NDK is required for the ProjectM visualizer (`third_party/projectm/`) and the native DSP engine (`app/src/main/cpp/`). Install `28.2.13676358` via Android Studio → SDK Manager.
