@@ -121,7 +121,8 @@ fun ParametricEqScreen(
                         eqBands = currentBands,
                         preamp = currentPreamp,
                         centerOnZero = true,
-                        showLegend = false
+                        showLegend = false,
+                        maxAbsDragGain = EqLimits.PARAMETRIC_MAX_BAND_DB,
                     )
                 }
             }
@@ -223,6 +224,7 @@ fun ParametricEqScreen(
                         EqProfileMiniGraph(
                             bands = preset.bands,
                             preamp = preset.preamp,
+                            gainRange = EqLimits.PARAMETRIC_MAX_BAND_DB,
                             modifier = Modifier.fillMaxWidth().padding(2.dp)
                         )
                         Row(

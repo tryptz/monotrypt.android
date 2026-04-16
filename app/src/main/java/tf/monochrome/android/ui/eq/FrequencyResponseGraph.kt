@@ -76,6 +76,9 @@ fun FrequencyResponseGraph(
     spectrumColor: Color? = null,
     centerOnZero: Boolean = false,
     showLegend: Boolean = true,
+    // Absolute cap used when mapping a drag's Y-pixel back to a gain value.
+    // Defaults to the AutoEQ cap; Parametric EQ callers pass EqLimits.PARAMETRIC_MAX_BAND_DB.
+    maxAbsDragGain: Float = EqLimits.AUTOEQ_MAX_BAND_DB,
 ) {
     val primary = MaterialTheme.colorScheme.primary
 
@@ -184,7 +187,7 @@ fun FrequencyResponseGraph(
                                 val freq = xToFreq(change.position.x, size.width.toFloat())
                                 val gain = yToGain(
                                     change.position.y, size.height.toFloat(),
-                                    minGain, maxGain
+                                    minGain, maxGain, maxAbsDragGain
                                 )
                                 onBandDragged(selectedBandId, freq, gain)
                             }
@@ -363,10 +366,12 @@ fun EqProfileMiniGraph(
     modifier: Modifier = Modifier,
     preamp: Float = 0f,
     sampleRate: Float = 48000f,
+    // ±dB display range. Defaults to the AutoEQ cap; Parametric profile previews pass
+    // EqLimits.PARAMETRIC_MAX_BAND_DB so bigger boosts/cuts aren't clipped off visually.
+    gainRange: Float = EqLimits.AUTOEQ_MAX_BAND_DB,
 ) {
     if (bands.isEmpty()) return
 
-    val gainRange = 12f // ±12 dB display range
 
     Box(
         modifier = modifier
@@ -483,9 +488,16 @@ private fun xToFreq(x: Float, width: Float): Float {
     return 10f.pow(logFreq).coerceIn(MIN_FREQ, MAX_FREQ)
 }
 
-private fun yToGain(y: Float, height: Float, minGain: Float, maxGain: Float): Float {
+private fun yToGain(
+    y: Float,
+    height: Float,
+    minGain: Float,
+    maxGain: Float,
+    maxAbsDragGain: Float = EqLimits.AUTOEQ_MAX_BAND_DB,
+): Float {
     val ratio = ((height - GRAPH_PADDING_BOTTOM) - y) / (height - GRAPH_PADDING_TOP - GRAPH_PADDING_BOTTOM)
-    return (minGain + ratio.coerceIn(0f, 1f) * (maxGain - minGain)).coerceIn(-12f, 12f)
+    return (minGain + ratio.coerceIn(0f, 1f) * (maxGain - minGain))
+        .coerceIn(-maxAbsDragGain, maxAbsDragGain)
 }
 
 private fun findNearestBand(

@@ -3,9 +3,12 @@ package tf.monochrome.android.ui.eq
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -67,6 +70,11 @@ class EqViewModel @Inject constructor(
 
     private val _isCalculating = MutableStateFlow(false)
     val isCalculating: StateFlow<Boolean> = _isCalculating.asStateFlow()
+
+    // Fires when a band drag exceeded the AutoEQ gain cap and got clamped, so the
+    // UI can surface a transient toast instead of silently discarding the overshoot.
+    private val _bandClampEvents = MutableSharedFlow<Float>(extraBufferCapacity = 1)
+    val bandClampEvents: SharedFlow<Float> = _bandClampEvents.asSharedFlow()
 
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
@@ -602,9 +610,14 @@ class EqViewModel @Inject constructor(
         val updatedBands = _currentBands.value.toMutableList()
         val index = updatedBands.indexOfFirst { it.id == bandId }
         if (index >= 0) {
+            val cap = EqLimits.AUTOEQ_MAX_BAND_DB
+            val clampedGain = newGain.coerceIn(-cap, cap)
+            if (clampedGain != newGain) {
+                _bandClampEvents.tryEmit(cap)
+            }
             updatedBands[index] = updatedBands[index].copy(
-                freq = newFreq.coerceIn(20f, 20000f),
-                gain = newGain.coerceIn(-12f, 12f)
+                freq = newFreq.coerceIn(EqLimits.MIN_FREQ_HZ, EqLimits.MAX_FREQ_HZ),
+                gain = clampedGain
             )
             _currentBands.value = updatedBands
             saveBandsToPreferences(updatedBands)

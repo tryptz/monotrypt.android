@@ -104,8 +104,11 @@ class ParametricEqViewModel @Inject constructor(
     fun updateBandByDrag(bandId: Int, newFreq: Float, newGain: Float) {
         val updated = _currentBands.value.map { b ->
             if (b.id == bandId) b.copy(
-                freq = newFreq.coerceIn(20f, 20000f),
-                gain = newGain.coerceIn(-24f, 24f)
+                freq = newFreq.coerceIn(EqLimits.MIN_FREQ_HZ, EqLimits.MAX_FREQ_HZ),
+                gain = newGain.coerceIn(
+                    -EqLimits.PARAMETRIC_MAX_BAND_DB,
+                    EqLimits.PARAMETRIC_MAX_BAND_DB
+                )
             ) else b
         }
         _currentBands.value = updated
