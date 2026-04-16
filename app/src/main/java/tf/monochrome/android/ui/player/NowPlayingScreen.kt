@@ -102,10 +102,13 @@ import tf.monochrome.android.ui.components.liquidGlass
 import tf.monochrome.android.visualizer.ProjectMEngineRepository
 import java.util.Locale
 
+data class AlbumColors(val dominant: Color, val vibrant: Color)
+
 @Composable
-fun rememberDominantColor(imageUrl: String?): Color {
+fun rememberAlbumColors(imageUrl: String?): AlbumColors {
     val context = LocalContext.current
-    var dominantColor by remember { mutableStateOf(Color(0xFF1B1B1B)) }
+    var dominant by remember { mutableStateOf(Color(0xFF1B1B1B)) }
+    var vibrant by remember { mutableStateOf(Color(0xFF7EB6FF)) }
 
     Box(modifier = Modifier.size(1.dp).graphicsLayer { alpha = 0f }) {
         SubcomposeAsyncImage(
@@ -120,11 +123,14 @@ fun rememberDominantColor(imageUrl: String?): Color {
                 LaunchedEffect(state) {
                     val bitmap = state.result.image.toBitmap()
                     androidx.palette.graphics.Palette.from(bitmap).generate { palette ->
-                        palette?.dominantSwatch?.let { swatch ->
-                            dominantColor = Color(swatch.rgb)
-                        } ?: palette?.vibrantSwatch?.let { swatch ->
-                            dominantColor = Color(swatch.rgb)
-                        }
+                        dominant = palette?.dominantSwatch?.let { Color(it.rgb) }
+                            ?: palette?.vibrantSwatch?.let { Color(it.rgb) }
+                            ?: dominant
+                        // Pick the brightest swatch for the spectrum overlay.
+                        vibrant = palette?.lightVibrantSwatch?.let { Color(it.rgb) }
+                            ?: palette?.vibrantSwatch?.let { Color(it.rgb) }
+                            ?: palette?.lightMutedSwatch?.let { Color(it.rgb) }
+                            ?: dominant
                     }
                 }
             }
@@ -132,8 +138,11 @@ fun rememberDominantColor(imageUrl: String?): Color {
         }
     }
 
-    return dominantColor
+    return AlbumColors(dominant, vibrant)
 }
+
+@Composable
+fun rememberDominantColor(imageUrl: String?): Color = rememberAlbumColors(imageUrl).dominant
 
 private val PlayerGlowBlue = Color(0xFF7EB6FF)
 private val PlayerGlowPink = Color(0xFFFF7EB3)
@@ -236,9 +245,13 @@ fun NowPlayingScreen(
         }
     }
 
-    val dominantColor = rememberDominantColor(currentTrack?.coverUrl)
+    val albumColors = rememberAlbumColors(currentTrack?.coverUrl)
     val animatedBackground by androidx.compose.animation.animateColorAsState(
-        targetValue = dominantColor,
+        targetValue = albumColors.dominant,
+        animationSpec = androidx.compose.animation.core.tween(durationMillis = 800)
+    )
+    val animatedVibrant by androidx.compose.animation.animateColorAsState(
+        targetValue = albumColors.vibrant,
         animationSpec = androidx.compose.animation.core.tween(durationMillis = 800)
     )
 
@@ -373,7 +386,7 @@ fun NowPlayingScreen(
                         onToggleCompact = playerViewModel::toggleVisualizerCompact,
                         onToggleFullscreen = playerViewModel::toggleVisualizerFullscreen,
                         spectrumBins = spectrumBins,
-                        spectrumColor = MaterialTheme.colorScheme.primary
+                        spectrumColor = animatedVibrant
                     )
                 }
 
