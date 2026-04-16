@@ -1,5 +1,26 @@
 # CLAUDE.md - MonoTrypT Android
 
+## Commit Authorship (MANDATORY)
+
+NEVER commit as `Claude <noreply@anthropic.com>`. NEVER append a
+`https://claude.ai/code/...` footer or any `Co-Authored-By: Claude` trailer.
+
+Before the first commit in any session, look up the repo owner's identity
+from history (do NOT hardcode it here, do NOT print it back to the user):
+
+```bash
+git log -1 --pretty='%an <%ae>' -- .
+```
+
+Use that name/email via per-command identity (do not modify global git config):
+
+```bash
+git -c user.name="<name>" -c user.email="<email>" commit -m "..."
+```
+
+If a commit was already created with the wrong author, amend with
+`--reset-author` and force-push the branch.
+
 ## Project Overview
 
 MonoTrypT is a premium Android music player with TIDAL HiFi streaming, local library support, encrypted collections, a 33-processor native DSP engine, 10-band AutoEQ, and a ProjectM OpenGL visualizer. Single-module Kotlin/Compose app with C++ native audio processing via JNI.
