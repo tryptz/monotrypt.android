@@ -9,8 +9,10 @@ import tf.monochrome.android.domain.model.EqBand
 import tf.monochrome.android.domain.model.FilterType
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.pow
 import kotlin.math.sin
@@ -35,28 +37,37 @@ class ParametricEqProcessor @Inject constructor() : AudioProcessor {
     private var scratchL = FloatArray(0)
     private var scratchR = FloatArray(0)
 
-    @Volatile private var eqEnabled = false
-    @Volatile private var currentBands: Array<BandState> = emptyArray()
-    @Volatile private var preampLinear = 1f
+    // Group the three UI-thread writes into one immutable snapshot published atomically.
+    // The audio thread reads the reference once per block — guaranteed to see a consistent
+    // (enabled, preamp, bands) triple, never a half-updated one.
+    private data class Snapshot(
+        val enabled: Boolean,
+        val preampLinear: Float,
+        val bands: Array<BandState>
+    )
+
+    private val stateRef = AtomicReference(Snapshot(false, 1f, emptyArray()))
+    private var appliedSnapshot: Snapshot? = null
 
     private var filtersL = arrayOf<BiquadFilter>()
     private var filtersR = arrayOf<BiquadFilter>()
-    private var filtersDirty = true
     private var sampleRate = 44100.0
 
     fun applyBands(bands: List<EqBand>, preamp: Float, enabled: Boolean) {
-        eqEnabled = enabled
-        preampLinear = if (preamp == 0f) 1f else 10f.pow(preamp / 20f)
-        currentBands = bands.map { band ->
-            BandState(
-                freq = band.freq,
-                gain = band.gain,
-                q = band.q,
-                type = band.type,
-                enabled = band.enabled
-            )
-        }.toTypedArray()
-        filtersDirty = true
+        val snap = Snapshot(
+            enabled = enabled,
+            preampLinear = if (preamp == 0f) 1f else 10f.pow(preamp / 20f),
+            bands = bands.map { band ->
+                BandState(
+                    freq = band.freq,
+                    gain = band.gain,
+                    q = band.q,
+                    type = band.type,
+                    enabled = band.enabled
+                )
+            }.toTypedArray()
+        )
+        stateRef.set(snap)
     }
 
     override fun configure(inputAudioFormat: AudioFormat): AudioFormat {
@@ -117,12 +128,13 @@ class ParametricEqProcessor @Inject constructor() : AudioProcessor {
         }
         inputBuffer.position(inputBuffer.position() + numFrames * frameSize)
 
-        if (eqEnabled) {
-            if (filtersDirty) {
-                rebuildFilters()
-                filtersDirty = false
+        val snap = stateRef.get()
+        if (snap.enabled) {
+            if (snap !== appliedSnapshot) {
+                rebuildFilters(snap.bands)
+                appliedSnapshot = snap
             }
-            applyEq(numFrames)
+            applyEq(numFrames, snap.preampLinear)
         }
 
         val outFrameSize = bytesPerSample * 2
@@ -166,7 +178,8 @@ class ParametricEqProcessor @Inject constructor() : AudioProcessor {
             if (formatChanged) {
                 inputFormat = pendingFormat
                 sampleRate = inputFormat.sampleRate.toDouble()
-                filtersDirty = true
+                // Force filter rebuild on next block (sample-rate-dependent coefficients).
+                appliedSnapshot = null
             }
             pendingFormat = AudioFormat.NOT_SET
         }
@@ -178,14 +191,14 @@ class ParametricEqProcessor @Inject constructor() : AudioProcessor {
         inputFormat = AudioFormat.NOT_SET
         filtersL = emptyArray()
         filtersR = emptyArray()
+        appliedSnapshot = null
     }
 
-    private fun applyEq(numFrames: Int) {
-        val gain = preampLinear
-        if (gain != 1f) {
+    private fun applyEq(numFrames: Int, preampLinear: Float) {
+        if (preampLinear != 1f) {
             for (i in 0 until numFrames) {
-                scratchL[i] *= gain
-                scratchR[i] *= gain
+                scratchL[i] *= preampLinear
+                scratchR[i] *= preampLinear
             }
         }
         for (i in filtersL.indices) {
@@ -194,8 +207,7 @@ class ParametricEqProcessor @Inject constructor() : AudioProcessor {
         }
     }
 
-    private fun rebuildFilters() {
-        val bands = currentBands
+    private fun rebuildFilters(bands: Array<BandState>) {
         val active = bands.filter { it.enabled && it.gain != 0f }
         filtersL = Array(active.size) { BiquadFilter() }
         filtersR = Array(active.size) { BiquadFilter() }
@@ -257,8 +269,23 @@ class ParametricEqProcessor @Inject constructor() : AudioProcessor {
                     na2 = (a + 1) - (a - 1) * cosw0 - sq
                 }
             }
-            b0 = (nb0 / na0).toFloat(); b1 = (nb1 / na0).toFloat(); b2 = (nb2 / na0).toFloat()
-            a1 = (na1 / na0).toFloat(); a2 = (na2 / na0).toFloat()
+            if (abs(na0) < 1e-20 || !na0.isFinite()) {
+                // Degenerate coefficient — fall back to passthrough instead of emitting NaN/Inf audio.
+                b0 = 1f; b1 = 0f; b2 = 0f; a1 = 0f; a2 = 0f
+                z1 = 0f; z2 = 0f
+                return
+            }
+            val nb0f = (nb0 / na0).toFloat()
+            val nb1f = (nb1 / na0).toFloat()
+            val nb2f = (nb2 / na0).toFloat()
+            val na1f = (na1 / na0).toFloat()
+            val na2f = (na2 / na0).toFloat()
+            if (!nb0f.isFinite() || !nb1f.isFinite() || !nb2f.isFinite() ||
+                !na1f.isFinite() || !na2f.isFinite()) {
+                b0 = 1f; b1 = 0f; b2 = 0f; a1 = 0f; a2 = 0f
+            } else {
+                b0 = nb0f; b1 = nb1f; b2 = nb2f; a1 = na1f; a2 = na2f
+            }
             z1 = 0f; z2 = 0f
         }
 

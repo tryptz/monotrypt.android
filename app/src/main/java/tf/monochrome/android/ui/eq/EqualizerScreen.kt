@@ -46,11 +46,13 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import android.widget.Toast
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -108,6 +110,17 @@ fun EqualizerScreen(
     var presetToDelete by remember { mutableStateOf<tf.monochrome.android.domain.model.EqPreset?>(null) }
 
     val context = LocalContext.current
+
+    // Surface a toast when a band drag hit the AutoEQ cap, so the clamp isn't silent.
+    LaunchedEffect(viewModel) {
+        viewModel.bandClampEvents.collect { cap ->
+            Toast.makeText(
+                context,
+                "Clamped to \u00b1${cap.toInt()} dB (AutoEQ limit)",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
 
     // File picker for measurement import
     val measurementFilePicker = rememberLauncherForActivityResult(

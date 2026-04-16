@@ -135,22 +135,33 @@ class HeadphoneAutoEqApi {
 
     /**
      * Fetch measurement CSV for a specific headphone.
-     * Tries multiple known file names in the first available measurement path.
+     *
+     * `headphoneId` is the normalized (lowercase, underscored) id used for
+     * cache/preferences lookup. `headphoneName` is the original-case display
+     * name. The GitHub raw URLs are case-sensitive, so the fallback paths
+     * need the original name — passing only the lowercased id silently
+     * breaks lookups like "AKG K371" vs "akg k371".
      */
-    suspend fun fetchHeadphoneMeasurement(headphoneId: String): Result<String> =
+    suspend fun fetchHeadphoneMeasurement(
+        headphoneId: String,
+        headphoneName: String = ""
+    ): Result<String> =
         withContext(Dispatchers.IO) {
             try {
-                // Find the headphone in cache to get its path
-                val headphone = cachedHeadphones?.find { it.id == headphoneId }
+                // Cache lookup is case-insensitive so we're tolerant of either
+                // the normalized id or any mixed-case variant the caller passes.
+                val headphone = cachedHeadphones?.find {
+                    it.id.equals(headphoneId, ignoreCase = true) ||
+                        it.name.equals(headphoneName, ignoreCase = true)
+                }
                 val measurement = headphone?.measurements?.firstOrNull()
                 val basePath = measurement?.path
 
                 if (basePath != null) {
                     // Try known measurement file names
-                    val fileNames = listOf(
-                        "$headphone.csv",
-                        "raw.csv",
-                        "${headphone?.name}.csv"
+                    val fileNames = listOfNotNull(
+                        headphone.name.let { "$it.csv" },
+                        "raw.csv"
                     )
                     for (fileName in fileNames) {
                         try {
@@ -163,13 +174,14 @@ class HeadphoneAutoEqApi {
                     }
                 }
 
-                // Fallback: try common patterns
-                val encodedId = headphoneId.replace("_", " ")
+                // Fallback: try common patterns using the original-case name
+                // when available (falls back to de-underscored id if not).
+                val encodedName = headphoneName.ifBlank { headphoneId.replace("_", " ") }
                 val fallbackUrls = listOf(
-                    "$RAW_BASE/results/oratory1990/over-ear/$encodedId/$encodedId.csv",
-                    "$RAW_BASE/results/crinacle/over-ear/$encodedId/$encodedId.csv",
-                    "$RAW_BASE/results/oratory1990/in-ear/$encodedId/$encodedId.csv",
-                    "$RAW_BASE/results/crinacle/in-ear/$encodedId/$encodedId.csv",
+                    "$RAW_BASE/results/oratory1990/over-ear/$encodedName/$encodedName.csv",
+                    "$RAW_BASE/results/crinacle/over-ear/$encodedName/$encodedName.csv",
+                    "$RAW_BASE/results/oratory1990/in-ear/$encodedName/$encodedName.csv",
+                    "$RAW_BASE/results/crinacle/in-ear/$encodedName/$encodedName.csv",
                 )
                 for (url in fallbackUrls) {
                     try {
