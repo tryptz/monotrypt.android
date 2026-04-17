@@ -1,7 +1,11 @@
 package tf.monochrome.android.data.repository
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import tf.monochrome.android.data.db.dao.DownloadDao
 import tf.monochrome.android.data.db.dao.FavoriteDao
 import tf.monochrome.android.data.db.dao.HistoryDao
@@ -15,6 +19,7 @@ import tf.monochrome.android.data.db.entity.HistoryTrackEntity
 import tf.monochrome.android.data.db.entity.PlayEventEntity
 import tf.monochrome.android.data.db.entity.PlaylistTrackEntity
 import tf.monochrome.android.data.db.entity.UserPlaylistEntity
+import tf.monochrome.android.data.sync.SupabaseSyncRepository
 import tf.monochrome.android.domain.model.Album
 import tf.monochrome.android.domain.model.Artist
 import tf.monochrome.android.domain.model.Track
@@ -28,8 +33,10 @@ class LibraryRepository @Inject constructor(
     private val historyDao: HistoryDao,
     private val playEventDao: PlayEventDao,
     private val playlistDao: PlaylistDao,
-    private val downloadDao: DownloadDao
+    private val downloadDao: DownloadDao,
+    private val supabaseSync: SupabaseSyncRepository,
 ) {
+    private val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     // --- Favorites ---
 
     fun getFavoriteTracks(): Flow<List<Track>> = favoriteDao.getFavoriteTracks().map { entities ->
@@ -79,8 +86,15 @@ class LibraryRepository @Inject constructor(
     }
 
     suspend fun addToHistory(track: Track) {
-        historyDao.addToHistory(track.toHistoryEntity())
-        playEventDao.insert(track.toPlayEventEntity())
+        val historyRow = track.toHistoryEntity()
+        val event = track.toPlayEventEntity()
+        historyDao.addToHistory(historyRow)
+        playEventDao.insert(event)
+        // Fire-and-forget cloud sync — no-op if the user isn't signed in.
+        syncScope.launch {
+            supabaseSync.pushHistoryTrack(historyRow)
+            supabaseSync.pushPlayEvent(event)
+        }
     }
 
     suspend fun clearHistory() {
