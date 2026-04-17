@@ -138,7 +138,7 @@ fun SettingsScreen(
             0 -> AppearanceTab(viewModel)
             1 -> InterfaceTab(viewModel)
             2 -> ScrobblingTab(viewModel)
-            3 -> AudioTab(viewModel)
+            3 -> AudioTab(viewModel, navController)
             4 -> EqualizerTab(navController)
             5 -> LibrarySettingsTab(viewModel)
             6 -> DownloadsTab(viewModel)
@@ -837,7 +837,7 @@ private fun ScrobblingTab(viewModel: SettingsViewModel) {
 
 // ─── Tab 4: Audio ──────────────────────────────────────────────────────
 @Composable
-private fun AudioTab(viewModel: SettingsViewModel) {
+private fun AudioTab(viewModel: SettingsViewModel, navController: NavController) {
     val wifiQuality by viewModel.wifiQuality.collectAsState()
     val cellularQuality by viewModel.cellularQuality.collectAsState()
     val normalization by viewModel.normalizationEnabled.collectAsState()
@@ -879,6 +879,14 @@ private fun AudioTab(viewModel: SettingsViewModel) {
             checked = dspMixer,
             onCheckedChange = { viewModel.setDspMixerEnabled(it) }
         )
+
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = { navController.navigate("oxford") },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Open Oxford Effects")
+        }
 
         Spacer(modifier = Modifier.height(8.dp))
         Text("Crossfade: ${crossfade}s", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
