@@ -79,6 +79,9 @@ private val digitStyle = TextStyle(
     color = Seap.ReadoutText,
 )
 
+/** LED peak-hold decay rate in dB/sec (rate-independent). */
+private const val DECAY_DB_PER_SEC = 36f
+
 // ----------------------------------------------------------------------------
 // Vertical fader — silver cap on a dark track, drag to set value.
 // ----------------------------------------------------------------------------
@@ -191,13 +194,20 @@ private fun LedMeter(
 ) {
     var heldL by remember { mutableStateOf(minDb) }
     var heldR by remember { mutableStateOf(minDb) }
+    var lastTick by remember { mutableStateOf(0L) }
 
     val dbL = if (peakL > 1e-6f) 20f * log10(peakL) else minDb
     val dbR = if (peakR > 1e-6f) 20f * log10(peakR) else minDb
 
+    // Decay peak hold at a fixed rate (dB/sec) independent of poll rate so
+    // bumping the meter FPS doesn't also speed up how fast the hold falls.
     LaunchedEffect(dbL, dbR) {
-        heldL = max(dbL, heldL - 1.2f).coerceIn(minDb, maxDb + 3f)
-        heldR = max(dbR, heldR - 1.2f).coerceIn(minDb, maxDb + 3f)
+        val now = System.nanoTime()
+        val dtSec = if (lastTick == 0L) 0f else (now - lastTick) / 1_000_000_000f
+        lastTick = now
+        val decayDb = DECAY_DB_PER_SEC * dtSec
+        heldL = max(dbL, heldL - decayDb).coerceIn(minDb, maxDb + 3f)
+        heldR = max(dbR, heldR - decayDb).coerceIn(minDb, maxDb + 3f)
     }
 
     Canvas(modifier = modifier) {
@@ -822,12 +832,12 @@ fun OxfordEffectsTabs(
     var selected by rememberSaveable { mutableStateOf(0) }
     val tabs = listOf("Compressor", "Inflator")
 
-    // ~30 Hz meter polling
+    // 60 Hz meter polling — keeps the LED bars fluid under fast transients.
     LaunchedEffect(inflator, compressor) {
         while (isActive) {
             inflator.pollMeters()
             compressor.pollMeters()
-            delay(33L)
+            delay(16L)
         }
     }
 

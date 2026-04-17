@@ -54,17 +54,18 @@ class MixerViewModel @Inject constructor(
     private val outputId: NodeId = "output_node"
 
     init {
-        // Poll meter levels at ~250ms (4 fps) — imperceptible to user, 5x less CPU
+        // 60 Hz meter poll — fluid VU bars under fast transients. pollLevels
+        // is a native hot-path read; cheap enough to call at frame rate.
         viewModelScope.launch {
             while (isActive) {
                 dspManager.pollLevels()
-                delay(250L)
                 val levels = busLevels.value
                 if (levels.isNotEmpty()) {
                     val peakDb = levels.maxOfOrNull { maxOf(it.peakDbL, it.peakDbR) } ?: -60f
                     // Normalize -60..0 dB → 0..1
                     _audioAmplitude.value = ((peakDb + 60f) / 60f).coerceIn(0f, 1f)
                 }
+                delay(16L)
             }
         }
 
