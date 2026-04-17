@@ -61,7 +61,7 @@ data class InflatorState(
     val curve:      Float   =  0.0f,   // [-50, +50]
     val clipZeroDb: Boolean = true,
     val bandSplit:  Boolean = false,
-    val effectIn:   Boolean = true,    // UI "Effect In" — false == bypass
+    val effectIn:   Boolean = false,   // UI "Effect In" — false == bypass, off by default
 )
 
 data class CompressorState(
@@ -71,7 +71,7 @@ data class CompressorState(
     val releaseMs:   Float = 100.0f,
     val kneeDb:      Float =   6.0f,
     val makeupDb:    Float =   0.0f,
-    val bypass:      Boolean = false,
+    val bypass:      Boolean = true,   // off by default
 )
 
 data class StereoPeak(val left: Float, val right: Float) {
