@@ -187,6 +187,12 @@ fun MonochromeNavHost() {
         )
 
         // ── Layer 1: Full-screen content (draws behind bars) ─────────────
+        // Detail screens reserve nav bar + mini-player height so content
+        // isn't hidden behind the floating mini player. Main tabs (pager)
+        // handle their own bottom contentPadding already.
+        val miniPlayerReserve = 72.dp
+        val detailBottomInset = navBarHeight + if (showMiniPlayer) miniPlayerReserve else 0.dp
+
         Box(modifier = Modifier.fillMaxSize().hazeSource(hazeState)) {
             // Pager for main tabs — fills entire screen
             if (isOnMainTab) {
@@ -206,6 +212,7 @@ fun MonochromeNavHost() {
             NavHost(
                 navController = navController,
                 startDestination = Screen.Home.route,
+                modifier = Modifier.padding(bottom = detailBottomInset),
                 enterTransition = { fadeIn() },
                 exitTransition = { fadeOut() },
                 popEnterTransition = { fadeIn() },
@@ -266,13 +273,10 @@ fun MonochromeNavHost() {
                 }
                 composable(Screen.Oxford.route) {
                     val vm: OxfordViewModel = hiltViewModel()
-                    val bottomReserve = navBarHeight + if (showMiniPlayer) 72.dp else 0.dp
                     OxfordEffectsTabs(
                         inflator = vm.inflator,
                         compressor = vm.compressor,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(top = statusBarHeight, bottom = bottomReserve),
+                        modifier = Modifier.fillMaxSize().padding(top = statusBarHeight),
                     )
                 }
                 composable(Screen.Downloads.route) {
