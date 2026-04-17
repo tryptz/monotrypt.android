@@ -486,14 +486,11 @@ private fun InterfaceTab(viewModel: SettingsViewModel) {
     val spectrumEnabled by viewModel.spectrumAnalyzerEnabled.collectAsState()
     val spectrumShowOnNowPlaying by viewModel.spectrumShowOnNowPlaying.collectAsState()
     val spectrumFftSize by viewModel.spectrumFftSize.collectAsState()
-    val spectrumColorMode by viewModel.spectrumColorMode.collectAsState()
     val spectrumBins by viewModel.spectrumBins.collectAsState()
-    val spectrumCoverUrl by viewModel.currentCoverUrl.collectAsState()
     val selectedPresetName = presets.firstOrNull { it.id == presetId }?.displayName ?: "Auto-select bundled preset"
     var showTextureDropdown by remember { mutableStateOf(false) }
     var showPresetDropdown by remember { mutableStateOf(false) }
     var showFftDropdown by remember { mutableStateOf(false) }
-    var showColorDropdown by remember { mutableStateOf(false) }
 
     SettingsTabContent {
         SettingsGroupHeader("Playback")
@@ -577,44 +574,15 @@ private fun InterfaceTab(viewModel: SettingsViewModel) {
                 )
             }
         }
-        val colorLabel = when (spectrumColorMode.uppercase()) {
-            "PRIMARY" -> "Theme Primary"
-            "WHITE" -> "White"
-            else -> "Dynamic (album art)"
-        }
-        SettingItem(
-            title = "Color",
-            subtitle = colorLabel,
-            onClick = { showColorDropdown = true }
-        )
-        DropdownMenu(expanded = showColorDropdown, onDismissRequest = { showColorDropdown = false }) {
-            listOf(
-                "DYNAMIC" to "Dynamic (album art)",
-                "PRIMARY" to "Theme Primary",
-                "WHITE" to "White"
-            ).forEach { (mode, label) ->
-                DropdownMenuItem(
-                    text = { Text(label) },
-                    onClick = {
-                        viewModel.setSpectrumColorMode(mode)
-                        showColorDropdown = false
-                    }
-                )
-            }
-        }
         if (spectrumEnabled) {
             androidx.compose.runtime.DisposableEffect(Unit) {
                 viewModel.setSpectrumActive(true)
                 onDispose { viewModel.setSpectrumActive(false) }
             }
-            val previewColor = tf.monochrome.android.ui.player.rememberSpectrumColor(
-                mode = spectrumColorMode,
-                imageUrl = spectrumCoverUrl
-            )
             Spacer(modifier = Modifier.height(8.dp))
             tf.monochrome.android.ui.player.SpectrumOverlay(
                 bins = spectrumBins,
-                color = previewColor,
+                color = MaterialTheme.colorScheme.primary,
                 height = 96.dp
             )
         }

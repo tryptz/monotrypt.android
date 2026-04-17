@@ -16,21 +16,14 @@ import tf.monochrome.android.data.repository.ParametricEqRepository
 import tf.monochrome.android.domain.model.EqBand
 import tf.monochrome.android.domain.model.EqPreset
 import tf.monochrome.android.domain.model.FilterType
-import tf.monochrome.android.player.QueueManager
-import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 
 @HiltViewModel
 class ParametricEqViewModel @Inject constructor(
     private val repository: ParametricEqRepository,
     private val preferences: PreferencesManager,
-    val spectrumAnalyzer: SpectrumAnalyzerTap,
-    queueManager: QueueManager
+    val spectrumAnalyzer: SpectrumAnalyzerTap
 ) : ViewModel() {
-
-    val currentCoverUrl: StateFlow<String?> = queueManager.currentTrack
-        .map { it?.coverUrl }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -61,8 +54,6 @@ class ParametricEqViewModel @Inject constructor(
     // --- Spectrum preferences exposed for the preview overlay ---
     val spectrumAnalyzerEnabled: StateFlow<Boolean> = preferences.spectrumAnalyzerEnabled
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
-    val spectrumColorMode: StateFlow<String> = preferences.spectrumColorMode
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "DYNAMIC")
 
     init {
         viewModelScope.launch {
