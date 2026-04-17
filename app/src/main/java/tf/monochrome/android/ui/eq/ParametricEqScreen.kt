@@ -53,7 +53,6 @@ import tf.monochrome.android.ui.components.bounceClick
 import tf.monochrome.android.ui.components.liquidGlass
 import tf.monochrome.android.ui.navigation.Screen
 import tf.monochrome.android.ui.player.SpectrumOverlay
-import tf.monochrome.android.ui.player.rememberSpectrumColor
 
 @Composable
 fun ParametricEqScreen(
@@ -66,9 +65,7 @@ fun ParametricEqScreen(
     val activePreset by viewModel.activePreset.collectAsState()
     val allPresets by viewModel.allPresets.collectAsState()
     val spectrumEnabled by viewModel.spectrumAnalyzerEnabled.collectAsState()
-    val spectrumColorMode by viewModel.spectrumColorMode.collectAsState()
     val spectrumBins by viewModel.spectrumAnalyzer.spectrumBins.collectAsState()
-    val coverUrl by viewModel.currentCoverUrl.collectAsState()
 
     if (spectrumEnabled) {
         DisposableEffect(Unit) {
@@ -130,13 +127,9 @@ fun ParametricEqScreen(
             item {
                 Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                     if (spectrumEnabled && spectrumBins.isNotEmpty()) {
-                        val spectrumColor = rememberSpectrumColor(
-                            mode = spectrumColorMode,
-                            imageUrl = coverUrl
-                        ).copy(alpha = 0.55f)
                         SpectrumOverlay(
                             bins = spectrumBins,
-                            color = spectrumColor,
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.55f),
                             modifier = Modifier.fillMaxWidth(),
                             height = 160.dp
                         )

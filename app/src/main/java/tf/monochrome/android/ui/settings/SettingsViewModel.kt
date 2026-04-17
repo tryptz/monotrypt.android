@@ -25,8 +25,6 @@ import tf.monochrome.android.data.preferences.PreferencesManager
 import tf.monochrome.android.data.auth.SupabaseAuthManager
 import tf.monochrome.android.data.sync.BackupManager
 import tf.monochrome.android.data.sync.SupabaseSyncRepository
-import tf.monochrome.android.player.QueueManager
-import kotlinx.coroutines.flow.map
 import tf.monochrome.android.domain.model.AudioQuality
 import tf.monochrome.android.domain.model.NowPlayingViewMode
 import tf.monochrome.android.domain.model.VisualizerEngineStatus
@@ -47,7 +45,6 @@ class SettingsViewModel @Inject constructor(
     private val supabaseSyncRepository: SupabaseSyncRepository,
     private val supabaseAuthManager: SupabaseAuthManager,
     private val spectrumAnalyzerTap: SpectrumAnalyzerTap,
-    queueManager: QueueManager,
     @ApplicationContext private val appContext: Context
 ) : ViewModel() {
 
@@ -56,11 +53,6 @@ class SettingsViewModel @Inject constructor(
 
     /** Power the FFT analysis coroutine only while a screen observing the preview is on-screen. */
     fun setSpectrumActive(active: Boolean) = spectrumAnalyzerTap.setAnalysisActive(active)
-
-    /** Current track's album art URL — drives the Dynamic spectrum color in previews. */
-    val currentCoverUrl: StateFlow<String?> = queueManager.currentTrack
-        .map { it?.coverUrl }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     // --- Appearance ---
     val theme: StateFlow<String> = preferences.theme
@@ -155,8 +147,6 @@ class SettingsViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
     val spectrumFftSize: StateFlow<Int> = preferences.spectrumFftSize
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 8192)
-    val spectrumColorMode: StateFlow<String> = preferences.spectrumColorMode
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "DYNAMIC")
 
     val visualizerEngineStatus: StateFlow<VisualizerEngineStatus> = projectMEngineRepository.engineStatus
     val visualizerPresets: StateFlow<List<VisualizerPreset>> = projectMEngineRepository.presets
@@ -320,9 +310,6 @@ class SettingsViewModel @Inject constructor(
     }
     fun setSpectrumFftSize(size: Int) {
         viewModelScope.launch { preferences.setSpectrumFftSize(size) }
-    }
-    fun setSpectrumColorMode(mode: String) {
-        viewModelScope.launch { preferences.setSpectrumColorMode(mode) }
     }
 
     // --- Library settings ---
