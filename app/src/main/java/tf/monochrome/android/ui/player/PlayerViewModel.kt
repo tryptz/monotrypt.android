@@ -116,8 +116,6 @@ class PlayerViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
     val spectrumShowOnNowPlaying: StateFlow<Boolean> = preferences.spectrumShowOnNowPlaying
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
-    val spectrumColorMode: StateFlow<String> = preferences.spectrumColorMode
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "DYNAMIC")
 
     fun setSpectrumShowOnNowPlaying(enabled: Boolean) {
         viewModelScope.launch { preferences.setSpectrumShowOnNowPlaying(enabled) }

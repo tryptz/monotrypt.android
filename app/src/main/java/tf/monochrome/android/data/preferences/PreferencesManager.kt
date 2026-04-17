@@ -163,7 +163,6 @@ class PreferencesManager @Inject constructor(
         private val SPECTRUM_ANALYZER_ENABLED = booleanPreferencesKey("spectrum_analyzer_enabled")
         private val SPECTRUM_SHOW_ON_NOW_PLAYING = booleanPreferencesKey("spectrum_show_on_now_playing")
         private val SPECTRUM_FFT_SIZE = intPreferencesKey("spectrum_fft_size")
-        private val SPECTRUM_COLOR_MODE = stringPreferencesKey("spectrum_color_mode")
     }
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -772,17 +771,6 @@ class PreferencesManager @Inject constructor(
             else -> 16384
         }
         dataStore.edit { it[SPECTRUM_FFT_SIZE] = clamped }
-    }
-
-    val spectrumColorMode: Flow<String> = dataStore.data.map {
-        it[SPECTRUM_COLOR_MODE] ?: "DYNAMIC"
-    }
-    suspend fun setSpectrumColorMode(mode: String) {
-        val normalized = when (mode.uppercase()) {
-            "DYNAMIC", "PRIMARY", "WHITE" -> mode.uppercase()
-            else -> "DYNAMIC"
-        }
-        dataStore.edit { it[SPECTRUM_COLOR_MODE] = normalized }
     }
 
     // --- Clear all prefs (System) ---
