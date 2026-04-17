@@ -38,6 +38,7 @@ add_library(monochrome_dsp SHARED
     dsp/atmos/JocReconstructor.cpp
     dsp/atmos/BinauralRenderer.cpp
     dsp/atmos/RoomSimulator.cpp
+    dsp/oxford/oxford_jni.cpp
 )
 
 target_include_directories(monochrome_dsp PRIVATE
@@ -45,9 +46,12 @@ target_include_directories(monochrome_dsp PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/dsp/util
     ${CMAKE_CURRENT_SOURCE_DIR}/dsp/snapins
     ${CMAKE_CURRENT_SOURCE_DIR}/dsp/atmos
+    ${CMAKE_CURRENT_SOURCE_DIR}/dsp/oxford
     ${CMAKE_CURRENT_BINARY_DIR}/ffmpeg/include
     ${CMAKE_CURRENT_BINARY_DIR}/libmysofa/include
 )
+
+target_compile_features(monochrome_dsp PRIVATE cxx_std_17)
 
 # ── FFmpeg (Disabled temporarily due to Windows build constraints) ──────
 # include(ExternalProject)
