@@ -183,7 +183,6 @@ fun NowPlayingScreen(
     val spectrumBins by playerViewModel.spectrumAnalyzer.spectrumBins.collectAsState()
     val spectrumAnalyzerEnabled by playerViewModel.spectrumAnalyzerEnabled.collectAsState()
     val spectrumShowOnNowPlaying by playerViewModel.spectrumShowOnNowPlaying.collectAsState()
-    val spectrumColorMode by playerViewModel.spectrumColorMode.collectAsState()
     val showNpSpectrum = spectrumAnalyzerEnabled && spectrumShowOnNowPlaying
 
     // Power the FFT tap only while this screen is on-screen AND the user wants
@@ -256,16 +255,7 @@ fun NowPlayingScreen(
         targetValue = albumColors.dominant,
         animationSpec = androidx.compose.animation.core.tween(durationMillis = 800)
     )
-    val animatedVibrant by androidx.compose.animation.animateColorAsState(
-        targetValue = albumColors.vibrant,
-        animationSpec = androidx.compose.animation.core.tween(durationMillis = 800)
-    )
-    val themePrimary = MaterialTheme.colorScheme.primary
-    val spectrumColor = when (spectrumColorMode.uppercase()) {
-        "PRIMARY" -> themePrimary
-        "WHITE" -> Color.White
-        else -> animatedVibrant
-    }
+    val spectrumColor = MaterialTheme.colorScheme.primary
     val onToggleShowSpectrum: () -> Unit = {
         playerViewModel.setSpectrumShowOnNowPlaying(!spectrumShowOnNowPlaying)
     }
