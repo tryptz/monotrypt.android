@@ -840,8 +840,6 @@ private fun ScrobblingTab(viewModel: SettingsViewModel) {
 private fun AudioTab(viewModel: SettingsViewModel, navController: NavController) {
     val wifiQuality by viewModel.wifiQuality.collectAsState()
     val cellularQuality by viewModel.cellularQuality.collectAsState()
-    val normalization by viewModel.normalizationEnabled.collectAsState()
-    val dspMixer by viewModel.dspMixerEnabled.collectAsState()
     val crossfade by viewModel.crossfadeDuration.collectAsState()
     val playbackSpeed by viewModel.playbackSpeed.collectAsState()
     val preservePitch by viewModel.preservePitch.collectAsState()
@@ -867,20 +865,6 @@ private fun AudioTab(viewModel: SettingsViewModel, navController: NavController)
 
         Spacer(modifier = Modifier.height(16.dp))
         SettingsGroupHeader("Audio Processing")
-        SettingSwitchItem(
-            title = "Volume Normalization",
-            subtitle = "Use ReplayGain to normalize loudness",
-            checked = normalization,
-            onCheckedChange = { viewModel.setNormalizationEnabled(it) }
-        )
-        SettingSwitchItem(
-            title = "DSP Mixer",
-            subtitle = "Enable mixer bus processing engine",
-            checked = dspMixer,
-            onCheckedChange = { viewModel.setDspMixerEnabled(it) }
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
         OutlinedButton(
             onClick = { navController.navigate("oxford") },
             modifier = Modifier.fillMaxWidth(),
