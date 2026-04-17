@@ -266,10 +266,13 @@ fun MonochromeNavHost() {
                 }
                 composable(Screen.Oxford.route) {
                     val vm: OxfordViewModel = hiltViewModel()
+                    val bottomReserve = navBarHeight + if (showMiniPlayer) 72.dp else 0.dp
                     OxfordEffectsTabs(
                         inflator = vm.inflator,
                         compressor = vm.compressor,
-                        modifier = Modifier.fillMaxSize().padding(top = statusBarHeight),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(top = statusBarHeight, bottom = bottomReserve),
                     )
                 }
                 composable(Screen.Downloads.route) {
