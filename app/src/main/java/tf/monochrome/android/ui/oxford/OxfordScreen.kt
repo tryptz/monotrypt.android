@@ -595,6 +595,14 @@ fun CompressorScreen(
                     meterStereo = false,
                     modifier = Modifier.height(100.dp).fillMaxWidth(),
                 )
+                Spacer(Modifier.height(8.dp))
+                OxfordButton(
+                    label = "EFFECT\nIN",
+                    active = !state.bypass,
+                    activeColor = Ox.BtnEffectOn,
+                    onClick = { effect.setBypass(!state.bypass) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
     }
