@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Compose UI for Oxford-style Inflator + Compressor tabs.
+// Compose UI for Seap Inflator + Seap Compressor tabs.
 
 package tf.monochrome.android.ui.oxford
 
@@ -7,8 +7,12 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -31,7 +35,12 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import tf.monochrome.android.audio.dsp.oxford.CompressorEffect
+import tf.monochrome.android.audio.dsp.oxford.CompressorPreset
+import tf.monochrome.android.audio.dsp.oxford.CompressorState
 import tf.monochrome.android.audio.dsp.oxford.InflatorEffect
+import tf.monochrome.android.audio.dsp.oxford.InflatorPreset
+import tf.monochrome.android.audio.dsp.oxford.InflatorState
+import kotlin.math.abs
 import kotlin.math.log10
 import kotlin.math.max
 import kotlin.math.pow
@@ -41,7 +50,7 @@ import kotlin.math.roundToInt
 // Palette
 // ----------------------------------------------------------------------------
 
-private object Ox {
+private object Seap {
     val PanelTop     = Color(0xFF8FA1C7)
     val PanelBottom  = Color(0xFF6A81AD)
     val PanelShadow  = Color(0xFF40547A)
@@ -67,7 +76,7 @@ private val digitStyle = TextStyle(
     fontFamily = FontFamily.Monospace,
     fontWeight = FontWeight.Bold,
     fontSize = 14.sp,
-    color = Ox.ReadoutText,
+    color = Seap.ReadoutText,
 )
 
 // ----------------------------------------------------------------------------
@@ -118,13 +127,13 @@ private fun OxfordFader(
             val trackHeight = trackBottom - trackTop
 
             drawRoundRect(
-                color = Ox.TrackBg,
+                color = Seap.TrackBg,
                 topLeft = Offset(trackX - trackWidth.toPx() / 2f, trackTop),
                 size = Size(trackWidth.toPx(), trackHeight),
                 cornerRadius = CornerRadius(3f, 3f),
             )
             drawRoundRect(
-                color = Ox.TrackInner,
+                color = Seap.TrackInner,
                 topLeft = Offset(trackX - trackWidth.toPx() / 2f + 2f, trackTop + 2f),
                 size = Size(trackWidth.toPx() - 4f, trackHeight - 4f),
                 cornerRadius = CornerRadius(2f, 2f),
@@ -138,9 +147,9 @@ private fun OxfordFader(
 
             drawRoundRect(
                 brush = Brush.verticalGradient(
-                    0f to Ox.ChromeLight,
-                    0.5f to Ox.ChromeMid,
-                    1f to Ox.ChromeDark,
+                    0f to Seap.ChromeLight,
+                    0.5f to Seap.ChromeMid,
+                    1f to Seap.ChromeDark,
                 ),
                 topLeft = Offset(trackX - handleW / 2f, handleY - handleH / 2f),
                 size = Size(handleW, handleH),
@@ -150,7 +159,7 @@ private fun OxfordFader(
             for (i in 0 until gripCount) {
                 val gy = handleY - (handleH * 0.3f) + i * (handleH * 0.6f / (gripCount - 1))
                 drawLine(
-                    color = Ox.ChromeDark,
+                    color = Seap.ChromeDark,
                     start = Offset(trackX - handleW * 0.35f, gy),
                     end   = Offset(trackX + handleW * 0.35f, gy),
                     strokeWidth = 1.2f,
@@ -215,7 +224,7 @@ private fun LedMeter(
                 val col = when {
                     isLit  -> ledColor
                     isPeak -> ledColor.copy(alpha = 0.7f)
-                    else   -> Ox.LedOff
+                    else   -> Seap.LedOff
                 }
                 drawRoundRect(
                     color = col,
@@ -236,9 +245,9 @@ private fun dbToSegments(db: Float, minDb: Float, maxDb: Float, segmentCount: In
 private fun ledColorFor(segmentIndex: Int, total: Int): Color {
     val t = segmentIndex.toFloat() / (total - 1).toFloat()
     return when {
-        t >= 0.90f -> Ox.LedRed
-        t >= 0.75f -> Ox.LedYellow
-        else       -> Ox.LedGreen
+        t >= 0.90f -> Seap.LedRed
+        t >= 0.75f -> Seap.LedYellow
+        else       -> Seap.LedGreen
     }
 }
 
@@ -254,7 +263,7 @@ private fun OxfordButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val bg = if (active) activeColor else Ox.ChromeMid
+    val bg = if (active) activeColor else Seap.ChromeMid
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(6.dp),
@@ -268,7 +277,7 @@ private fun OxfordButton(
                 style = TextStyle(
                     fontWeight = FontWeight.Bold,
                     fontSize = 11.sp,
-                    color = if (active) Ox.TextDark else Color(0xFF3A4050),
+                    color = if (active) Seap.TextDark else Color(0xFF3A4050),
                     fontFamily = FontFamily.SansSerif,
                 ),
                 textAlign = TextAlign.Center,
@@ -304,14 +313,14 @@ private fun FaderColumn(
             style = TextStyle(
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
-                color = Ox.TitleWhite,
+                color = Seap.TitleWhite,
                 fontFamily = FontFamily.SansSerif,
             ),
         )
         Spacer(Modifier.height(4.dp))
         Box(
             modifier = Modifier
-                .background(Ox.Readout, RoundedCornerShape(3.dp))
+                .background(Seap.Readout, RoundedCornerShape(3.dp))
                 .padding(horizontal = 8.dp, vertical = 3.dp),
         ) {
             Text(text = readout, style = digitStyle)
@@ -347,6 +356,8 @@ private fun FaderColumn(
 private fun OxfordPanel(
     title: String,
     modifier: Modifier = Modifier,
+    onHelpClick: (() -> Unit)? = null,
+    presetRail: (@Composable () -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Box(
@@ -354,11 +365,11 @@ private fun OxfordPanel(
             .clip(RoundedCornerShape(10.dp))
             .background(
                 Brush.verticalGradient(
-                    0f to Ox.PanelTop,
-                    1f to Ox.PanelBottom,
+                    0f to Seap.PanelTop,
+                    1f to Seap.PanelBottom,
                 )
             )
-            .border(1.dp, Ox.PanelShadow, RoundedCornerShape(10.dp))
+            .border(1.dp, Seap.PanelShadow, RoundedCornerShape(10.dp))
             .padding(10.dp),
     ) {
         Column(Modifier.fillMaxSize()) {
@@ -372,14 +383,19 @@ private fun OxfordPanel(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
-                    text = "Sonnox",
-                    style = TextStyle(color = Ox.TitleWhite, fontWeight = FontWeight.Bold, fontSize = 12.sp),
+                    text = "SEAP",
+                    style = TextStyle(
+                        color = Seap.TitleWhite,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 12.sp,
+                        letterSpacing = 1.2.sp,
+                    ),
                 )
                 Spacer(Modifier.weight(1f))
                 Text(
                     text = title,
                     style = TextStyle(
-                        color = Ox.TitleWhite,
+                        color = Seap.TitleWhite,
                         fontWeight = FontWeight.Bold,
                         fontSize = 14.sp,
                         letterSpacing = 1.5.sp,
@@ -387,12 +403,148 @@ private fun OxfordPanel(
                 )
                 Spacer(Modifier.weight(1f))
                 Text(
-                    text = "Oxford Plugins",
-                    style = TextStyle(color = Ox.TitleWhite.copy(alpha = 0.8f), fontSize = 10.sp),
+                    text = "Seap Effects",
+                    style = TextStyle(color = Seap.TitleWhite.copy(alpha = 0.8f), fontSize = 10.sp),
                 )
+                if (onHelpClick != null) {
+                    Spacer(Modifier.width(4.dp))
+                    HelpChip(onClick = onHelpClick)
+                }
+            }
+            if (presetRail != null) {
+                Spacer(Modifier.height(8.dp))
+                presetRail()
             }
             Spacer(Modifier.height(12.dp))
             content()
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
+// ? help chip + preset rail
+// ----------------------------------------------------------------------------
+
+@Composable
+private fun HelpChip(onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = Seap.ChromeLight,
+        shadowElevation = 1.dp,
+        modifier = Modifier.size(22.dp),
+    ) {
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+            Text(
+                text = "?",
+                style = TextStyle(
+                    fontWeight = FontWeight.Black,
+                    fontSize = 13.sp,
+                    color = Seap.TextDark,
+                    fontFamily = FontFamily.SansSerif,
+                ),
+            )
+        }
+    }
+}
+
+@Composable
+private fun PresetRail(
+    items: List<Pair<String, Boolean>>,
+    onSelect: (Int) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        items.forEachIndexed { index, (label, active) ->
+            PresetChip(label = label, active = active, onClick = { onSelect(index) })
+        }
+    }
+}
+
+@Composable
+private fun PresetChip(label: String, active: Boolean, onClick: () -> Unit) {
+    val bg = if (active) Seap.BtnEffectOn else Seap.ChromeMid
+    val fg = if (active) Seap.TextDark else Color(0xFF2A3045)
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(14.dp),
+        color = bg,
+        shadowElevation = if (active) 2.dp else 1.dp,
+        modifier = Modifier.height(28.dp),
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.padding(horizontal = 12.dp),
+        ) {
+            Text(
+                text = label,
+                style = TextStyle(
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 10.sp,
+                    color = fg,
+                    letterSpacing = 0.6.sp,
+                ),
+            )
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Tutorial bottom sheet
+// ----------------------------------------------------------------------------
+
+data class TutorialSection(val heading: String, val body: String)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TutorialSheet(
+    title: String,
+    subtitle: String,
+    sections: List<TutorialSection>,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 4.dp)
+                .padding(bottom = 24.dp),
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Black,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
+            )
+            Spacer(Modifier.height(18.dp))
+            sections.forEachIndexed { i, section ->
+                Text(
+                    text = section.heading,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = section.body,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                if (i != sections.lastIndex) Spacer(Modifier.height(14.dp))
+            }
         }
     }
 }
@@ -408,8 +560,30 @@ fun InflatorScreen(
 ) {
     val state by effect.state.collectAsState()
     val peak  by effect.peak.collectAsState()
+    var showHelp by rememberSaveable { mutableStateOf(false) }
 
-    OxfordPanel(title = "OXFORD INFLATOR", modifier = modifier.fillMaxSize()) {
+    if (showHelp) {
+        TutorialSheet(
+            title = "Seap Inflator",
+            subtitle = "Psycho-acoustic enhancer — makes tracks feel louder and richer without raising true peak level.",
+            sections = inflatorTutorialSections(),
+            onDismiss = { showHelp = false },
+        )
+    }
+
+    OxfordPanel(
+        title = "SEAP INFLATOR",
+        modifier = modifier.fillMaxSize(),
+        onHelpClick = { showHelp = true },
+        presetRail = {
+            val entries = InflatorPreset.entries
+            val active = entries.indexOfFirst { matchesInflator(it.state, state) }
+            PresetRail(
+                items = entries.map { it.label to (entries.indexOf(it) == active) },
+                onSelect = { effect.applyPreset(entries[it]) },
+            )
+        },
+    ) {
         Row(
             modifier = Modifier.fillMaxSize(),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -465,21 +639,21 @@ fun InflatorScreen(
                     OxfordButton(
                         label = "CLIP\n0 dB",
                         active = state.clipZeroDb,
-                        activeColor = Ox.BtnClip,
+                        activeColor = Seap.BtnClip,
                         onClick = { effect.setClipZeroDb(!state.clipZeroDb) },
                         modifier = Modifier.fillMaxWidth(),
                     )
                     OxfordButton(
                         label = "BAND\nSPLIT",
                         active = state.bandSplit,
-                        activeColor = Ox.BtnBandSplit,
+                        activeColor = Seap.BtnBandSplit,
                         onClick = { effect.setBandSplit(!state.bandSplit) },
                         modifier = Modifier.fillMaxWidth(),
                     )
                     OxfordButton(
                         label = "EFFECT\nIN",
                         active = state.effectIn,
-                        activeColor = Ox.BtnEffectOn,
+                        activeColor = Seap.BtnEffectOn,
                         onClick = { effect.setEffectIn(!state.effectIn) },
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -513,8 +687,30 @@ fun CompressorScreen(
     val state by effect.state.collectAsState()
     val peak  by effect.peak.collectAsState()
     val grDb  by effect.gainReductionDb.collectAsState()
+    var showHelp by rememberSaveable { mutableStateOf(false) }
 
-    OxfordPanel(title = "COMPRESSOR", modifier = modifier.fillMaxSize()) {
+    if (showHelp) {
+        TutorialSheet(
+            title = "Seap Compressor",
+            subtitle = "Dynamics processor — tames loud peaks and evens out levels.",
+            sections = compressorTutorialSections(),
+            onDismiss = { showHelp = false },
+        )
+    }
+
+    OxfordPanel(
+        title = "SEAP COMPRESSOR",
+        modifier = modifier.fillMaxSize(),
+        onHelpClick = { showHelp = true },
+        presetRail = {
+            val entries = CompressorPreset.entries
+            val active = entries.indexOfFirst { matchesCompressor(it.state, state) }
+            PresetRail(
+                items = entries.map { it.label to (entries.indexOf(it) == active) },
+                onSelect = { effect.applyPreset(entries[it]) },
+            )
+        },
+    ) {
         Row(
             modifier = Modifier.fillMaxSize(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -565,12 +761,12 @@ fun CompressorScreen(
             ) {
                 Text(
                     text = "GR",
-                    style = TextStyle(color = Ox.TitleWhite, fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                    style = TextStyle(color = Seap.TitleWhite, fontSize = 11.sp, fontWeight = FontWeight.Bold),
                 )
                 Spacer(Modifier.height(4.dp))
                 Box(
                     modifier = Modifier
-                        .background(Ox.Readout, RoundedCornerShape(3.dp))
+                        .background(Seap.Readout, RoundedCornerShape(3.dp))
                         .padding(horizontal = 8.dp, vertical = 3.dp),
                 ) {
                     Text(text = "-${"%.1f".format(grDb)} dB", style = digitStyle)
@@ -599,7 +795,7 @@ fun CompressorScreen(
                 OxfordButton(
                     label = "EFFECT\nIN",
                     active = !state.bypass,
-                    activeColor = Ox.BtnEffectOn,
+                    activeColor = Seap.BtnEffectOn,
                     onClick = { effect.setBypass(!state.bypass) },
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -676,3 +872,95 @@ private fun formatMs(ms: Float): String = when {
     ms < 100f -> "${"%.1f".format(ms)} ms"
     else      -> "${ms.roundToInt()} ms"
 }
+
+// ----------------------------------------------------------------------------
+// Preset matching (fuzzy, so tiny float noise from the UI doesn't dehighlight)
+// ----------------------------------------------------------------------------
+
+private fun matchesInflator(a: InflatorState, b: InflatorState): Boolean =
+    abs(a.inputDb    - b.inputDb)   < 0.05f &&
+    abs(a.outputDb   - b.outputDb)  < 0.05f &&
+    abs(a.effectPct  - b.effectPct) < 0.5f  &&
+    abs(a.curve      - b.curve)     < 0.5f  &&
+    a.clipZeroDb == b.clipZeroDb &&
+    a.bandSplit  == b.bandSplit  &&
+    a.effectIn   == b.effectIn
+
+private fun matchesCompressor(a: CompressorState, b: CompressorState): Boolean =
+    abs(a.thresholdDb - b.thresholdDb) < 0.1f  &&
+    abs(a.ratio       - b.ratio)       < 0.05f &&
+    abs(a.attackMs    - b.attackMs)    < 0.1f  &&
+    abs(a.releaseMs   - b.releaseMs)   < 0.5f  &&
+    abs(a.kneeDb      - b.kneeDb)      < 0.1f  &&
+    abs(a.makeupDb    - b.makeupDb)    < 0.1f  &&
+    a.bypass == b.bypass
+
+// ----------------------------------------------------------------------------
+// Tutorial copy
+// ----------------------------------------------------------------------------
+
+private fun inflatorTutorialSections(): List<TutorialSection> = listOf(
+    TutorialSection(
+        "What it does",
+        "The Inflator shapes the waveform with low-order harmonic distortion driven by the CURVE knob. Unlike a limiter, it doesn't just cap peaks — it adds perceived loudness, density, and warmth or brightness depending on the curve's sign. Keep EFFECT IN lit to hear the processing.",
+    ),
+    TutorialSection(
+        "INPUT / OUTPUT",
+        "INPUT drives the signal into the shaping stage (harder drive = more effect). OUTPUT trims the result back to unity. On mixes, nudge INPUT up and OUTPUT down to taste — they're independent, not linked.",
+    ),
+    TutorialSection(
+        "EFFECT",
+        "How much of the shaped signal is blended in (0–100 %). Below ~30 % you're in parallel territory; above 60 % the effect becomes obvious. If in doubt, sweep EFFECT while A/B-ing the EFFECT IN button.",
+    ),
+    TutorialSection(
+        "CURVE",
+        "Negative values (-50…0) push even-order harmonics — warmer, analogue-ish. Positive values (0…+50) emphasise odd-order — sharper, more present. Zero is neutral and the mildest setting.",
+    ),
+    TutorialSection(
+        "CLIP 0 dB",
+        "Hard ceiling at 0 dBFS applied on the way out. Leave on for safety when mastering; turn off if you're feeding another plugin that has its own ceiling management.",
+    ),
+    TutorialSection(
+        "BAND SPLIT",
+        "Splits the signal into low / mid / high bands and processes each independently before recombining. Produces tighter results on full mixes and drum buses. More CPU — but worth it on masters.",
+    ),
+    TutorialSection(
+        "Start here",
+        "Try the WARMTH preset on a vocal or bass, PUNCH on a drum bus, and LOUD on a finished stereo mix. Once you hear what the curve does, you'll reach for it often.",
+    ),
+)
+
+private fun compressorTutorialSections(): List<TutorialSection> = listOf(
+    TutorialSection(
+        "What it does",
+        "A compressor reduces gain whenever the signal exceeds a threshold — quieter parts pass through untouched, louder parts get pushed down. Use it to even out performances, add punch, or glue a mix together. EFFECT IN lights up when the compressor is active.",
+    ),
+    TutorialSection(
+        "THRESH (Threshold)",
+        "The level above which compression engages. Lower threshold = more of the signal is compressed. Watch the GR meter — for musical results aim for 2–6 dB reduction on peaks.",
+    ),
+    TutorialSection(
+        "RATIO",
+        "How aggressively signal above threshold is reduced. 2:1 is gentle, 4:1 is classic, 8:1+ is heavy-handed. Ratios above 10:1 start to behave like a limiter.",
+    ),
+    TutorialSection(
+        "ATTACK",
+        "How fast the compressor clamps down once the signal crosses threshold. Fast (0.1–5 ms) catches transients — kills punch if over-used. Slow (20–50 ms) lets transients through for more snap.",
+    ),
+    TutorialSection(
+        "RELEASE",
+        "How fast the gain recovers after the signal drops back below threshold. Short releases (10–80 ms) pump and breathe with the music — great for drums. Long releases (200 ms+) are smoother, better for vocals and master buses.",
+    ),
+    TutorialSection(
+        "MAKEUP",
+        "Output gain applied after compression so the processed signal matches the bypass level. Bump it up by roughly the amount of reduction shown on the GR meter.",
+    ),
+    TutorialSection(
+        "GR meter",
+        "Gain Reduction display — tells you how many dB the compressor is currently pulling down. If it's pinned, your threshold is too low or ratio too high. If it never moves, threshold is too high.",
+    ),
+    TutorialSection(
+        "Start here",
+        "VOCAL preset for leads, DRUM BUS to tighten drums, GLUE on your stereo mix bus, LIMITER only on the final master-chain output.",
+    ),
+)

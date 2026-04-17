@@ -64,6 +64,62 @@ data class InflatorState(
     val effectIn:   Boolean = false,   // UI "Effect In" — false == bypass, off by default
 )
 
+/**
+ * Factory presets for the Inflator. Each entry carries the full state the
+ * user lands in when the chip is tapped. Tuned for common mixing tasks.
+ */
+enum class InflatorPreset(
+    val label: String,
+    val tagline: String,
+    val state: InflatorState,
+) {
+    Init(
+        "INIT",
+        "Unity — clean signal path, effect bypassed.",
+        InflatorState()
+    ),
+    Warmth(
+        "WARMTH",
+        "Gentle low-order harmonics for analogue-ish body.",
+        InflatorState(
+            inputDb = 0f, outputDb = -1f, effectPct = 35f, curve = -18f,
+            clipZeroDb = true, bandSplit = false, effectIn = true,
+        )
+    ),
+    Presence(
+        "PRESENCE",
+        "Lifts the upper mids without dulling the low end.",
+        InflatorState(
+            inputDb = 1f, outputDb = -1f, effectPct = 55f, curve = 22f,
+            clipZeroDb = true, bandSplit = true, effectIn = true,
+        )
+    ),
+    Punch(
+        "PUNCH",
+        "Aggressive enhancement on drums / bass — band-split on.",
+        InflatorState(
+            inputDb = 2f, outputDb = -2f, effectPct = 75f, curve = 12f,
+            clipZeroDb = true, bandSplit = true, effectIn = true,
+        )
+    ),
+    TapeGlue(
+        "TAPE",
+        "Soft saturation evocative of tape — ceiling slightly off.",
+        InflatorState(
+            inputDb = 2f, outputDb = -2f, effectPct = 50f, curve = -30f,
+            clipZeroDb = false, bandSplit = false, effectIn = true,
+        )
+    ),
+    Loudness(
+        "LOUD",
+        "Master-chain loudness boost, hard 0 dB ceiling.",
+        InflatorState(
+            inputDb = 3f, outputDb = -3f, effectPct = 90f, curve = 0f,
+            clipZeroDb = true, bandSplit = false, effectIn = true,
+        )
+    );
+}
+
 data class CompressorState(
     val thresholdDb: Float = -20.0f,
     val ratio:       Float =   4.0f,
@@ -73,6 +129,70 @@ data class CompressorState(
     val makeupDb:    Float =   0.0f,
     val bypass:      Boolean = true,   // off by default
 )
+
+/**
+ * Factory presets for the Compressor. Tuned for typical engineering
+ * targets rather than maximum gain reduction — audition, then taste.
+ */
+enum class CompressorPreset(
+    val label: String,
+    val tagline: String,
+    val state: CompressorState,
+) {
+    Init(
+        "INIT",
+        "Bypassed — compressor off, nothing applied.",
+        CompressorState()
+    ),
+    Vocal(
+        "VOCAL",
+        "Even out lead vocals: medium attack, smooth release.",
+        CompressorState(
+            thresholdDb = -18f, ratio = 3f, attackMs = 10f,
+            releaseMs = 150f, kneeDb = 6f, makeupDb = 2f, bypass = false,
+        )
+    ),
+    DrumBus(
+        "DRUM BUS",
+        "Tighten a drum submix — fast attack, punchy release.",
+        CompressorState(
+            thresholdDb = -12f, ratio = 4f, attackMs = 5f,
+            releaseMs = 80f, kneeDb = 4f, makeupDb = 3f, bypass = false,
+        )
+    ),
+    MixGlue(
+        "GLUE",
+        "Master-bus glue: low ratio, slow attack/release, soft knee.",
+        CompressorState(
+            thresholdDb = -14f, ratio = 2f, attackMs = 30f,
+            releaseMs = 250f, kneeDb = 8f, makeupDb = 1.5f, bypass = false,
+        )
+    ),
+    Aggressive(
+        "AGGRESSIVE",
+        "Heavy taming — high ratio, fast attack, hard knee.",
+        CompressorState(
+            thresholdDb = -20f, ratio = 8f, attackMs = 1f,
+            releaseMs = 50f, kneeDb = 2f, makeupDb = 4f, bypass = false,
+        )
+    ),
+    SoftMaster(
+        "SOFT MASTER",
+        "Gentle ceiling management for final mixes.",
+        CompressorState(
+            thresholdDb = -8f, ratio = 1.5f, attackMs = 20f,
+            releaseMs = 400f, kneeDb = 10f, makeupDb = 1f, bypass = false,
+        )
+    ),
+    Limiter(
+        "LIMITER",
+        "Peak limiter: 20:1, fastest attack, hard knee.",
+        CompressorState(
+            thresholdDb = -3f, ratio = 20f, attackMs = 0.5f,
+            releaseMs = 20f, kneeDb = 0f, makeupDb = 0f, bypass = false,
+        )
+    );
+}
 
 data class StereoPeak(val left: Float, val right: Float) {
     companion object { val Zero = StereoPeak(0f, 0f) }
@@ -131,6 +251,9 @@ class InflatorEffect @Inject constructor() {
     fun setClipZeroDb(on: Boolean)  = update { it.copy(clipZeroDb = on) }
     fun setBandSplit(on: Boolean)   = update { it.copy(bandSplit  = on) }
     fun setEffectIn(on: Boolean)    = update { it.copy(effectIn   = on) }
+
+    /** Apply a factory preset atomically (single native push). */
+    fun applyPreset(preset: InflatorPreset) = update { preset.state }
 
     fun release() {
         val h = handle.getAndSet(0L)
@@ -201,6 +324,9 @@ class CompressorEffect @Inject constructor() {
     fun setKneeDb(v: Float)      = update { it.copy(kneeDb      = v.coerceIn(0f, 24f)) }
     fun setMakeupDb(v: Float)    = update { it.copy(makeupDb    = v.coerceIn(-12f, 24f)) }
     fun setBypass(b: Boolean)    = update { it.copy(bypass      = b) }
+
+    /** Apply a factory preset atomically (single native push). */
+    fun applyPreset(preset: CompressorPreset) = update { preset.state }
 
     fun release() {
         val h = handle.getAndSet(0L)

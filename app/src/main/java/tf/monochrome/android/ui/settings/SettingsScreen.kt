@@ -885,7 +885,7 @@ private fun AudioTab(viewModel: SettingsViewModel, navController: NavController)
             onClick = { navController.navigate("oxford") },
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text("Open Oxford Effects")
+            Text("Open Seap Effects")
         }
 
         Spacer(modifier = Modifier.height(8.dp))
