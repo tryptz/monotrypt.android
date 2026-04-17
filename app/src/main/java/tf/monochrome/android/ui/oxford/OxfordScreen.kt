@@ -19,11 +19,15 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RadialGradientShader
+import androidx.compose.ui.graphics.ShaderBrush
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -51,26 +55,66 @@ import kotlin.math.roundToInt
 // ----------------------------------------------------------------------------
 
 private object Seap {
-    val PanelTop     = Color(0xFF8FA1C7)
-    val PanelBottom  = Color(0xFF6A81AD)
-    val PanelShadow  = Color(0xFF40547A)
-    val ChromeLight  = Color(0xFFE4E8EE)
-    val ChromeMid    = Color(0xFFB5BCC7)
-    val ChromeDark   = Color(0xFF7A828F)
-    val Readout      = Color(0xFF1E2233)
-    val ReadoutText  = Color(0xFFE8B84A)
+    // Panel — brushed anodised blue-steel, lit from above
+    val PanelSheen   = Color(0xFFC4D0E5)   // specular
+    val PanelTop     = Color(0xFF9FB0D2)
+    val PanelMid     = Color(0xFF7F94BC)
+    val PanelBottom  = Color(0xFF5A6E95)
+    val PanelShadow  = Color(0xFF2F3E5C)
+    val PanelDarkEdge = Color(0xFF1E2B44)
+
+    // Chrome — multi-stop metallic gradient set
+    val ChromeHi     = Color(0xFFF5F7FC)   // top highlight
+    val ChromeLight  = Color(0xFFDCE0E7)
+    val ChromeMid    = Color(0xFFB0B7C1)
+    val ChromeDark   = Color(0xFF6E7684)
+    val ChromeShadow = Color(0xFF3E434D)
+
+    // LCD readout (inset well)
+    val ReadoutRim   = Color(0xFF0B0E17)
+    val Readout      = Color(0xFF1B2030)
+    val ReadoutTop   = Color(0xFF252C40)
+    val ReadoutText  = Color(0xFFFFC965)
+    val ReadoutGlow  = Color(0x55FFC965)
+
+    // LED meter
     val LedGreen     = Color(0xFF3EE26A)
     val LedYellow    = Color(0xFFF5D84A)
     val LedRed       = Color(0xFFE84A3A)
-    val LedOff       = Color(0xFF2A3A55)
-    val TrackBg      = Color(0xFF394C74)
-    val TrackInner   = Color(0xFF5A6E94)
+    val LedOff       = Color(0xFF1E2A40)
+    val LedOffEdge   = Color(0xFF0C1220)
+
+    // Track well
+    val TrackBg      = Color(0xFF233250)
+    val TrackDeep    = Color(0xFF15203A)
+    val TrackSheen   = Color(0xFF4B5F88)
+
+    // Button accent colors
     val BtnClip      = Color(0xFFD94234)
+    val BtnClipHi    = Color(0xFFF07467)
     val BtnBandSplit = Color(0xFFA8AFB8)
     val BtnEffectOn  = Color(0xFF5FD06E)
+    val BtnEffectHi  = Color(0xFF8EE89A)
+
     val TextDark     = Color(0xFF1A1F2E)
     val TitleWhite   = Color(0xFFF5F7FA)
 }
+
+/** 4-stop brushed-metal vertical gradient — highlight / light / mid / shadow. */
+private fun brushedMetalGradient(): Brush = Brush.verticalGradient(
+    0.00f to Seap.ChromeHi,
+    0.18f to Seap.ChromeLight,
+    0.55f to Seap.ChromeMid,
+    1.00f to Seap.ChromeDark,
+)
+
+/** Panel gradient — anodised with specular streak + darker base. */
+private fun panelGradient(): Brush = Brush.verticalGradient(
+    0.00f to Seap.PanelSheen,
+    0.06f to Seap.PanelTop,
+    0.55f to Seap.PanelMid,
+    1.00f to Seap.PanelBottom,
+)
 
 private val digitStyle = TextStyle(
     fontFamily = FontFamily.Monospace,
@@ -128,50 +172,107 @@ private fun OxfordFader(
             val trackTop = 6f
             val trackBottom = h - 6f
             val trackHeight = trackBottom - trackTop
+            val tw = trackWidth.toPx()
 
+            // Track — recessed well. Outer dark rim, deeper centre, sheen along right edge.
             drawRoundRect(
-                color = Seap.TrackBg,
-                topLeft = Offset(trackX - trackWidth.toPx() / 2f, trackTop),
-                size = Size(trackWidth.toPx(), trackHeight),
-                cornerRadius = CornerRadius(3f, 3f),
+                color = Seap.PanelDarkEdge,
+                topLeft = Offset(trackX - tw / 2f - 1f, trackTop - 1f),
+                size = Size(tw + 2f, trackHeight + 2f),
+                cornerRadius = CornerRadius(4f, 4f),
             )
             drawRoundRect(
-                color = Seap.TrackInner,
-                topLeft = Offset(trackX - trackWidth.toPx() / 2f + 2f, trackTop + 2f),
-                size = Size(trackWidth.toPx() - 4f, trackHeight - 4f),
-                cornerRadius = CornerRadius(2f, 2f),
+                brush = Brush.verticalGradient(
+                    0f to Seap.TrackDeep,
+                    1f to Seap.TrackBg,
+                ),
+                topLeft = Offset(trackX - tw / 2f, trackTop),
+                size = Size(tw, trackHeight),
+                cornerRadius = CornerRadius(3f, 3f),
+            )
+            // Right-edge specular line — sells the "inset well lit from above-left"
+            drawLine(
+                color = Seap.TrackSheen.copy(alpha = 0.65f),
+                start = Offset(trackX + tw / 2f - 1f, trackTop + 4f),
+                end   = Offset(trackX + tw / 2f - 1f, trackBottom - 4f),
+                strokeWidth = 1f,
             )
 
             val t = ((value - valueRange.start) /
                     (valueRange.endInclusive - valueRange.start)).coerceIn(0f, 1f)
             val handleY = trackBottom - t * trackHeight
-            val handleW = w * 0.85f
-            val handleH = 28f
+            val handleW = w * 0.88f
+            val handleH = 32f
 
+            // Drop shadow (offset down-right, soft-ish via double draw)
+            drawRoundRect(
+                color = Color.Black.copy(alpha = 0.35f),
+                topLeft = Offset(trackX - handleW / 2f + 1f, handleY - handleH / 2f + 3f),
+                size = Size(handleW, handleH),
+                cornerRadius = CornerRadius(5f, 5f),
+            )
+            drawRoundRect(
+                color = Color.Black.copy(alpha = 0.20f),
+                topLeft = Offset(trackX - handleW / 2f + 2f, handleY - handleH / 2f + 5f),
+                size = Size(handleW - 2f, handleH),
+                cornerRadius = CornerRadius(5f, 5f),
+            )
+
+            // Handle body — 4-stop metallic with darker waist in the middle (brushed cap look)
             drawRoundRect(
                 brush = Brush.verticalGradient(
-                    0f to Seap.ChromeLight,
-                    0.5f to Seap.ChromeMid,
-                    1f to Seap.ChromeDark,
+                    0.00f to Seap.ChromeHi,
+                    0.15f to Seap.ChromeLight,
+                    0.50f to Seap.ChromeMid,
+                    0.80f to Seap.ChromeDark,
+                    1.00f to Seap.ChromeShadow,
                 ),
                 topLeft = Offset(trackX - handleW / 2f, handleY - handleH / 2f),
                 size = Size(handleW, handleH),
-                cornerRadius = CornerRadius(4f, 4f),
+                cornerRadius = CornerRadius(5f, 5f),
             )
-            val gripCount = 5
-            for (i in 0 until gripCount) {
-                val gy = handleY - (handleH * 0.3f) + i * (handleH * 0.6f / (gripCount - 1))
-                drawLine(
-                    color = Seap.ChromeDark,
-                    start = Offset(trackX - handleW * 0.35f, gy),
-                    end   = Offset(trackX + handleW * 0.35f, gy),
-                    strokeWidth = 1.2f,
-                )
-            }
+            // Top specular line (very thin, near-white)
             drawLine(
-                color = Color.Black.copy(alpha = 0.25f),
+                color = Color.White.copy(alpha = 0.85f),
+                start = Offset(trackX - handleW / 2f + 3f, handleY - handleH / 2f + 1.5f),
+                end   = Offset(trackX + handleW / 2f - 3f, handleY - handleH / 2f + 1.5f),
+                strokeWidth = 1f,
+            )
+            // Centre waist line — makes the cap feel machined
+            drawLine(
+                color = Seap.ChromeShadow.copy(alpha = 0.65f),
                 start = Offset(trackX - handleW / 2f + 2f, handleY),
                 end   = Offset(trackX + handleW / 2f - 2f, handleY),
+                strokeWidth = 1.4f,
+            )
+            drawLine(
+                color = Color.White.copy(alpha = 0.35f),
+                start = Offset(trackX - handleW / 2f + 2f, handleY + 1.5f),
+                end   = Offset(trackX + handleW / 2f - 2f, handleY + 1.5f),
+                strokeWidth = 1f,
+            )
+            // Grippers — 5 etched lines above the waist, 3 below
+            val gripCount = 5
+            for (i in 0 until gripCount) {
+                val gy = handleY - (handleH * 0.34f) + i * (handleH * 0.22f / (gripCount - 1))
+                drawLine(
+                    color = Seap.ChromeShadow,
+                    start = Offset(trackX - handleW * 0.32f, gy),
+                    end   = Offset(trackX + handleW * 0.32f, gy),
+                    strokeWidth = 1f,
+                )
+                drawLine(
+                    color = Color.White.copy(alpha = 0.35f),
+                    start = Offset(trackX - handleW * 0.32f, gy + 1f),
+                    end   = Offset(trackX + handleW * 0.32f, gy + 1f),
+                    strokeWidth = 0.7f,
+                )
+            }
+            // Bottom-edge shadow to anchor the cap
+            drawLine(
+                color = Color.Black.copy(alpha = 0.55f),
+                start = Offset(trackX - handleW / 2f + 3f, handleY + handleH / 2f - 1.5f),
+                end   = Offset(trackX + handleW / 2f - 3f, handleY + handleH / 2f - 1.5f),
                 strokeWidth = 1f,
             )
         }
@@ -219,6 +320,14 @@ private fun LedMeter(
         val segGap = 1.2f
         val segH = (h - segGap * (segmentCount - 1)) / segmentCount
 
+        // Outer dark bezel behind all lanes for inset-panel feel
+        drawRoundRect(
+            color = Seap.PanelDarkEdge,
+            topLeft = Offset(-1.5f, -1.5f),
+            size = Size(w + 3f, h + 3f),
+            cornerRadius = CornerRadius(3f, 3f),
+        )
+
         for (lane in 0 until laneCount) {
             val lx = lane * (laneW + gap)
             val db = if (lane == 0) dbL else dbR
@@ -231,21 +340,79 @@ private fun LedMeter(
                 val isLit = s < lit
                 val isPeak = s == heldSeg && heldSeg >= 0
                 val ledColor = ledColorFor(s, segmentCount)
-                val col = when {
-                    isLit  -> ledColor
-                    isPeak -> ledColor.copy(alpha = 0.7f)
-                    else   -> Seap.LedOff
+
+                if (isLit || isPeak) {
+                    val c = if (isLit) ledColor else ledColor.copy(alpha = 0.7f)
+                    // Soft glow halo underneath (slightly larger, low alpha)
+                    drawRoundRect(
+                        color = c.copy(alpha = if (isLit) 0.35f else 0.18f),
+                        topLeft = Offset(lx - 1.5f, segY - 1f),
+                        size = Size(laneW + 3f, segH + 2f),
+                        cornerRadius = CornerRadius(2f, 2f),
+                    )
+                    // LED body — lit with top→bottom brightness gradient for glass-bead look
+                    drawRoundRect(
+                        brush = Brush.verticalGradient(
+                            0f to Color.White.copy(alpha = 0.55f).compositeOver(c),
+                            0.4f to c,
+                            1f to c.copy(alpha = 0.85f).compositeOver(Color.Black.copy(alpha = 0.2f)),
+                        ),
+                        topLeft = Offset(lx, segY),
+                        size = Size(laneW, segH),
+                        cornerRadius = CornerRadius(1.5f, 1.5f),
+                    )
+                    // Very thin top specular
+                    drawLine(
+                        color = Color.White.copy(alpha = 0.7f),
+                        start = Offset(lx + 1f, segY + 0.8f),
+                        end   = Offset(lx + laneW - 1f, segY + 0.8f),
+                        strokeWidth = 0.8f,
+                    )
+                } else {
+                    // Unlit well — inset look
+                    drawRoundRect(
+                        color = Seap.LedOffEdge,
+                        topLeft = Offset(lx - 0.5f, segY - 0.5f),
+                        size = Size(laneW + 1f, segH + 1f),
+                        cornerRadius = CornerRadius(1.5f, 1.5f),
+                    )
+                    drawRoundRect(
+                        brush = Brush.verticalGradient(
+                            0f to Seap.LedOffEdge,
+                            1f to Seap.LedOff,
+                        ),
+                        topLeft = Offset(lx, segY),
+                        size = Size(laneW, segH),
+                        cornerRadius = CornerRadius(1.5f, 1.5f),
+                    )
                 }
-                drawRoundRect(
-                    color = col,
-                    topLeft = Offset(lx, segY),
-                    size = Size(laneW, segH),
-                    cornerRadius = CornerRadius(1f, 1f),
-                )
             }
         }
     }
 }
+
+private fun Color.compositeOver(background: Color): Color {
+    val a = this.alpha + background.alpha * (1f - this.alpha)
+    if (a < 1e-4f) return Color.Transparent
+    val r = (this.red * this.alpha + background.red * background.alpha * (1f - this.alpha)) / a
+    val g = (this.green * this.alpha + background.green * background.alpha * (1f - this.alpha)) / a
+    val b = (this.blue * this.alpha + background.blue * background.alpha * (1f - this.alpha)) / a
+    return Color(r, g, b, a)
+}
+
+private fun Color.lighten(amount: Float): Color = Color(
+    red   = (red   + (1f - red)   * amount).coerceIn(0f, 1f),
+    green = (green + (1f - green) * amount).coerceIn(0f, 1f),
+    blue  = (blue  + (1f - blue)  * amount).coerceIn(0f, 1f),
+    alpha = alpha,
+)
+
+private fun Color.darken(amount: Float): Color = Color(
+    red   = (red   * (1f - amount)).coerceIn(0f, 1f),
+    green = (green * (1f - amount)).coerceIn(0f, 1f),
+    blue  = (blue  * (1f - amount)).coerceIn(0f, 1f),
+    alpha = alpha,
+)
 
 private fun dbToSegments(db: Float, minDb: Float, maxDb: Float, segmentCount: Int): Int {
     val t = ((db - minDb) / (maxDb - minDb)).coerceIn(0f, 1f)
@@ -273,15 +440,49 @@ private fun OxfordButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val bg = if (active) activeColor else Seap.ChromeMid
+    val shape = RoundedCornerShape(7.dp)
+    // Convex metallic dome when active, brushed chrome when inactive.
+    val bodyBrush = if (active) {
+        val hi = activeColor.lighten(0.45f)
+        val lo = activeColor.darken(0.30f)
+        Brush.verticalGradient(
+            0.00f to hi,
+            0.30f to activeColor,
+            1.00f to lo,
+        )
+    } else brushedMetalGradient()
+
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(6.dp),
-        color = bg,
-        shadowElevation = 2.dp,
-        modifier = modifier.height(44.dp).defaultMinSize(minWidth = 68.dp),
+        shape = shape,
+        color = Color.Transparent,
+        shadowElevation = if (active) 4.dp else 2.dp,
+        modifier = modifier
+            .height(46.dp)
+            .defaultMinSize(minWidth = 68.dp)
+            .shadow(
+                elevation = if (active) 5.dp else 3.dp,
+                shape = shape,
+                ambientColor = Color.Black.copy(alpha = 0.7f),
+                spotColor = Color.Black.copy(alpha = 0.7f),
+            ),
     ) {
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 10.dp)) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(bodyBrush, shape)
+                .border(
+                    width = 0.8.dp,
+                    brush = Brush.verticalGradient(
+                        0f to Color.White.copy(alpha = if (active) 0.85f else 0.7f),
+                        0.4f to Color.Transparent,
+                        1f to Color.Black.copy(alpha = 0.45f),
+                    ),
+                    shape = shape,
+                )
+                .padding(horizontal = 10.dp),
+            contentAlignment = Alignment.Center,
+        ) {
             Text(
                 text = label,
                 style = TextStyle(
@@ -325,16 +526,11 @@ private fun FaderColumn(
                 fontWeight = FontWeight.Bold,
                 color = Seap.TitleWhite,
                 fontFamily = FontFamily.SansSerif,
+                letterSpacing = 0.8.sp,
             ),
         )
         Spacer(Modifier.height(4.dp))
-        Box(
-            modifier = Modifier
-                .background(Seap.Readout, RoundedCornerShape(3.dp))
-                .padding(horizontal = 8.dp, vertical = 3.dp),
-        ) {
-            Text(text = readout, style = digitStyle)
-        }
+        LcdReadout(text = readout)
         Spacer(Modifier.height(8.dp))
         Row(
             modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -359,6 +555,54 @@ private fun FaderColumn(
 }
 
 // ----------------------------------------------------------------------------
+// LCD readout — recessed black panel with top-lit glass + inset rim
+// ----------------------------------------------------------------------------
+
+@Composable
+private fun LcdReadout(text: String) {
+    val rimShape = RoundedCornerShape(4.dp)
+    val glassShape = RoundedCornerShape(3.dp)
+    Box(
+        modifier = Modifier
+            .clip(rimShape)
+            .background(Seap.ReadoutRim)
+            .padding(1.5.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .clip(glassShape)
+                .background(
+                    Brush.verticalGradient(
+                        0f to Seap.ReadoutTop,
+                        0.5f to Seap.Readout,
+                        1f to Seap.ReadoutRim,
+                    ),
+                    glassShape,
+                )
+                .padding(horizontal = 10.dp, vertical = 4.dp),
+        ) {
+            // Thin specular hairline across the top — sells the glass dome
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(0.8.dp)
+                    .background(Color.White.copy(alpha = 0.12f))
+            )
+            Text(
+                text = text,
+                style = digitStyle.copy(
+                    shadow = androidx.compose.ui.graphics.Shadow(
+                        color = Seap.ReadoutGlow,
+                        offset = Offset(0f, 0f),
+                        blurRadius = 4f,
+                    ),
+                ),
+            )
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
 // Panel chrome
 // ----------------------------------------------------------------------------
 
@@ -370,25 +614,59 @@ private fun OxfordPanel(
     presetRail: (@Composable () -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    val panelShape = RoundedCornerShape(12.dp)
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(10.dp))
-            .background(
-                Brush.verticalGradient(
-                    0f to Seap.PanelTop,
-                    1f to Seap.PanelBottom,
-                )
+            .shadow(
+                elevation = 10.dp,
+                shape = panelShape,
+                ambientColor = Color.Black.copy(alpha = 0.9f),
+                spotColor = Color.Black.copy(alpha = 0.9f),
             )
-            .border(1.dp, Seap.PanelShadow, RoundedCornerShape(10.dp))
+            .clip(panelShape)
+            .background(panelGradient())
+            // Double bevel: bright inner hairline + dark outer rim for depth
+            .border(
+                width = 1.dp,
+                brush = Brush.verticalGradient(
+                    0f to Color.White.copy(alpha = 0.65f),
+                    0.4f to Color.Transparent,
+                    1f to Seap.PanelShadow,
+                ),
+                shape = panelShape,
+            )
             .padding(10.dp),
     ) {
         Column(Modifier.fillMaxSize()) {
+            val headerShape = RoundedCornerShape(5.dp)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(Color(0xFF2D3A5C))
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                    .shadow(
+                        elevation = 3.dp,
+                        shape = headerShape,
+                        ambientColor = Color.Black.copy(alpha = 0.7f),
+                        spotColor = Color.Black.copy(alpha = 0.7f),
+                    )
+                    .clip(headerShape)
+                    .background(
+                        Brush.verticalGradient(
+                            0f to Color(0xFF3B4D74),
+                            0.5f to Color(0xFF253354),
+                            1f to Color(0xFF141D35),
+                        ),
+                        headerShape,
+                    )
+                    .border(
+                        width = 0.8.dp,
+                        brush = Brush.verticalGradient(
+                            0f to Color.White.copy(alpha = 0.35f),
+                            0.5f to Color.Transparent,
+                            1f to Color.Black.copy(alpha = 0.55f),
+                        ),
+                        shape = headerShape,
+                    )
+                    .padding(horizontal = 10.dp, vertical = 7.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -440,11 +718,31 @@ private fun HelpChip(onClick: () -> Unit) {
     Surface(
         onClick = onClick,
         shape = CircleShape,
-        color = Seap.ChromeLight,
-        shadowElevation = 1.dp,
-        modifier = Modifier.size(22.dp),
+        color = Color.Transparent,
+        modifier = Modifier
+            .size(24.dp)
+            .shadow(
+                elevation = 3.dp,
+                shape = CircleShape,
+                ambientColor = Color.Black.copy(alpha = 0.8f),
+                spotColor = Color.Black.copy(alpha = 0.8f),
+            ),
     ) {
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .fillMaxSize()
+                .background(brushedMetalGradient(), CircleShape)
+                .border(
+                    width = 0.8.dp,
+                    brush = Brush.verticalGradient(
+                        0f to Color.White.copy(alpha = 0.9f),
+                        0.5f to Color.Transparent,
+                        1f to Color.Black.copy(alpha = 0.55f),
+                    ),
+                    shape = CircleShape,
+                ),
+        ) {
             Text(
                 text = "?",
                 style = TextStyle(
@@ -452,6 +750,11 @@ private fun HelpChip(onClick: () -> Unit) {
                     fontSize = 13.sp,
                     color = Seap.TextDark,
                     fontFamily = FontFamily.SansSerif,
+                    shadow = androidx.compose.ui.graphics.Shadow(
+                        color = Color.White.copy(alpha = 0.6f),
+                        offset = Offset(0f, 1f),
+                        blurRadius = 0f,
+                    ),
                 ),
             )
         }
@@ -477,26 +780,52 @@ private fun PresetRail(
 
 @Composable
 private fun PresetChip(label: String, active: Boolean, onClick: () -> Unit) {
-    val bg = if (active) Seap.BtnEffectOn else Seap.ChromeMid
+    val shape = RoundedCornerShape(14.dp)
+    val bodyBrush = if (active) {
+        Brush.verticalGradient(
+            0f to Seap.BtnEffectHi,
+            0.45f to Seap.BtnEffectOn,
+            1f to Seap.BtnEffectOn.darken(0.35f),
+        )
+    } else brushedMetalGradient()
     val fg = if (active) Seap.TextDark else Color(0xFF2A3045)
+
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(14.dp),
-        color = bg,
-        shadowElevation = if (active) 2.dp else 1.dp,
-        modifier = Modifier.height(28.dp),
+        shape = shape,
+        color = Color.Transparent,
+        modifier = Modifier
+            .height(30.dp)
+            .shadow(
+                elevation = if (active) 4.dp else 2.dp,
+                shape = shape,
+                ambientColor = Color.Black.copy(alpha = 0.7f),
+                spotColor = Color.Black.copy(alpha = 0.7f),
+            ),
     ) {
         Box(
             contentAlignment = Alignment.Center,
-            modifier = Modifier.padding(horizontal = 12.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .background(bodyBrush, shape)
+                .border(
+                    width = 0.8.dp,
+                    brush = Brush.verticalGradient(
+                        0f to Color.White.copy(alpha = if (active) 0.9f else 0.75f),
+                        0.45f to Color.Transparent,
+                        1f to Color.Black.copy(alpha = 0.5f),
+                    ),
+                    shape = shape,
+                )
+                .padding(horizontal = 12.dp),
         ) {
             Text(
                 text = label,
                 style = TextStyle(
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.Black,
                     fontSize = 10.sp,
                     color = fg,
-                    letterSpacing = 0.6.sp,
+                    letterSpacing = 0.7.sp,
                 ),
             )
         }
