@@ -4,6 +4,9 @@ import android.util.Log
 import io.github.jan.supabase.postgrest.postgrest
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import tf.monochrome.android.data.auth.SupabaseAuthManager
 import tf.monochrome.android.data.db.dao.FavoriteDao
 import tf.monochrome.android.data.db.dao.HistoryDao
@@ -114,7 +117,9 @@ data class SbPlayHistory(
 /**
  * Per-play scrobble log synced to `play_events` on Supabase.
  * Append-only — one row per playback, used to drive Listening Stats
- * aggregations across devices.
+ * aggregations across devices. Legacy denormalised fields remain for
+ * backfill readers; canonical FKs (track_uuid/session_id/device_id)
+ * are populated when the client is signed in and the catalog RPC succeeds.
  */
 @Serializable
 data class SbPlayEvent(
@@ -130,7 +135,13 @@ data class SbPlayEvent(
     val album_cover: String? = null,
     val audio_quality: String? = null,
     val source: String? = null,
-    val played_at_ms: Long = 0L
+    val played_at_ms: Long = 0L,
+    val track_uuid: String? = null,
+    val session_id: String? = null,
+    val device_id: String? = null,
+    val started_at: String? = null,
+    val duration_played_ms: Int? = null,
+    val completed: Boolean = false,
 )
 
 @Serializable
@@ -342,8 +353,33 @@ class SupabaseSyncRepository @Inject constructor(
 
     // ─── Play Events (per-play scrobble log) ─────────────────────────────────
 
-    suspend fun pushPlayEvent(event: PlayEventEntity) {
+    /**
+     * Push a scrobble to Supabase with full FK context (track_uuid, session,
+     * device). Falls back to legacy denormalised columns if the catalog RPC
+     * is unavailable or the track can't be resolved.
+     *
+     * @param sessionId   Resolved play_sessions.id (UUID) for this play.
+     * @param deviceId    Resolved user_devices.id (UUID) for this install.
+     * @param sourceType  "tidal" | "collection" | "local" — used for
+     *                    ensure_catalog_track() + the legacy `source` column.
+     * @param sourceRef   Stable per-source track key (tidal id, collection
+     *                    hash, sha1(path)). Required to resolve track_uuid.
+     */
+    suspend fun pushPlayEvent(
+        event: PlayEventEntity,
+        sessionId: String? = null,
+        deviceId: String? = null,
+        sourceType: String? = null,
+        sourceRef: String? = null,
+        durationPlayedMs: Int? = null,
+        completed: Boolean = false,
+    ) {
         val uid = userId() ?: return
+        val trackUuid = if (sourceType != null && sourceRef != null) {
+            ensureCatalogTrack(event, sourceType, sourceRef)
+        } else null
+        val startedAtIso = java.time.Instant.ofEpochMilli(event.playedAt).toString()
+
         runCatching {
             supabase.postgrest["play_events"].insert(
                 SbPlayEvent(
@@ -357,11 +393,48 @@ class SupabaseSyncRepository @Inject constructor(
                     album_title = event.albumTitle,
                     album_cover = event.albumCover,
                     audio_quality = event.audioQuality,
-                    source = event.source,
-                    played_at_ms = event.playedAt
+                    source = event.source ?: sourceType,
+                    played_at_ms = event.playedAt,
+                    track_uuid = trackUuid,
+                    session_id = sessionId,
+                    device_id = deviceId,
+                    started_at = startedAtIso,
+                    duration_played_ms = durationPlayedMs,
+                    completed = completed,
                 )
             )
         }.onFailure { Log.e(TAG, "pushPlayEvent failed: ${it.message}") }
+    }
+
+    /**
+     * Atomically upsert artist/album/track/source mapping via the
+     * `public.ensure_catalog_track(jsonb)` RPC. Returns the canonical
+     * track uuid, or null on any failure.
+     */
+    private suspend fun ensureCatalogTrack(
+        event: PlayEventEntity,
+        source: String,
+        sourceRef: String,
+    ): String? {
+        userId() ?: return null
+        val payload: JsonObject = buildJsonObject {
+            put("source", JsonPrimitive(source))
+            put("source_ref", JsonPrimitive(sourceRef))
+            put("title", JsonPrimitive(event.title))
+            put("duration_s", JsonPrimitive(event.duration))
+            put("artist_name", JsonPrimitive(event.artistName.ifBlank { "Unknown Artist" }))
+            event.albumTitle?.let { put("album_title", JsonPrimitive(it)) }
+            event.albumCover?.let { put("album_cover", JsonPrimitive(it)) }
+            event.audioQuality?.let { put("audio_quality", JsonPrimitive(it)) }
+        }
+        return runCatching {
+            supabase.postgrest.rpc("ensure_catalog_track", payload)
+                .decodeAs<String>()
+                .takeIf { it.isNotBlank() }
+        }.getOrElse {
+            Log.w(TAG, "ensure_catalog_track($source/$sourceRef) failed: ${it.message}")
+            null
+        }
     }
 
     // ─── Local Folder Routes ─────────────────────────────────────────────────
