@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -78,6 +79,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
@@ -508,6 +510,13 @@ fun NowPlayingScreen(
                             style = MaterialTheme.typography.bodyMedium,
                             color = Color.White
                         )
+                        val progressAccent = MaterialTheme.colorScheme.primary
+                        val progressInteraction = remember { MutableInteractionSource() }
+                        val progressColors = SliderDefaults.colors(
+                            thumbColor = progressAccent,
+                            activeTrackColor = progressAccent,
+                            inactiveTrackColor = Color.White.copy(alpha = 0.20f)
+                        )
                         Slider(
                             value = displayFraction,
                             onValueChange = { value ->
@@ -519,11 +528,24 @@ fun NowPlayingScreen(
                                 isSeeking = false
                             },
                             modifier = Modifier.weight(1f),
-                            colors = SliderDefaults.colors(
-                                thumbColor = PlayerGlowPink,
-                                activeTrackColor = PlayerGlowPink.copy(alpha = 0.7f),
-                                inactiveTrackColor = Color.White.copy(alpha = 0.15f)
-                            )
+                            interactionSource = progressInteraction,
+                            colors = progressColors,
+                            thumb = {
+                                SliderDefaults.Thumb(
+                                    interactionSource = progressInteraction,
+                                    colors = progressColors,
+                                    thumbSize = DpSize(14.dp, 14.dp)
+                                )
+                            },
+                            track = { sliderState ->
+                                SliderDefaults.Track(
+                                    sliderState = sliderState,
+                                    modifier = Modifier.height(4.dp),
+                                    colors = progressColors,
+                                    drawStopIndicator = null,
+                                    thumbTrackGapSize = 0.dp
+                                )
+                            }
                         )
                         Text(
                             text = playerViewModel.formatTime(durationMs),
