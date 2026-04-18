@@ -2,6 +2,7 @@ package tf.monochrome.android.data.db.dao
 
 import androidx.room.Dao
 import androidx.room.Insert
+import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import kotlinx.coroutines.flow.Flow
 import tf.monochrome.android.data.db.entity.PlayEventEntity
@@ -12,8 +13,24 @@ interface PlayEventDao {
     @Insert
     suspend fun insert(event: PlayEventEntity): Long
 
+    /**
+     * Insert a cloud-origin row; silently ignores duplicates detected via
+     * the unique cloudRowId index, so repeated pulls are idempotent.
+     */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertFromCloud(event: PlayEventEntity): Long
+
+    @Query("UPDATE play_events SET cloudRowId = :cloudId WHERE rowId = :localId AND cloudRowId IS NULL")
+    suspend fun setCloudId(localId: Long, cloudId: Long)
+
+    @Query("SELECT MAX(cloudRowId) FROM play_events")
+    suspend fun latestCloudRowId(): Long?
+
     @Query("DELETE FROM play_events")
     suspend fun clearAll()
+
+    @Query("SELECT * FROM play_events ORDER BY playedAt DESC LIMIT :limit")
+    suspend fun getRecent(limit: Int = 1000): List<PlayEventEntity>
 
     @Query("DELETE FROM play_events WHERE playedAt < :cutoff")
     suspend fun deleteOlderThan(cutoff: Long)
@@ -34,6 +51,22 @@ interface PlayEventDao {
 
     @Query("SELECT COUNT(DISTINCT albumId) FROM play_events WHERE albumId IS NOT NULL AND playedAt >= :since")
     fun uniqueAlbums(since: Long = 0L): Flow<Int>
+
+    /**
+     * Number of listening sessions in range. A new session starts whenever
+     * the gap between consecutive plays exceeds 30 min (1,800,000 ms). The
+     * very first play in the window is also a session start (LAG defaults
+     * to 0 so the gap is effectively infinite).
+     */
+    @Query("""
+        SELECT COUNT(*) FROM (
+            SELECT (playedAt - LAG(playedAt, 1, 0)
+                    OVER (ORDER BY playedAt)) AS gap
+            FROM play_events
+            WHERE playedAt >= :since
+        ) WHERE gap > 1800000
+    """)
+    fun sessionCount(since: Long = 0L): Flow<Int>
 
     // --- Top lists ---
 

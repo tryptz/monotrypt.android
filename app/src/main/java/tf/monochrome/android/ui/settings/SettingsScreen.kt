@@ -138,7 +138,7 @@ fun SettingsScreen(
             0 -> AppearanceTab(viewModel)
             1 -> InterfaceTab(viewModel)
             2 -> ScrobblingTab(viewModel)
-            3 -> AudioTab(viewModel)
+            3 -> AudioTab(viewModel, navController)
             4 -> EqualizerTab(navController)
             5 -> LibrarySettingsTab(viewModel)
             6 -> DownloadsTab(viewModel)
@@ -837,11 +837,9 @@ private fun ScrobblingTab(viewModel: SettingsViewModel) {
 
 // ─── Tab 4: Audio ──────────────────────────────────────────────────────
 @Composable
-private fun AudioTab(viewModel: SettingsViewModel) {
+private fun AudioTab(viewModel: SettingsViewModel, navController: NavController) {
     val wifiQuality by viewModel.wifiQuality.collectAsState()
     val cellularQuality by viewModel.cellularQuality.collectAsState()
-    val normalization by viewModel.normalizationEnabled.collectAsState()
-    val dspMixer by viewModel.dspMixerEnabled.collectAsState()
     val crossfade by viewModel.crossfadeDuration.collectAsState()
     val playbackSpeed by viewModel.playbackSpeed.collectAsState()
     val preservePitch by viewModel.preservePitch.collectAsState()
@@ -867,18 +865,23 @@ private fun AudioTab(viewModel: SettingsViewModel) {
 
         Spacer(modifier = Modifier.height(16.dp))
         SettingsGroupHeader("Audio Processing")
-        SettingSwitchItem(
-            title = "Volume Normalization",
-            subtitle = "Use ReplayGain to normalize loudness",
-            checked = normalization,
-            onCheckedChange = { viewModel.setNormalizationEnabled(it) }
-        )
-        SettingSwitchItem(
-            title = "DSP Mixer",
-            subtitle = "Enable mixer bus processing engine",
-            checked = dspMixer,
-            onCheckedChange = { viewModel.setDspMixerEnabled(it) }
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            OutlinedButton(
+                onClick = { navController.navigate("oxford?tab=0") },
+                modifier = Modifier.weight(1f),
+            ) {
+                Text("Seap Compressor")
+            }
+            OutlinedButton(
+                onClick = { navController.navigate("oxford?tab=1") },
+                modifier = Modifier.weight(1f),
+            ) {
+                Text("Seap Inflator")
+            }
+        }
 
         Spacer(modifier = Modifier.height(8.dp))
         Text("Crossfade: ${crossfade}s", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)

@@ -163,6 +163,10 @@ class PreferencesManager @Inject constructor(
         private val SPECTRUM_ANALYZER_ENABLED = booleanPreferencesKey("spectrum_analyzer_enabled")
         private val SPECTRUM_SHOW_ON_NOW_PLAYING = booleanPreferencesKey("spectrum_show_on_now_playing")
         private val SPECTRUM_FFT_SIZE = intPreferencesKey("spectrum_fft_size")
+
+        // Device / session (Supabase sync)
+        private val DEVICE_LOCAL_ID = stringPreferencesKey("device_local_id")
+        private val DEVICE_REMOTE_ID = stringPreferencesKey("device_remote_id")
     }
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -771,6 +775,20 @@ class PreferencesManager @Inject constructor(
             else -> 16384
         }
         dataStore.edit { it[SPECTRUM_FFT_SIZE] = clamped }
+    }
+
+    // --- Device / session (Supabase sync) ---
+    val deviceLocalId: Flow<String?> = dataStore.data.map { it[DEVICE_LOCAL_ID] }
+    suspend fun setDeviceLocalId(id: String) {
+        dataStore.edit { it[DEVICE_LOCAL_ID] = id }
+    }
+
+    val deviceRemoteId: Flow<String?> = dataStore.data.map { it[DEVICE_REMOTE_ID] }
+    suspend fun setDeviceRemoteId(id: String?) {
+        dataStore.edit {
+            if (id.isNullOrBlank()) it.remove(DEVICE_REMOTE_ID)
+            else it[DEVICE_REMOTE_ID] = id
+        }
     }
 
     // --- Clear all prefs (System) ---

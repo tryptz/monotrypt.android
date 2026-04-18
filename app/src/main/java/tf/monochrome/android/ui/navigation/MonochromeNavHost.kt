@@ -77,6 +77,8 @@ import tf.monochrome.android.ui.stats.StatsScreen
 import tf.monochrome.android.ui.search.SearchScreen
 import tf.monochrome.android.ui.settings.SettingsScreen
 import tf.monochrome.android.ui.carmode.CarModeScreen
+import tf.monochrome.android.ui.oxford.OxfordEffectsTabs
+import tf.monochrome.android.ui.oxford.OxfordViewModel
 
 sealed class Screen(val route: String) {
     data object Home : Screen("home")
@@ -116,6 +118,10 @@ sealed class Screen(val route: String) {
     }
     data object Mixer : Screen("mixer")
     data object CarMode : Screen("car_mode")
+    data object Oxford : Screen("oxford?tab={tab}") {
+        /** tab: 0 = Compressor, 1 = Inflator. */
+        fun createRoute(tab: Int = 0) = "oxford?tab=$tab"
+    }
 }
 
 data class BottomNavItem(
@@ -184,6 +190,12 @@ fun MonochromeNavHost() {
         )
 
         // ── Layer 1: Full-screen content (draws behind bars) ─────────────
+        // Detail screens reserve nav bar + mini-player height so content
+        // isn't hidden behind the floating mini player. Main tabs (pager)
+        // handle their own bottom contentPadding already.
+        val miniPlayerReserve = 72.dp
+        val detailBottomInset = navBarHeight + if (showMiniPlayer) miniPlayerReserve else 0.dp
+
         Box(modifier = Modifier.fillMaxSize().hazeSource(hazeState)) {
             // Pager for main tabs — fills entire screen
             if (isOnMainTab) {
@@ -203,6 +215,7 @@ fun MonochromeNavHost() {
             NavHost(
                 navController = navController,
                 startDestination = Screen.Home.route,
+                modifier = Modifier.padding(bottom = detailBottomInset),
                 enterTransition = { fadeIn() },
                 exitTransition = { fadeOut() },
                 popEnterTransition = { fadeIn() },
@@ -260,6 +273,22 @@ fun MonochromeNavHost() {
                 }
                 composable(Screen.CarMode.route) {
                     CarModeScreen(navController = navController)
+                }
+                composable(
+                    route = Screen.Oxford.route,
+                    arguments = listOf(navArgument("tab") {
+                        type = NavType.IntType
+                        defaultValue = 0
+                    })
+                ) { backStackEntry ->
+                    val tab = backStackEntry.arguments?.getInt("tab") ?: 0
+                    val vm: OxfordViewModel = hiltViewModel()
+                    OxfordEffectsTabs(
+                        inflator = vm.inflator,
+                        compressor = vm.compressor,
+                        initialTab = tab,
+                        modifier = Modifier.fillMaxSize().padding(top = statusBarHeight),
+                    )
                 }
                 composable(Screen.Downloads.route) {
                     DownloadsScreen(navController = navController)

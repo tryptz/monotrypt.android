@@ -1,7 +1,11 @@
 package tf.monochrome.android.data.repository
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import tf.monochrome.android.data.db.dao.DownloadDao
 import tf.monochrome.android.data.db.dao.FavoriteDao
 import tf.monochrome.android.data.db.dao.HistoryDao
@@ -15,9 +19,13 @@ import tf.monochrome.android.data.db.entity.HistoryTrackEntity
 import tf.monochrome.android.data.db.entity.PlayEventEntity
 import tf.monochrome.android.data.db.entity.PlaylistTrackEntity
 import tf.monochrome.android.data.db.entity.UserPlaylistEntity
+import tf.monochrome.android.data.device.DeviceRegistry
+import tf.monochrome.android.data.sync.SupabaseSyncRepository
 import tf.monochrome.android.domain.model.Album
 import tf.monochrome.android.domain.model.Artist
 import tf.monochrome.android.domain.model.Track
+import tf.monochrome.android.player.PlaySessionManager
+import java.security.MessageDigest
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -28,8 +36,12 @@ class LibraryRepository @Inject constructor(
     private val historyDao: HistoryDao,
     private val playEventDao: PlayEventDao,
     private val playlistDao: PlaylistDao,
-    private val downloadDao: DownloadDao
+    private val downloadDao: DownloadDao,
+    private val supabaseSync: SupabaseSyncRepository,
+    private val deviceRegistry: DeviceRegistry,
+    private val playSessionManager: PlaySessionManager,
 ) {
+    private val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     // --- Favorites ---
 
     fun getFavoriteTracks(): Flow<List<Track>> = favoriteDao.getFavoriteTracks().map { entities ->
@@ -79,8 +91,28 @@ class LibraryRepository @Inject constructor(
     }
 
     suspend fun addToHistory(track: Track) {
-        historyDao.addToHistory(track.toHistoryEntity())
-        playEventDao.insert(track.toPlayEventEntity())
+        val historyRow = track.toHistoryEntity()
+        val event = track.toPlayEventEntity()
+        historyDao.addToHistory(historyRow)
+        val localRowId = playEventDao.insert(event)
+        // Fire-and-forget cloud sync — no-op if the user isn't signed in.
+        syncScope.launch {
+            supabaseSync.pushHistoryTrack(historyRow)
+            val sessionId = playSessionManager.sessionFor(event.playedAt)
+            val deviceId = deviceRegistry.snapshotRemoteId()
+            val sourceType = track.cloudSourceType()
+            val sourceRef = track.cloudSourceRef()
+            val cloudId = supabaseSync.pushPlayEvent(
+                event = event,
+                sessionId = sessionId,
+                deviceId = deviceId,
+                sourceType = sourceType,
+                sourceRef = sourceRef,
+            )
+            if (cloudId != null) {
+                playEventDao.setCloudId(localRowId, cloudId)
+            }
+        }
     }
 
     suspend fun clearHistory() {
@@ -270,3 +302,25 @@ private fun Track.toPlaylistTrackEntity(playlistId: String) = PlaylistTrackEntit
     albumTitle = album?.title,
     albumCover = album?.cover
 )
+
+/**
+ * Best-effort mapping from a Track to the canonical-catalog `source` tag
+ * used by `public.catalog_track_sources`. Positive `id` values come from
+ * the HiFi (TIDAL) backend; non-positive ids are local library tracks.
+ * Collection-direct playback uses its own repository path (not this one).
+ */
+private fun Track.cloudSourceType(): String = if (id > 0) "tidal" else "local"
+
+/**
+ * Stable per-source identifier for catalog upsert. Must be deterministic
+ * so the same physical track always resolves to the same catalog_tracks.id.
+ */
+private fun Track.cloudSourceRef(): String = when (cloudSourceType()) {
+    "tidal" -> id.toString()
+    else -> sha1("local:${artist?.id ?: 0}:${album?.id ?: 0}:$title:$duration")
+}
+
+private fun sha1(input: String): String {
+    val bytes = MessageDigest.getInstance("SHA-1").digest(input.toByteArray())
+    return bytes.joinToString("") { "%02x".format(it) }
+}
