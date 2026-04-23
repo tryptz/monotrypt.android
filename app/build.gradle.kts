@@ -58,6 +58,17 @@ android {
     }
 
     signingConfigs {
+        // Project-local debug keystore — committed so every machine and every
+        // `installDebug` signs with the same key. Without this, a fresh checkout
+        // or a CI build would use ~/.android/debug.keystore, whose key varies
+        // across machines, and the device would reject the install as a
+        // signature-mismatch update (forcing an uninstall/reinstall).
+        getByName("debug") {
+            storeFile = file("monotrypt-debug.keystore")
+            storePassword = "monotrypt"
+            keyAlias = "monotrypt-debug"
+            keyPassword = "monotrypt"
+        }
         if (hasCompleteReleaseSigning) {
             create("release") {
                 storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
@@ -69,6 +80,9 @@ android {
     }
 
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("debug")
+        }
         release {
             if (hasCompleteReleaseSigning) {
                 signingConfig = signingConfigs.getByName("release")
