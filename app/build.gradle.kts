@@ -29,9 +29,15 @@ val hasCompleteReleaseSigning = requiredSigningKeys.all { key ->
     !keystoreProperties.getProperty(key).isNullOrBlank()
 }
 
+// Release signing is opt-in — if keystore.properties is absent, `assembleRelease`
+// falls back to unsigned output and every other task (assembleDebug, lint, tests,
+// installDebug) still works because debug builds use the committed
+// app/monotrypt-debug.keystore. The `--info` log keeps the signal available when
+// someone does want to know but no longer shouts from every debug CI run.
 if (!hasCompleteReleaseSigning) {
-    logger.lifecycle(
-        "Release signing disabled: missing or incomplete keystore.properties at ${keystorePropertiesFile.path}"
+    logger.info(
+        "Release signing disabled: missing or incomplete keystore.properties at {}",
+        keystorePropertiesFile.path,
     )
 }
 
@@ -58,6 +64,17 @@ android {
     }
 
     signingConfigs {
+        // Project-local debug keystore — committed so every machine and every
+        // `installDebug` signs with the same key. Without this, a fresh checkout
+        // or a CI build would use ~/.android/debug.keystore, whose key varies
+        // across machines, and the device would reject the install as a
+        // signature-mismatch update (forcing an uninstall/reinstall).
+        getByName("debug") {
+            storeFile = file("monotrypt-debug.keystore")
+            storePassword = "monotrypt"
+            keyAlias = "monotrypt-debug"
+            keyPassword = "monotrypt"
+        }
         if (hasCompleteReleaseSigning) {
             create("release") {
                 storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
@@ -69,6 +86,12 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Always the committed project-local debug keystore. Same signature
+            // on every machine and every CI run — so `./gradlew installDebug`
+            // over a CI-produced APK (or vice versa) upgrades in place.
+            signingConfig = signingConfigs.getByName("debug")
+        }
         release {
             if (hasCompleteReleaseSigning) {
                 signingConfig = signingConfigs.getByName("release")
@@ -129,6 +152,10 @@ dependencies {
     implementation(libs.media3.session)
     implementation(libs.media3.ui)
     implementation(libs.media3.cast)
+    // Prebuilt FFmpeg audio decoder wired as FfmpegAudioRenderer. Drops in
+    // support for DSD/DSF, APE, TAK, WavPack, Musepack, TrueHD/MLP, DTS, AC-3,
+    // and a long tail of codecs the platform MediaCodec can't handle.
+    implementation(libs.nextlib.media3ext)
 
     // Hilt
     implementation(libs.hilt.android)

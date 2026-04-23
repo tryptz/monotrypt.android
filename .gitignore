@@ -52,6 +52,11 @@ captures/
 *.jks
 *.keystore
 keystore.properties
+# Exception: the project-local debug keystore is committed so every checkout /
+# CI build / local build signs `./gradlew installDebug` with the same key —
+# otherwise each machine's generated ~/.android/debug.keystore would force a
+# full uninstall on the device before each update.
+!app/monotrypt-debug.keystore
 
 # External native build folder generated in Android Studio 2.2 and later
 .externalNativeBuild/

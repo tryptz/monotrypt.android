@@ -47,11 +47,47 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build debug APK
-        run: ./gradlew assembleDebug --stacktrace
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew assembleDebug --stacktrace 2>&1 | tee gradle-build.log
+
+      - name: Summarize build failure
+        if: failure()
+        run: |
+          echo "::group::Gradle build failure tail"
+          tail -n 200 gradle-build.log | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "::endgroup::"
+          first=$(grep -E -m 1 "^e: |FAILURE:|error:|Unresolved reference|Execution failed|CMake Error|ndk-build" gradle-build.log || true)
+          if [ -n "$first" ]; then
+            echo "::error::$first"
+          fi
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-yml-log
+          path: gradle-build.log
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Locate built APKs
+        if: success()
+        run: |
+          echo "::group::APK tree under app/build/outputs"
+          find app/build/outputs -maxdepth 6 -type f \( -name "*.apk" -o -name "*.aab" \) -print | tee apk-manifest.txt
+          echo "::endgroup::"
+          if [ ! -s apk-manifest.txt ]; then
+            echo "::warning::assembleDebug produced no APK under app/build/outputs."
+          fi
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: monotrypt-debug-${{ github.sha }}
-          path: app/build/outputs/apk/debug/*.apk
+          path: |
+            app/build/outputs/apk/**/*.apk
+            app/build/outputs/bundle/**/*.aab
           retention-days: 14
+          if-no-files-found: warn

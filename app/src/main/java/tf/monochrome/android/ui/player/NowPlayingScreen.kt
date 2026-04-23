@@ -192,8 +192,8 @@ fun NowPlayingScreen(
     // (passive); its analysis coroutine sleeps when nobody is listening.
     if (showNpSpectrum) {
         DisposableEffect(Unit) {
-            playerViewModel.setSpectrumActive(true)
-            onDispose { playerViewModel.setSpectrumActive(false) }
+            playerViewModel.acquireSpectrum()
+            onDispose { playerViewModel.releaseSpectrum() }
         }
     }
 

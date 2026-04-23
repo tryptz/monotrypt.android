@@ -69,8 +69,8 @@ fun ParametricEqScreen(
 
     if (spectrumEnabled) {
         DisposableEffect(Unit) {
-            viewModel.spectrumAnalyzer.setAnalysisActive(true)
-            onDispose { viewModel.spectrumAnalyzer.setAnalysisActive(false) }
+            viewModel.spectrumAnalyzer.acquire()
+            onDispose { viewModel.spectrumAnalyzer.release() }
         }
     }
 

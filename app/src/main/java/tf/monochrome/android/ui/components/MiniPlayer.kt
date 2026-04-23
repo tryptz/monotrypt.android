@@ -36,7 +36,7 @@ import kotlin.math.abs
 fun MiniPlayer(
     track: Track?,
     isPlaying: Boolean,
-    progress: Float,
+    progressProvider: () -> Float,
     onPlayPauseClick: () -> Unit,
     onSkipNextClick: () -> Unit,
     onSkipPreviousClick: () -> Unit,
@@ -88,7 +88,7 @@ fun MiniPlayer(
     ) {
         Column {
             LinearProgressIndicator(
-                progress = { progress.coerceIn(0f, 1f) },
+                progress = { progressProvider().coerceIn(0f, 1f) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(2.dp),
