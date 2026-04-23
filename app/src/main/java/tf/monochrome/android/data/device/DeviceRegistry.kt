@@ -23,7 +23,13 @@ private const val TAG = "DeviceRegistry"
 private data class SbUserDevice(
     val id: String? = null,
     val user_id: String,
-    val platform: String = "android",
+    // No default — kotlinx-serialization's default behavior is to drop fields
+    // that equal their default from the JSON (encodeDefaults=false), which is
+    // what Supabase-kt inspects to build the `columns=` URL query. With
+    // `platform = "android"` as a default, the insert shipped without a
+    // `platform` column and the NOT NULL constraint on user_devices.platform
+    // failed. Callers already pass it explicitly.
+    val platform: String,
     val model: String? = null,
     val app_version: String? = null,
     val last_seen_at: String? = null,
