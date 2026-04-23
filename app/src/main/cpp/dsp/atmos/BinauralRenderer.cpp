@@ -8,6 +8,8 @@
 
 #define LOG_TAG "BinauralRenderer"
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__)
+#define LOGW(...) __android_log_print(ANDROID_LOG_WARN,  LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 BinauralRenderer::BinauralRenderer(AAssetManager* assetManager) 
@@ -39,25 +41,24 @@ int BinauralRenderer::getOutputChannelCount() const {
 
 // ── SOFA Dataset Loading ───────────────────────────────────────────────
 void BinauralRenderer::loadSofaDataset(AAssetManager* assetManager) {
+    // libmysofa is still disabled in CMakeLists.txt (ffmpeg build disabled),
+    // so the real KU100 dataset can't be decoded yet even if the asset were
+    // shipped. Both "no AssetManager" and "asset missing" paths fall through
+    // to the synthetic HRIR generator below and set hrtfLoaded_ = true —
+    // that's the current intended behaviour, not a failure state. Keep the
+    // logs at INFO so they don't show up as red in `adb logcat -s '*:E'`.
     if (!assetManager) {
-        LOGE("No AssetManager provided for HRTF loading!");
-        return;
-    }
-
-    // Load the Bernschütz KU100 L2702 SOFA file from app assets.
-    // Path: assets/hrtf/ku100.sofa
-    AAsset* asset = AAssetManager_open(assetManager, "hrtf/ku100.sofa", AASSET_MODE_BUFFER);
-    if (asset) {
+        LOGI("No AssetManager passed; using synthetic HRIRs (libmysofa disabled).");
+    } else if (AAsset* asset = AAssetManager_open(assetManager, "hrtf/ku100.sofa", AASSET_MODE_BUFFER)) {
         LOGD("Successfully opened HRTF asset: ku100.sofa");
         off_t length = AAsset_getLength(asset);
         const void* buffer = AAsset_getBuffer(asset);
-        
-        // TODO: Pass buffer to libmysofa when re-enabled
-        // struct MYSOFA_EASY* hrtf = mysofa_open_data(buffer, length, 48000, ...);
-        
+        (void)length; (void)buffer;
+        // TODO: hand (buffer, length) to libmysofa::mysofa_open_data when
+        // the ExternalProject build is re-enabled.
         AAsset_close(asset);
     } else {
-        LOGE("Failed to open HRTF asset: hrtf/ku100.sofa. Falling back to synthetic.");
+        LOGI("hrtf/ku100.sofa not bundled; using synthetic HRIRs (libmysofa disabled).");
     }
     //
     // Using libmysofa:
