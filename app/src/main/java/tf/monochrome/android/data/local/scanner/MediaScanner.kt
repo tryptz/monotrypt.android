@@ -204,7 +204,12 @@ class MediaScanner @Inject constructor(
             }
         }
 
-        // Insert albums and update track references
+        // Insert albums and remember which albumId each track belongs to.
+        // We defer writing track FKs until after artists are upserted so a
+        // single updateTrack() call persists both IDs — otherwise the artist
+        // loop's track.copy() would carry the pre-update (null) albumId and
+        // clobber what the album loop just wrote.
+        val albumIdByTrackPath = HashMap<String, Long>(tracks.size)
         for ((key, albumTracks) in tracksByAlbumKey) {
             val representative = albumTracks.first()
             val albumEntity = LocalAlbumEntity(
@@ -221,14 +226,11 @@ class MediaScanner @Inject constructor(
                 groupingKey = key
             )
             val albumId = localMediaDao.upsertAlbum(albumEntity)
-
-            // Update track albumId references
-            for (track in albumTracks) {
-                localMediaDao.updateTrack(track.copy(albumId = albumId))
-            }
+            for (track in albumTracks) albumIdByTrackPath[track.filePath] = albumId
         }
 
-        // Insert artists and update track references
+        // Insert artists and remember which artistId each track belongs to.
+        val artistIdByTrackPath = HashMap<String, Long>(tracks.size)
         for ((normalizedName, artistTracks) in artistSet) {
             val displayName = artistTracks.first().let { it.albumArtist ?: it.artist ?: "Unknown Artist" }
             val uniqueAlbums = artistTracks.mapNotNull { it.album }.toSet().size
@@ -240,10 +242,17 @@ class MediaScanner @Inject constructor(
                 artworkCacheKey = artistTracks.firstOrNull { it.hasEmbeddedArt }?.artworkCacheKey
             )
             val artistId = localMediaDao.upsertArtist(artistEntity)
+            for (track in artistTracks) artistIdByTrackPath[track.filePath] = artistId
+        }
 
-            for (track in artistTracks) {
-                localMediaDao.updateTrack(track.copy(artistId = artistId))
-            }
+        // Single pass to write both FKs per track.
+        for (track in tracks) {
+            localMediaDao.updateTrack(
+                track.copy(
+                    albumId = albumIdByTrackPath[track.filePath],
+                    artistId = artistIdByTrackPath[track.filePath]
+                )
+            )
         }
 
         // Insert genres
