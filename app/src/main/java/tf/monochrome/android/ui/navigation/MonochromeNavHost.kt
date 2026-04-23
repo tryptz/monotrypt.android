@@ -36,6 +36,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -214,6 +215,16 @@ fun MonochromeNavHost() {
         val miniPlayerReserve = 72.dp
         val detailBottomInset = navBarHeight + if (showMiniPlayer) miniPlayerReserve else 0.dp
 
+        // One SaveableStateHolder keeps each tab's subtree state (selected
+        // Library sub-tab, LazyColumn scroll offsets, text field input, etc.)
+        // alive across the pager being torn down when the user enters a detail
+        // screen and rebuilt when they come back. Without this wrapper,
+        // `rememberSaveable` inside the tabs loses its entry the moment
+        // `isOnMainTab` flips false and the pager is dropped from composition,
+        // so coming back to Library would reset to the Overview sub-tab and
+        // scroll to the top.
+        val tabStateHolder = rememberSaveableStateHolder()
+
         Box(modifier = Modifier.fillMaxSize().hazeSource(hazeState)) {
             // Pager for main tabs — fills entire screen
             if (isOnMainTab) {
@@ -222,9 +233,16 @@ fun MonochromeNavHost() {
                     modifier = Modifier.fillMaxSize(),
                     beyondViewportPageCount = 0
                 ) { page ->
-                    when (page) {
-                        0 -> HomeScreen(navController = navController, playerViewModel = playerViewModel)
-                        1 -> LibraryScreen(navController = navController, playerViewModel = playerViewModel)
+                    // Key by route, not page index — `Screen.Home.route` /
+                    // `Screen.Library.route` survive even if the pager order
+                    // ever changes. SaveableStateProvider persists every
+                    // rememberSaveable inside the lambda across pager recreate.
+                    val key = tabRoutes[page]
+                    tabStateHolder.SaveableStateProvider(key) {
+                        when (page) {
+                            0 -> HomeScreen(navController = navController, playerViewModel = playerViewModel)
+                            1 -> LibraryScreen(navController = navController, playerViewModel = playerViewModel)
+                        }
                     }
                 }
             }
@@ -308,6 +326,7 @@ fun MonochromeNavHost() {
                         inflator = vm.inflator,
                         compressor = vm.compressor,
                         initialTab = tab,
+                        onBack = { navController.popBackStack() },
                         modifier = Modifier.fillMaxSize().padding(top = statusBarHeight),
                     )
                 }
