@@ -54,7 +54,6 @@ import tf.monochrome.android.domain.model.UnifiedAlbum
 import tf.monochrome.android.domain.model.UnifiedTrack
 import tf.monochrome.android.ui.components.ErrorScreen
 import tf.monochrome.android.ui.components.LoadingScreen
-import tf.monochrome.android.ui.components.liquidGlass
 import tf.monochrome.android.ui.components.SectionHeader
 import tf.monochrome.android.ui.components.bounceClick
 import tf.monochrome.android.ui.navigation.Screen
@@ -289,10 +288,9 @@ private fun ArtistTrackRow(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = MonoDimens.listItemPaddingH, vertical = MonoDimens.spacingXs)
-            .liquidGlass(shape = MonoDimens.shapeMd),
+            .padding(horizontal = MonoDimens.listItemPaddingH, vertical = MonoDimens.spacingXs),
         shape = MonoDimens.shapeMd,
-        color = androidx.compose.ui.graphics.Color.Transparent,
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = MonoDimens.cardAlpha),
         onClick = onClick
     ) {
         Row(

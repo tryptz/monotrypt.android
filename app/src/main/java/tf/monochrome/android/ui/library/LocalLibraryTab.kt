@@ -219,12 +219,15 @@ fun LocalLibraryTab(
             }
         }
 
+        val genrePairs = remember(localGenres) {
+            localGenres.map { it.name to it.trackCount }
+        }
         when (selectedSubTab) {
             0 -> AlbumGrid(albums = localAlbums, onAlbumClick = onAlbumClick)
             1 -> ArtistList(artists = localArtists, onArtistClick = onArtistClick)
             2 -> SongList(tracks = localTracks, onTrackClick = onTrackClick)
             3 -> GenreList(
-                genres = localGenres.map { it.name to it.trackCount },
+                genres = genrePairs,
                 onGenreClick = onGenreClick
             )
             4 -> FolderList(
@@ -551,7 +554,7 @@ fun GenreList(
     LazyColumn(
         contentPadding = PaddingValues(bottom = MonoDimens.listBottomPadding)
     ) {
-        items(genres) { (genre, count) ->
+        items(genres, key = { it.first }) { (genre, count) ->
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -607,7 +610,7 @@ fun FolderList(
     LazyColumn(
         contentPadding = PaddingValues(bottom = MonoDimens.listBottomPadding)
     ) {
-        items(folders) { (name, path) ->
+        items(folders, key = { it.second }) { (name, path) ->
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
