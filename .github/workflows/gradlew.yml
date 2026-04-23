@@ -201,7 +201,19 @@ jobs:
         run: chmod +x gradlew
 
       - name: Run Gradle task
-        run: ./gradlew ${{ github.event.inputs.task || 'assembleDebug' }} --stacktrace
+        id: run_build
+        run: ./gradlew ${{ github.event.inputs.task || 'assembleDebug' }} --stacktrace 2>&1 | tee gradle-build.log
+
+      - name: Summarize build failure
+        if: failure()
+        run: |
+          echo "::group::Gradle build failure tail"
+          tail -n 200 gradle-build.log | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "::endgroup::"
+          first=$(grep -E -m 1 "^e: |FAILURE:|error:|Unresolved reference|Execution failed|CMake Error|ndk-build" gradle-build.log || true)
+          if [ -n "$first" ]; then
+            echo "::error::$first"
+          fi
 
       - name: Upload debug APK
         if: success()
@@ -209,5 +221,14 @@ jobs:
         with:
           name: monotrypt-debug-${{ github.sha }}
           path: app/build/outputs/apk/debug/*.apk
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: gradle-build.log
           retention-days: 14
           if-no-files-found: ignore

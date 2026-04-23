@@ -47,7 +47,27 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build debug APK
-        run: ./gradlew assembleDebug --stacktrace
+        run: ./gradlew assembleDebug --stacktrace 2>&1 | tee gradle-build.log
+
+      - name: Summarize build failure
+        if: failure()
+        run: |
+          echo "::group::Gradle build failure tail"
+          tail -n 200 gradle-build.log | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "::endgroup::"
+          first=$(grep -E -m 1 "^e: |FAILURE:|error:|Unresolved reference|Execution failed|CMake Error|ndk-build" gradle-build.log || true)
+          if [ -n "$first" ]; then
+            echo "::error::$first"
+          fi
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-yml-log
+          path: gradle-build.log
+          retention-days: 14
+          if-no-files-found: ignore
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
