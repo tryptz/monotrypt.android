@@ -426,7 +426,7 @@ fun MonochromeNavHost() {
                 MiniPlayer(
                     track = currentTrack,
                     isPlaying = isPlaying,
-                    progress = if (durationMs > 0) positionMs.toFloat() / durationMs.toFloat() else 0f,
+                    progressProvider = progressProvider,
                     onPlayPauseClick = { playerViewModel.togglePlayPause() },
                     onSkipNextClick = { playerViewModel.skipToNext() },
                     onSkipPreviousClick = { playerViewModel.skipToPrevious() },
