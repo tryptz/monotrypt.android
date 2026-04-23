@@ -69,9 +69,22 @@ jobs:
           retention-days: 14
           if-no-files-found: ignore
 
+      - name: Locate built APKs
+        if: success()
+        run: |
+          echo "::group::APK tree under app/build/outputs"
+          find app/build/outputs -maxdepth 6 -type f \( -name "*.apk" -o -name "*.aab" \) -print | tee apk-manifest.txt
+          echo "::endgroup::"
+          if [ ! -s apk-manifest.txt ]; then
+            echo "::warning::assembleDebug produced no APK under app/build/outputs."
+          fi
+
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: monotrypt-debug-${{ github.sha }}
-          path: app/build/outputs/apk/debug/*.apk
+          path: |
+            app/build/outputs/apk/**/*.apk
+            app/build/outputs/bundle/**/*.aab
           retention-days: 14
+          if-no-files-found: warn
