@@ -215,14 +215,31 @@ jobs:
             echo "::error::$first"
           fi
 
+      - name: Locate built APKs
+        if: success()
+        run: |
+          echo "::group::APK tree under app/build/outputs"
+          find app/build/outputs -maxdepth 6 -type f \( -name "*.apk" -o -name "*.aab" \) -print | tee apk-manifest.txt
+          echo "::endgroup::"
+          if [ ! -s apk-manifest.txt ]; then
+            echo "::warning::assembleDebug produced no APK under app/build/outputs. Uploading the full outputs dir so the path can be diagnosed."
+          fi
+
       - name: Upload debug APK
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: monotrypt-debug-${{ github.sha }}
-          path: app/build/outputs/apk/debug/*.apk
+          # Wider glob — catches flavor-suffixed subdirs AGP may introduce
+          # (e.g. app/build/outputs/apk/debug/app-debug.apk or
+          # app/build/outputs/apk/<flavor>/debug/app-<flavor>-debug.apk).
+          # Pair it with the locate step above so the artifact list always
+          # matches what's actually in the outputs tree.
+          path: |
+            app/build/outputs/apk/**/*.apk
+            app/build/outputs/bundle/**/*.aab
           retention-days: 14
-          if-no-files-found: ignore
+          if-no-files-found: warn
 
       - name: Upload build log
         if: always()
