@@ -63,9 +63,26 @@ class FileObserverService @Inject constructor(
     }
 
     companion object {
+        // Broad coverage so a file drop into a watched folder in any of the
+        // common audio containers triggers a rescan. The scanner downstream
+        // (MediaStoreSource + TagReader) decides whether we can actually
+        // identify / play the file; dropping it here based on extension alone
+        // hides hi-res / lossless formats even before we've seen them.
         private val audioExtensions = setOf(
-            "flac", "mp3", "m4a", "aac", "ogg", "oga", "opus",
-            "wav", "aif", "aiff", "ape", "wma"
+            // Lossy
+            "mp3", "aac", "m4a", "m4b", "m4p", "3gp",
+            "ogg", "oga", "opus",
+            "wma", "mpc", "mp2", "mp1",
+            // Lossless
+            "flac", "alac", "wav", "wave", "w64",
+            "aif", "aiff", "aifc",
+            "ape", "tak", "wv", "tta", "shn",
+            // High-res / DSD / niche
+            "dsf", "dff", "dsd",
+            // Container-only (codec inside)
+            "mka", "caf", "mpd",
+            // Misc
+            "au", "amr", "ra", "rm",
         )
     }
 }
