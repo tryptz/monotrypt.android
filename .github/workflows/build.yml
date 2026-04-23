@@ -47,7 +47,10 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build debug APK
-        run: ./gradlew assembleDebug --stacktrace 2>&1 | tee gradle-build.log
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew assembleDebug --stacktrace 2>&1 | tee gradle-build.log
 
       - name: Summarize build failure
         if: failure()
