@@ -61,14 +61,17 @@ class TagReader @Inject constructor(
         File(context.cacheDir, "artwork").also { it.mkdirs() }
     }
 
-    suspend fun readTags(filePath: String): AudioTags {
+    suspend fun readTags(
+        filePath: String,
+        folderArtCache: MutableMap<String, String?>? = null
+    ): AudioTags {
         val file = File(filePath)
         if (!file.exists()) return AudioTags(filePath = filePath)
 
         val retriever = MediaMetadataRetriever()
         return try {
             retriever.setDataSource(filePath)
-            extractTags(retriever, file)
+            extractTags(retriever, file, folderArtCache)
         } catch (e: Exception) {
             AudioTags(
                 filePath = filePath,
@@ -93,12 +96,17 @@ class TagReader @Inject constructor(
         }
     }
 
-    private fun extractTags(retriever: MediaMetadataRetriever, file: File): AudioTags {
+    private fun extractTags(
+        retriever: MediaMetadataRetriever,
+        file: File,
+        folderArtCache: MutableMap<String, String?>? = null
+    ): AudioTags {
         return extractTagsFromRetriever(
             retriever,
             file.absolutePath,
             file.length(),
-            file.lastModified()
+            file.lastModified(),
+            folderArtCache
         )
     }
 
@@ -107,7 +115,8 @@ class TagReader @Inject constructor(
         retriever: MediaMetadataRetriever,
         filePath: String,
         fileSize: Long,
-        lastModified: Long
+        lastModified: Long,
+        folderArtCache: MutableMap<String, String?>? = null
     ): AudioTags {
         val title = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)
         val artist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
@@ -140,7 +149,7 @@ class TagReader @Inject constructor(
         val hasArt = artworkBytes != null
         val artworkCacheKey = when {
             hasArt && artworkBytes != null -> cacheArtwork(artworkBytes, filePath)
-            else -> findFolderCoverArt(filePath)
+            else -> findFolderCoverArt(filePath, folderArtCache)
         }
         val hasArtOrSidecar = artworkCacheKey != null
 
@@ -236,10 +245,24 @@ class TagReader @Inject constructor(
      * returns the file's absolute path (Coil will load it directly). Returns null
      * when `filePath` isn't a real filesystem path (e.g. a content:// URI) or the
      * folder has no recognisable image.
+     *
+     * Pass a [cache] keyed by parent directory to avoid re-listing the same folder
+     * for every track in an album.
      */
-    private fun findFolderCoverArt(filePath: String): String? {
+    private fun findFolderCoverArt(
+        filePath: String,
+        cache: MutableMap<String, String?>? = null
+    ): String? {
         val parent = File(filePath).parentFile ?: return null
         if (!parent.isDirectory) return null
+        val parentKey = parent.absolutePath
+        cache?.let { if (it.containsKey(parentKey)) return it[parentKey] }
+        val resolved = scanFolderCoverArt(parent)
+        cache?.put(parentKey, resolved)
+        return resolved
+    }
+
+    private fun scanFolderCoverArt(parent: File): String? {
         val files = parent.listFiles() ?: return null
         val candidates = files.filter { f ->
             if (!f.isFile) return@filter false
