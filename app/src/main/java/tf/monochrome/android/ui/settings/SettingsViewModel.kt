@@ -51,8 +51,14 @@ class SettingsViewModel @Inject constructor(
     /** Shared live FFT bins from the audio pipeline — same source the NowPlaying overlay uses. */
     val spectrumBins: StateFlow<FloatArray> = spectrumAnalyzerTap.spectrumBins
 
-    /** Power the FFT analysis coroutine only while a screen observing the preview is on-screen. */
-    fun setSpectrumActive(active: Boolean) = spectrumAnalyzerTap.setAnalysisActive(active)
+    /**
+     * Reference-counted subscription to the FFT analysis coroutine. The preview
+     * keeps running as long as any on-screen caller holds a stake, so opening
+     * Settings over another screen that also uses the analyzer doesn't make
+     * either preview flicker off when the first one disposes.
+     */
+    fun acquireSpectrum() = spectrumAnalyzerTap.acquire()
+    fun releaseSpectrum() = spectrumAnalyzerTap.release()
 
     // --- Appearance ---
     val theme: StateFlow<String> = preferences.theme

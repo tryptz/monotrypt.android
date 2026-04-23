@@ -16,8 +16,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import tf.monochrome.android.performance.PerformanceProfile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.PI
@@ -38,7 +40,9 @@ import kotlin.math.sqrt
  */
 @Singleton
 @OptIn(UnstableApi::class)
-class SpectrumAnalyzerTap @Inject constructor() : AudioProcessor {
+class SpectrumAnalyzerTap @Inject constructor(
+    performanceProfile: PerformanceProfile,
+) : AudioProcessor {
 
     companion object {
         const val FFT_SIZE_4K = 4096
@@ -51,12 +55,16 @@ class SpectrumAnalyzerTap @Inject constructor() : AudioProcessor {
         private const val MIN_FREQ = 20f
         private const val MAX_FREQ = 20000f
         private const val PINK_SLOPE_DB_PER_OCT = 4.0f
-        private const val TARGET_FPS = 60
-        private const val FRAME_DELAY_MS = 1000L / TARGET_FPS   // ~16 ms
         // Slow exponential smoothing → ~176 ms time constant @ 60 fps (SPAN-like Avg Time).
         private const val SMOOTH_ATTACK = 0.55f
         private const val SMOOTH_RELEASE = 0.09f
     }
+
+    // Frame cadence picked from the device tier: LOW=15 fps, MID=30 fps, HIGH=60 fps.
+    // The visible smoothing constants above are tuned for 60 fps; slower tiers look
+    // a touch more damped, which is fine — they also run on thermally-constrained
+    // hardware where running an analyzer at 60 Hz would be the dominant cost.
+    private val frameDelayMs: Long = (1000L / performanceProfile.spectrumFps.coerceAtLeast(1))
 
     private var pendingFormat = AudioFormat.NOT_SET
     private var inputFormat = AudioFormat.NOT_SET
@@ -84,6 +92,8 @@ class SpectrumAnalyzerTap @Inject constructor() : AudioProcessor {
 
     @Volatile private var _analysisDirty = true
     @Volatile private var analysisActive = false
+    private val subscriberCount = AtomicInteger(0)
+    private val lifecycleLock = Any()
 
     private val _spectrumBins = MutableStateFlow(FloatArray(OUTPUT_BINS))
     val spectrumBins: StateFlow<FloatArray> = _spectrumBins.asStateFlow()
@@ -92,31 +102,46 @@ class SpectrumAnalyzerTap @Inject constructor() : AudioProcessor {
     private var analysisJob: Job? = null
 
     /**
-     * Enable/disable the analysis coroutine. Audio pass-through is unaffected.
-     * Pause analysis when the EQ editor is not visible to save CPU.
+     * Reference-count subscribers. Multiple screens (Now Playing spectrum,
+     * Parametric EQ, Parametric EQ Edit, Settings preview) can hold a stake
+     * simultaneously; analysis only stops when every holder has released.
+     *
+     * Callers must pair each [acquire] with exactly one [release]. Wire from
+     * a DisposableEffect so screen dispose always releases, even across nav
+     * crossfades where the new screen mounts before the old one disposes.
      */
-    fun setAnalysisActive(enabled: Boolean) {
-        if (enabled == analysisActive) return
-        analysisActive = enabled
-        if (enabled) {
-            // Restart from a coherent state: a prior disable can leave `ring`
-            // frozen mid-write (queueInput skips writes while inactive) and
-            // `_analysisDirty` false, so the restarted coroutine would trust
-            // stale work arrays against a stale ring. Force reallocation and
-            // refill so the first FFT reads only post-re-enable audio.
-            _analysisDirty = true
-            ringWrite = 0
-            java.util.Arrays.fill(ring, 0f)
-            startAnalysis()
-        } else {
-            analysisJob?.cancel()
-            analysisJob = null
-            // Reset bins so the UI doesn't show stale data on re-entry
-            _spectrumBins.value = FloatArray(OUTPUT_BINS)
+    fun acquire() {
+        val count = subscriberCount.incrementAndGet()
+        if (count == 1) {
+            synchronized(lifecycleLock) {
+                if (subscriberCount.get() > 0 && !analysisActive) {
+                    startAnalysisLocked()
+                }
+            }
         }
     }
 
-    private fun startAnalysis() {
+    fun release() {
+        val count = subscriberCount.updateAndGet { (it - 1).coerceAtLeast(0) }
+        if (count == 0) {
+            synchronized(lifecycleLock) {
+                if (subscriberCount.get() == 0 && analysisActive) {
+                    stopAnalysisLocked()
+                }
+            }
+        }
+    }
+
+    private fun startAnalysisLocked() {
+        analysisActive = true
+        // Restart from a coherent state: a prior stop can leave `ring` frozen
+        // mid-write (queueInput skips writes while inactive) and `_analysisDirty`
+        // false, so the restarted coroutine would trust stale work arrays
+        // against a stale ring. Force reallocation and refill so the first FFT
+        // reads only post-re-enable audio.
+        _analysisDirty = true
+        ringWrite = 0
+        java.util.Arrays.fill(ring, 0f)
         analysisJob?.cancel()
         analysisJob = scope.launch {
             // Local FFT work arrays (reallocated on fftSize change)
@@ -222,9 +247,17 @@ class SpectrumAnalyzerTap @Inject constructor() : AudioProcessor {
 
                 _spectrumBins.value = out
 
-                delay(FRAME_DELAY_MS)
+                delay(frameDelayMs)
             }
         }
+    }
+
+    private fun stopAnalysisLocked() {
+        analysisActive = false
+        analysisJob?.cancel()
+        analysisJob = null
+        // Reset bins so the UI doesn't show stale data on re-entry.
+        _spectrumBins.value = FloatArray(OUTPUT_BINS)
     }
 
     // --- AudioProcessor (pure pass-through) ---

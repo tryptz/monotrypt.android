@@ -59,14 +59,31 @@ jobs:
         run: chmod +x gradlew
 
       - name: Run lint
-        run: ./gradlew lintDebug --stacktrace
+        id: run_lint
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew lintDebug --stacktrace 2>&1 | tee gradle-lint.log
+
+      - name: Summarize lint failure
+        if: failure()
+        run: |
+          echo "::group::Gradle lint failure tail"
+          tail -n 200 gradle-lint.log | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "::endgroup::"
+          first=$(grep -E -m 1 "^e: |FAILURE:|error:|Unresolved reference|Execution failed" gradle-lint.log || true)
+          if [ -n "$first" ]; then
+            echo "::error::$first"
+          fi
 
       - name: Upload lint report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: lint-report
-          path: app/build/reports/lint-results-*.html
+          path: |
+            app/build/reports/lint-results-*.html
+            gradle-lint.log
           retention-days: 14
           if-no-files-found: ignore
 
@@ -113,14 +130,34 @@ jobs:
         run: chmod +x gradlew
 
       - name: Run unit tests
-        run: ./gradlew testDebugUnitTest --stacktrace
+        id: run_tests
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew testDebugUnitTest --stacktrace 2>&1 | tee gradle-test.log
+
+      - name: Summarize failure
+        if: failure()
+        run: |
+          echo "::group::Gradle test failure tail"
+          tail -n 200 gradle-test.log | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "::endgroup::"
+          # Extract and re-echo the first real error line as a workflow error
+          # annotation — that surfaces into the PR check UI where we can read
+          # it without drilling into the full log.
+          first=$(grep -E -m 1 "^e: |FAILURE:|error:|Unresolved reference|Execution failed" gradle-test.log || true)
+          if [ -n "$first" ]; then
+            echo "::error::$first"
+          fi
 
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-report
-          path: app/build/reports/tests/testDebugUnitTest
+          path: |
+            app/build/reports/tests/testDebugUnitTest
+            gradle-test.log
           retention-days: 14
           if-no-files-found: ignore
 
@@ -168,13 +205,54 @@ jobs:
         run: chmod +x gradlew
 
       - name: Run Gradle task
-        run: ./gradlew ${{ github.event.inputs.task || 'assembleDebug' }} --stacktrace
+        id: run_build
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew ${{ github.event.inputs.task || 'assembleDebug' }} --stacktrace 2>&1 | tee gradle-build.log
+
+      - name: Summarize build failure
+        if: failure()
+        run: |
+          echo "::group::Gradle build failure tail"
+          tail -n 200 gradle-build.log | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "::endgroup::"
+          first=$(grep -E -m 1 "^e: |FAILURE:|error:|Unresolved reference|Execution failed|CMake Error|ndk-build" gradle-build.log || true)
+          if [ -n "$first" ]; then
+            echo "::error::$first"
+          fi
+
+      - name: Locate built APKs
+        if: success()
+        run: |
+          echo "::group::APK tree under app/build/outputs"
+          find app/build/outputs -maxdepth 6 -type f \( -name "*.apk" -o -name "*.aab" \) -print | tee apk-manifest.txt
+          echo "::endgroup::"
+          if [ ! -s apk-manifest.txt ]; then
+            echo "::warning::assembleDebug produced no APK under app/build/outputs. Uploading the full outputs dir so the path can be diagnosed."
+          fi
 
       - name: Upload debug APK
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: monotrypt-debug-${{ github.sha }}
-          path: app/build/outputs/apk/debug/*.apk
+          # Wider glob — catches flavor-suffixed subdirs AGP may introduce
+          # (e.g. app/build/outputs/apk/debug/app-debug.apk or
+          # app/build/outputs/apk/<flavor>/debug/app-<flavor>-debug.apk).
+          # Pair it with the locate step above so the artifact list always
+          # matches what's actually in the outputs tree.
+          path: |
+            app/build/outputs/apk/**/*.apk
+            app/build/outputs/bundle/**/*.aab
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: gradle-build.log
           retention-days: 14
           if-no-files-found: ignore

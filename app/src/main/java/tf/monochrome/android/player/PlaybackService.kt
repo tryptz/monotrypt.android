@@ -32,7 +32,6 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import tf.monochrome.android.audio.dsp.DspEngineManager
 import tf.monochrome.android.audio.dsp.MixBusProcessor
-import tf.monochrome.android.audio.dsp.SpatialAudioProcessor
 import tf.monochrome.android.audio.eq.AutoEqProcessor
 import tf.monochrome.android.audio.eq.ParametricEqProcessor
 import tf.monochrome.android.audio.eq.SpectrumAnalyzerTap
@@ -61,7 +60,6 @@ class PlaybackService : MediaSessionService() {
     @Inject lateinit var autoEqProcessor: AutoEqProcessor
     @Inject lateinit var parametricEqProcessor: ParametricEqProcessor
     @Inject lateinit var spectrumAnalyzerTap: SpectrumAnalyzerTap
-    @Inject lateinit var spatialProcessor: SpatialAudioProcessor
 
     private var mediaSession: MediaSession? = null
     private lateinit var player: ExoPlayer
@@ -200,7 +198,17 @@ class PlaybackService : MediaSessionService() {
     @OptIn(UnstableApi::class)
     private fun buildRenderersFactory(): DefaultRenderersFactory {
         val audioBus = projectMEngineRepository.audioBus
-        return object : DefaultRenderersFactory(this) {
+        // NextRenderersFactory extends DefaultRenderersFactory and appends
+        // FFmpeg-based renderers (prebuilt libavcodec + libavformat) after
+        // the platform ones. We subclass it so our AudioSink override (with
+        // the custom AudioProcessor chain — DSP, EQ, spectrum tap, ProjectM
+        // tee) still applies while the FFmpeg renderer handles any format
+        // MediaCodec can't (DSD, APE, TAK, WavPack, MPC, TrueHD, DTS, …).
+        return object : io.github.anilbeesetti.nextlib.media3ext.ffdecoder.NextRenderersFactory(this@PlaybackService) {
+            init {
+                setExtensionRendererMode(EXTENSION_RENDERER_MODE_ON)
+            }
+
             override fun buildAudioSink(
                 context: android.content.Context,
                 enableFloatOutput: Boolean,
@@ -212,7 +220,6 @@ class PlaybackService : MediaSessionService() {
                         .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
                         .setAudioProcessors(
                             arrayOf(
-                                spatialProcessor,       // Dolby Atmos: multichannel → binaural (first in chain)
                                 mixBusProcessor,        // DSP engine (mixer/effects)
                                 autoEqProcessor,        // AutoEQ (independent, always-on when enabled)
                                 parametricEqProcessor,  // Parametric EQ (after AutoEQ, stacks on top)
@@ -235,29 +242,6 @@ class PlaybackService : MediaSessionService() {
                         )
                     )
                 }
-            }
-
-            override fun buildAudioRenderers(
-                context: android.content.Context,
-                extensionRendererMode: Int,
-                mediaCodecSelector: androidx.media3.exoplayer.mediacodec.MediaCodecSelector,
-                enableDecoderFallback: Boolean,
-                audioSink: AudioSink,
-                eventHandler: android.os.Handler,
-                eventListener: androidx.media3.exoplayer.audio.AudioRendererEventListener,
-                out: java.util.ArrayList<androidx.media3.exoplayer.Renderer>
-            ) {
-                out.add(tf.monochrome.android.player.atmos.AtmosAudioRenderer(eventHandler, eventListener, audioSink, mixBusProcessor))
-                super.buildAudioRenderers(
-                    context, 
-                    extensionRendererMode, 
-                    mediaCodecSelector, 
-                    enableDecoderFallback, 
-                    audioSink, 
-                    eventHandler, 
-                    eventListener, 
-                    out
-                )
             }
         }
     }

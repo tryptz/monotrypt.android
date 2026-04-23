@@ -93,6 +93,7 @@ import tf.monochrome.android.ui.eq.EqProfileMiniGraph
 import tf.monochrome.android.domain.model.EqPreset
 import tf.monochrome.android.ui.components.bounceClick
 import tf.monochrome.android.ui.components.liquidGlass
+import tf.monochrome.android.ui.navigation.Screen
 import tf.monochrome.android.ui.theme.themeDisplayNames
 
 private val settingsTabs = listOf("Appearance", "Interface", "Scrobbling", "Audio", "Equalizer", "Library", "Downloads", "Instances", "System")
@@ -149,7 +150,7 @@ fun SettingsScreen(
             5 -> LibrarySettingsTab(viewModel)
             6 -> DownloadsTab(viewModel)
             7 -> InstancesTab(viewModel)
-            8 -> SystemTab(viewModel)
+            8 -> SystemTab(viewModel, navController)
         }
     }
 }
@@ -582,8 +583,8 @@ private fun InterfaceTab(viewModel: SettingsViewModel) {
         }
         if (spectrumEnabled) {
             androidx.compose.runtime.DisposableEffect(Unit) {
-                viewModel.setSpectrumActive(true)
-                onDispose { viewModel.setSpectrumActive(false) }
+                viewModel.acquireSpectrum()
+                onDispose { viewModel.releaseSpectrum() }
             }
             Spacer(modifier = Modifier.height(8.dp))
             tf.monochrome.android.ui.player.SpectrumOverlay(
@@ -1168,7 +1169,7 @@ private fun InstanceCard(url: String, version: String?) {
 
 // ─── Tab 7: System ─────────────────────────────────────────────────────
 @Composable
-private fun SystemTab(viewModel: SettingsViewModel) {
+private fun SystemTab(viewModel: SettingsViewModel, navController: NavController) {
     val cacheSize by viewModel.cacheSize.collectAsState()
     var showClearAllDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -1319,6 +1320,14 @@ private fun SystemTab(viewModel: SettingsViewModel) {
                 Text("Import JSON")
             }
         }
+
+        Spacer(modifier = Modifier.height(20.dp))
+        SettingsGroupHeader("Diagnostics")
+        SettingItem(
+            title = "View debug log",
+            subtitle = "Live logcat stream for this process — copy or export as a file for bug reports",
+            onClick = { navController.navigate(Screen.DebugLog.route) },
+        )
 
         Spacer(modifier = Modifier.height(20.dp))
         SettingsGroupHeader("About")
