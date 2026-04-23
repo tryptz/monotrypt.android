@@ -36,20 +36,15 @@ class MediaStoreSource @Inject constructor(
         MediaStore.Audio.Media.DURATION
     )
 
-    private val supportedMimeTypes = setOf(
-        "audio/flac",
-        "audio/mpeg",
-        "audio/mp4",
-        "audio/aac",
-        "audio/ogg",
-        "audio/opus",
-        "audio/wav",
-        "audio/x-wav",
-        "audio/aiff",
-        "audio/x-aiff",
-        "audio/x-ms-wma",
-        "audio/x-ape"
-    )
+    // Anything MediaStore classifies with an audio/* MIME type and IS_MUSIC=1
+    // is kept. The previous 12-entry allowlist silently dropped DSD (audio/dsf),
+    // Musepack (audio/x-musepack), TAK, WavPack (audio/x-wavpack), TrueHD,
+    // Matroska-audio (audio/x-matroska), RealAudio, and any variant MIME a
+    // particular device's media scanner produced. Codec identification still
+    // happens downstream in TagReader from the MIME + extension; unknown codecs
+    // fall through to AudioCodec.UNKNOWN rather than being dropped at scan time.
+    private fun isAudioMime(mime: String?): Boolean =
+        mime != null && mime.startsWith("audio/", ignoreCase = true)
 
     fun queryAllAudio(
         minDurationMs: Long = 30_000,
@@ -87,7 +82,7 @@ class MediaStoreSource @Inject constructor(
                 val id = cursor.getLong(idCol)
 
                 // Filter by mime type
-                if (mime !in supportedMimeTypes) continue
+                if (!isAudioMime(mime)) continue
 
                 // Filter excluded paths
                 if (excludedPaths.any { path.startsWith(it) }) continue
