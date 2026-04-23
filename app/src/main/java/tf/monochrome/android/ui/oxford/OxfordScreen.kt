@@ -775,6 +775,7 @@ fun OxfordEffectsTabs(
     compressor: CompressorEffect,
     modifier: Modifier = Modifier,
     initialTab: Int = 0,
+    onBack: (() -> Unit)? = null,
 ) {
     var selected by rememberSaveable { mutableStateOf(initialTab.coerceIn(0, 1)) }
     val tabs = listOf("Compressor", "Inflator")
@@ -789,6 +790,29 @@ fun OxfordEffectsTabs(
     }
 
     Column(modifier = modifier.fillMaxSize()) {
+        // Back arrow + tab row. Without this header the screen had no visible
+        // back affordance at all — users had to rely on system gesture. Null
+        // onBack keeps the header off for any call site that embeds the tabs
+        // inside another screen that already has its own chrome.
+        if (onBack != null) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(
+                        imageVector = androidx.compose.material.icons.Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                    )
+                }
+                Text(
+                    text = "Oxford",
+                    style = MaterialTheme.typography.titleLarge,
+                )
+            }
+        }
         PrimaryTabRow(selectedTabIndex = selected) {
             tabs.forEachIndexed { i, title ->
                 Tab(
