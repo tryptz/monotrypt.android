@@ -136,7 +136,18 @@ class PlaybackService : MediaSessionService() {
             }
         })
 
-        mediaSession = MediaSession.Builder(this, player)
+        // Wrap the ExoPlayer so Media3's notification + lock-screen surface
+        // working next / previous controls. The wrapper routes those commands
+        // through our QueueManager-backed skipToNext / skipToPrevious because
+        // we resolve stream URLs one track at a time and ExoPlayer's own
+        // playlist is never the source of truth for queue position.
+        val forwardingPlayer = QueueForwardingPlayer(
+            delegate = player,
+            queueManager = queueManager,
+            onNext = ::skipToNext,
+            onPrev = ::skipToPrevious,
+        )
+        mediaSession = MediaSession.Builder(this, forwardingPlayer)
             .setSessionActivity(createSessionActivity())
             .build()
 

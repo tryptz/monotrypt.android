@@ -308,6 +308,7 @@ fun MonochromeNavHost() {
                         inflator = vm.inflator,
                         compressor = vm.compressor,
                         initialTab = tab,
+                        onBack = { navController.popBackStack() },
                         modifier = Modifier.fillMaxSize().padding(top = statusBarHeight),
                     )
                 }
