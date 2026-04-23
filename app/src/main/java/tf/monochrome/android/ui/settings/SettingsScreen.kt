@@ -74,6 +74,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -1077,6 +1078,11 @@ private fun InstancesTab(viewModel: SettingsViewModel) {
                 )
             }
             Spacer(modifier = Modifier.width(12.dp))
+            // Snapshot the latest input/saved value into stable holders so the
+            // onFocusChanged closure captured by the OutlinedTextField doesn't
+            // need to re-allocate on every keystroke recomposition.
+            val latestInput = rememberUpdatedState(customInput)
+            val latestSaved = rememberUpdatedState(customEndpoint)
             OutlinedTextField(
                 value = customInput,
                 onValueChange = { customInput = it },
@@ -1090,14 +1096,14 @@ private fun InstancesTab(viewModel: SettingsViewModel) {
                 enabled = devModeEnabled,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = {
-                    viewModel.setCustomEndpoint(customInput.trim().ifBlank { null })
+                    viewModel.setCustomEndpoint(latestInput.value.trim().ifBlank { null })
                 }),
                 modifier = Modifier
                     .widthIn(max = 240.dp)
                     .onFocusChanged { focusState ->
                         if (!focusState.isFocused) {
-                            val trimmed = customInput.trim().ifBlank { null }
-                            if (trimmed != customEndpoint) {
+                            val trimmed = latestInput.value.trim().ifBlank { null }
+                            if (trimmed != latestSaved.value) {
                                 viewModel.setCustomEndpoint(trimmed)
                             }
                         }
