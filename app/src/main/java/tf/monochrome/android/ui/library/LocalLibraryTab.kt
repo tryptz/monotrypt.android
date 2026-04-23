@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.Style
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -85,7 +86,8 @@ fun LocalLibraryTab(
     onAlbumClick: (UnifiedAlbum) -> Unit,
     onArtistClick: (UnifiedArtist) -> Unit,
     onGenreClick: (String) -> Unit,
-    onFolderClick: (String) -> Unit
+    onFolderClick: (String) -> Unit,
+    onShuffleAll: (List<UnifiedTrack>) -> Unit
 ) {
     val localTracks by viewModel.localTracks.collectAsState()
     val localAlbums by viewModel.localAlbums.collectAsState()
@@ -195,6 +197,12 @@ fun LocalLibraryTab(
             }
             IconButton(onClick = { showSearch = !showSearch; if (!showSearch) viewModel.setSearchQuery("") }) {
                 Icon(Icons.Default.Search, contentDescription = "Search")
+            }
+            IconButton(
+                onClick = { if (localTracks.isNotEmpty()) onShuffleAll(localTracks) },
+                enabled = localTracks.isNotEmpty()
+            ) {
+                Icon(Icons.Default.Shuffle, contentDescription = "Shuffle all")
             }
             IconButton(onClick = { folderPickerLauncher.launch(null) }) {
                 Icon(Icons.Default.CreateNewFolder, contentDescription = "Add folder")

@@ -244,6 +244,9 @@ fun LibraryScreen(
                     },
                     onFolderClick = { path ->
                         navController.navigate("folder/${java.net.URLEncoder.encode(path, "UTF-8")}")
+                    },
+                    onShuffleAll = { tracks ->
+                        playerViewModel.shufflePlayUnified(tracks)
                     }
                 )
 
