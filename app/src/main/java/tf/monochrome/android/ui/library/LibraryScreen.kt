@@ -239,6 +239,9 @@ fun LibraryScreen(
                             navController.navigate("local_artist/$artistId")
                         }
                     },
+                    onGenreClick = { genre ->
+                        navController.navigate(Screen.LocalGenreDetail.createRoute(genre))
+                    },
                     onFolderClick = { path ->
                         navController.navigate("folder/${java.net.URLEncoder.encode(path, "UTF-8")}")
                     }

@@ -146,6 +146,7 @@ class PreferencesManager @Inject constructor(
         private val MIN_TRACK_DURATION_MS = longPreferencesKey("min_track_duration_ms")
         private val EXCLUDED_PATHS_JSON = stringPreferencesKey("excluded_paths_json")
         private val BACKGROUND_SCAN_INTERVAL = stringPreferencesKey("background_scan_interval")
+        private val USER_FOLDER_ROOTS_JSON = stringPreferencesKey("user_folder_roots_json")
 
         // DSP Mixer
         private val DSP_ENABLED = booleanPreferencesKey("dsp_enabled")
@@ -735,6 +736,29 @@ class PreferencesManager @Inject constructor(
     val excludedPathsJson: Flow<String> = dataStore.data.map { it[EXCLUDED_PATHS_JSON] ?: "[]" }
     suspend fun setExcludedPaths(pathsJson: String) {
         dataStore.edit { it[EXCLUDED_PATHS_JSON] = pathsJson }
+    }
+
+    val userFolderRoots: Flow<Set<String>> = dataStore.data.map { prefs ->
+        val raw = prefs[USER_FOLDER_ROOTS_JSON] ?: return@map emptySet()
+        runCatching { json.decodeFromString<Set<String>>(raw) }.getOrDefault(emptySet())
+    }
+
+    suspend fun addUserFolderRoot(path: String) {
+        dataStore.edit { prefs ->
+            val current = prefs[USER_FOLDER_ROOTS_JSON]
+                ?.let { runCatching { json.decodeFromString<Set<String>>(it) }.getOrNull() }
+                ?: emptySet()
+            prefs[USER_FOLDER_ROOTS_JSON] = json.encodeToString(current + path)
+        }
+    }
+
+    suspend fun removeUserFolderRoot(path: String) {
+        dataStore.edit { prefs ->
+            val current = prefs[USER_FOLDER_ROOTS_JSON]
+                ?.let { runCatching { json.decodeFromString<Set<String>>(it) }.getOrNull() }
+                ?: return@edit
+            prefs[USER_FOLDER_ROOTS_JSON] = json.encodeToString(current - path)
+        }
     }
 
     val backgroundScanInterval: Flow<String> = dataStore.data.map {
