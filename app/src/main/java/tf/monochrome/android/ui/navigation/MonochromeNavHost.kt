@@ -148,8 +148,19 @@ fun MonochromeNavHost() {
 
     val currentTrack by playerViewModel.currentTrack.collectAsState()
     val isPlaying by playerViewModel.isPlaying.collectAsState()
-    val positionMs by playerViewModel.positionMs.collectAsState()
-    val durationMs by playerViewModel.durationMs.collectAsState()
+
+    // Position/duration tick every 250 ms. Keep them as State<Long> and read
+    // only inside the draw-scope progress lambda below — reading `.value` here
+    // would recompose the entire nav host (pager + HomeScreen + LibraryScreen)
+    // four times a second.
+    val positionState = playerViewModel.positionMs.collectAsState()
+    val durationState = playerViewModel.durationMs.collectAsState()
+    val progressProvider = remember(positionState, durationState) {
+        {
+            val d = durationState.value
+            if (d > 0) positionState.value.toFloat() / d.toFloat() else 0f
+        }
+    }
 
     // True when the user is on one of the three main tab screens
     val isOnMainTab = currentDestination?.route in tabRoutes
@@ -392,7 +403,7 @@ fun MonochromeNavHost() {
                     MiniPlayer(
                         track = currentTrack,
                         isPlaying = isPlaying,
-                        progress = if (durationMs > 0) positionMs.toFloat() / durationMs.toFloat() else 0f,
+                        progressProvider = progressProvider,
                         onPlayPauseClick = { playerViewModel.togglePlayPause() },
                         onSkipNextClick = { playerViewModel.skipToNext() },
                         onSkipPreviousClick = { playerViewModel.skipToPrevious() },
