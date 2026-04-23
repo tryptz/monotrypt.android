@@ -60,7 +60,10 @@ jobs:
 
       - name: Run lint
         id: run_lint
-        run: ./gradlew lintDebug --stacktrace 2>&1 | tee gradle-lint.log
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew lintDebug --stacktrace 2>&1 | tee gradle-lint.log
 
       - name: Summarize lint failure
         if: failure()
@@ -128,9 +131,10 @@ jobs:
 
       - name: Run unit tests
         id: run_tests
-        run: ./gradlew testDebugUnitTest --stacktrace 2>&1 | tee gradle-test.log
-        # `set -o pipefail` inherits from the runner's bash config, so the tee
-        # above still propagates gradle's exit status.
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew testDebugUnitTest --stacktrace 2>&1 | tee gradle-test.log
 
       - name: Summarize failure
         if: failure()
@@ -202,7 +206,10 @@ jobs:
 
       - name: Run Gradle task
         id: run_build
-        run: ./gradlew ${{ github.event.inputs.task || 'assembleDebug' }} --stacktrace 2>&1 | tee gradle-build.log
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew ${{ github.event.inputs.task || 'assembleDebug' }} --stacktrace 2>&1 | tee gradle-build.log
 
       - name: Summarize build failure
         if: failure()
