@@ -66,8 +66,8 @@ fun ParametricEqEditScreen(
 
     val analyzer = viewModel.spectrumAnalyzer
     DisposableEffect(Unit) {
-        analyzer.setAnalysisActive(true)
-        onDispose { analyzer.setAnalysisActive(false) }
+        analyzer.acquire()
+        onDispose { analyzer.release() }
     }
 
     var showSaveDialog by remember { mutableStateOf(false) }

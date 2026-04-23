@@ -52,8 +52,13 @@ class PlayerViewModel @Inject constructor(
     val spectrumAnalyzer: SpectrumAnalyzerTap
 ) : ViewModel() {
 
-    /** Toggle the live FFT spectrum tap. Cheap when off — no analysis runs. */
-    fun setSpectrumActive(active: Boolean) = spectrumAnalyzer.setAnalysisActive(active)
+    /**
+     * Reference-counted spectrum tap subscription. Screens call acquire on
+     * mount and release on dispose; the analyzer keeps running as long as any
+     * one subscriber holds a stake.
+     */
+    fun acquireSpectrum() = spectrumAnalyzer.acquire()
+    fun releaseSpectrum() = spectrumAnalyzer.release()
 
     // --- State from QueueManager (runs in-process, no IPC needed) ---
     val currentTrack: StateFlow<Track?> = queueManager.currentTrack

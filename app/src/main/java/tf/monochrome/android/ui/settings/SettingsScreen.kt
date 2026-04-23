@@ -582,8 +582,8 @@ private fun InterfaceTab(viewModel: SettingsViewModel) {
         }
         if (spectrumEnabled) {
             androidx.compose.runtime.DisposableEffect(Unit) {
-                viewModel.setSpectrumActive(true)
-                onDispose { viewModel.setSpectrumActive(false) }
+                viewModel.acquireSpectrum()
+                onDispose { viewModel.releaseSpectrum() }
             }
             Spacer(modifier = Modifier.height(8.dp))
             tf.monochrome.android.ui.player.SpectrumOverlay(

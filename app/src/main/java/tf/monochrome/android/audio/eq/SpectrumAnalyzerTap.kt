@@ -18,6 +18,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.PI
@@ -84,6 +85,8 @@ class SpectrumAnalyzerTap @Inject constructor() : AudioProcessor {
 
     @Volatile private var _analysisDirty = true
     @Volatile private var analysisActive = false
+    private val subscriberCount = AtomicInteger(0)
+    private val lifecycleLock = Any()
 
     private val _spectrumBins = MutableStateFlow(FloatArray(OUTPUT_BINS))
     val spectrumBins: StateFlow<FloatArray> = _spectrumBins.asStateFlow()
@@ -92,31 +95,46 @@ class SpectrumAnalyzerTap @Inject constructor() : AudioProcessor {
     private var analysisJob: Job? = null
 
     /**
-     * Enable/disable the analysis coroutine. Audio pass-through is unaffected.
-     * Pause analysis when the EQ editor is not visible to save CPU.
+     * Reference-count subscribers. Multiple screens (Now Playing spectrum,
+     * Parametric EQ, Parametric EQ Edit, Settings preview) can hold a stake
+     * simultaneously; analysis only stops when every holder has released.
+     *
+     * Callers must pair each [acquire] with exactly one [release]. Wire from
+     * a DisposableEffect so screen dispose always releases, even across nav
+     * crossfades where the new screen mounts before the old one disposes.
      */
-    fun setAnalysisActive(enabled: Boolean) {
-        if (enabled == analysisActive) return
-        analysisActive = enabled
-        if (enabled) {
-            // Restart from a coherent state: a prior disable can leave `ring`
-            // frozen mid-write (queueInput skips writes while inactive) and
-            // `_analysisDirty` false, so the restarted coroutine would trust
-            // stale work arrays against a stale ring. Force reallocation and
-            // refill so the first FFT reads only post-re-enable audio.
-            _analysisDirty = true
-            ringWrite = 0
-            java.util.Arrays.fill(ring, 0f)
-            startAnalysis()
-        } else {
-            analysisJob?.cancel()
-            analysisJob = null
-            // Reset bins so the UI doesn't show stale data on re-entry
-            _spectrumBins.value = FloatArray(OUTPUT_BINS)
+    fun acquire() {
+        val count = subscriberCount.incrementAndGet()
+        if (count == 1) {
+            synchronized(lifecycleLock) {
+                if (subscriberCount.get() > 0 && !analysisActive) {
+                    startAnalysisLocked()
+                }
+            }
         }
     }
 
-    private fun startAnalysis() {
+    fun release() {
+        val count = subscriberCount.updateAndGet { (it - 1).coerceAtLeast(0) }
+        if (count == 0) {
+            synchronized(lifecycleLock) {
+                if (subscriberCount.get() == 0 && analysisActive) {
+                    stopAnalysisLocked()
+                }
+            }
+        }
+    }
+
+    private fun startAnalysisLocked() {
+        analysisActive = true
+        // Restart from a coherent state: a prior stop can leave `ring` frozen
+        // mid-write (queueInput skips writes while inactive) and `_analysisDirty`
+        // false, so the restarted coroutine would trust stale work arrays
+        // against a stale ring. Force reallocation and refill so the first FFT
+        // reads only post-re-enable audio.
+        _analysisDirty = true
+        ringWrite = 0
+        java.util.Arrays.fill(ring, 0f)
         analysisJob?.cancel()
         analysisJob = scope.launch {
             // Local FFT work arrays (reallocated on fftSize change)
@@ -225,6 +243,14 @@ class SpectrumAnalyzerTap @Inject constructor() : AudioProcessor {
                 delay(FRAME_DELAY_MS)
             }
         }
+    }
+
+    private fun stopAnalysisLocked() {
+        analysisActive = false
+        analysisJob?.cancel()
+        analysisJob = null
+        // Reset bins so the UI doesn't show stale data on re-entry.
+        _spectrumBins.value = FloatArray(OUTPUT_BINS)
     }
 
     // --- AudioProcessor (pure pass-through) ---
