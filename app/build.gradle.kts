@@ -29,9 +29,15 @@ val hasCompleteReleaseSigning = requiredSigningKeys.all { key ->
     !keystoreProperties.getProperty(key).isNullOrBlank()
 }
 
+// Release signing is opt-in — if keystore.properties is absent, `assembleRelease`
+// falls back to unsigned output and every other task (assembleDebug, lint, tests,
+// installDebug) still works because debug builds use the committed
+// app/monotrypt-debug.keystore. The `--info` log keeps the signal available when
+// someone does want to know but no longer shouts from every debug CI run.
 if (!hasCompleteReleaseSigning) {
-    logger.lifecycle(
-        "Release signing disabled: missing or incomplete keystore.properties at ${keystorePropertiesFile.path}"
+    logger.info(
+        "Release signing disabled: missing or incomplete keystore.properties at {}",
+        keystorePropertiesFile.path,
     )
 }
 
