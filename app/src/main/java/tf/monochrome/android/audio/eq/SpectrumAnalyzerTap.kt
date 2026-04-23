@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import tf.monochrome.android.performance.PerformanceProfile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.atomic.AtomicInteger
@@ -40,7 +41,7 @@ import kotlin.math.sqrt
 @Singleton
 @OptIn(UnstableApi::class)
 class SpectrumAnalyzerTap @Inject constructor(
-    performanceProfile: tf.monochrome.android.performance.PerformanceProfile,
+    performanceProfile: PerformanceProfile,
 ) : AudioProcessor {
 
     companion object {

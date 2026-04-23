@@ -78,6 +78,7 @@ import tf.monochrome.android.ui.stats.StatsScreen
 import tf.monochrome.android.ui.search.SearchScreen
 import tf.monochrome.android.ui.settings.SettingsScreen
 import tf.monochrome.android.ui.carmode.CarModeScreen
+import tf.monochrome.android.ui.debug.DebugLogScreen
 import tf.monochrome.android.ui.oxford.OxfordEffectsTabs
 import tf.monochrome.android.ui.oxford.OxfordViewModel
 
@@ -126,6 +127,7 @@ sealed class Screen(val route: String) {
         /** tab: 0 = Compressor, 1 = Inflator. */
         fun createRoute(tab: Int = 0) = "oxford?tab=$tab"
     }
+    data object DebugLog : Screen("debug_log")
 }
 
 data class BottomNavItem(
@@ -288,6 +290,9 @@ fun MonochromeNavHost() {
                 }
                 composable(Screen.CarMode.route) {
                     CarModeScreen(navController = navController)
+                }
+                composable(Screen.DebugLog.route) {
+                    DebugLogScreen(navController = navController)
                 }
                 composable(
                     route = Screen.Oxford.route,

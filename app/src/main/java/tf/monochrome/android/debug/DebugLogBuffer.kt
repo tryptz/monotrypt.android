@@ -1,0 +1,58 @@
+package tf.monochrome.android.debug
+
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import javax.inject.Inject
+import javax.inject.Singleton
+
+/**
+ * In-memory ring buffer of parsed logcat lines. Written by [DebugLogCollector]
+ * from a background coroutine; read by the debug log viewer UI through
+ * [snapshot] / [updates]. Bounded to [MAX_ENTRIES] so the process RAM cost
+ * stays under a few MB regardless of how long the app has been up.
+ */
+@Singleton
+class DebugLogBuffer @Inject constructor() {
+
+    private val lock = Any()
+    private val entries = ArrayDeque<DebugLogEntry>(INITIAL_CAPACITY)
+
+    /**
+     * Coalescing change notification. `extraBufferCapacity` + DROP_OLDEST so a
+     * busy logcat stream never back-pressures the collector coroutine; the UI
+     * samples this at a UI-friendly rate.
+     */
+    private val _updates = MutableSharedFlow<Unit>(
+        replay = 0,
+        extraBufferCapacity = 64,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    val updates: SharedFlow<Unit> = _updates.asSharedFlow()
+
+    fun append(entry: DebugLogEntry) {
+        synchronized(lock) {
+            entries.addLast(entry)
+            while (entries.size > MAX_ENTRIES) entries.removeFirst()
+        }
+        _updates.tryEmit(Unit)
+    }
+
+    fun snapshot(): List<DebugLogEntry> = synchronized(lock) { entries.toList() }
+
+    fun size(): Int = synchronized(lock) { entries.size }
+
+    fun clear() {
+        synchronized(lock) { entries.clear() }
+        _updates.tryEmit(Unit)
+    }
+
+    /** Serialize the buffer as a plain-text logcat dump suitable for export. */
+    fun dumpAsText(): String = snapshot().joinToString("\n") { it.raw }
+
+    companion object {
+        const val MAX_ENTRIES = 10_000
+        private const val INITIAL_CAPACITY = 1024
+    }
+}
