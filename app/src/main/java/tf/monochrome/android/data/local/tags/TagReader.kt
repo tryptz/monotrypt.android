@@ -182,13 +182,20 @@ class TagReader @Inject constructor(
     }
 
     private fun detectCodec(mimeType: String?, filePath: String): AudioCodec {
+        // Opus and Vorbis share the Ogg container, so MediaMetadataRetriever often
+        // reports both as "audio/ogg". Check explicit codec MIMEs first, then fall
+        // back to the file extension for generic "audio/ogg".
         return when {
             mimeType?.contains("flac") == true -> AudioCodec.FLAC
             mimeType?.contains("mpeg") == true -> AudioCodec.MP3
             mimeType?.contains("mp4a") == true || mimeType?.contains("aac") == true ||
                 mimeType?.contains("mp4") == true -> AudioCodec.AAC
-            mimeType?.contains("ogg") == true || mimeType?.contains("vorbis") == true -> AudioCodec.OGG_VORBIS
             mimeType?.contains("opus") == true -> AudioCodec.OPUS
+            mimeType?.contains("vorbis") == true -> AudioCodec.OGG_VORBIS
+            mimeType?.contains("ogg") == true -> {
+                val fromExt = detectCodecFromExtension(filePath)
+                if (fromExt == AudioCodec.OPUS) AudioCodec.OPUS else AudioCodec.OGG_VORBIS
+            }
             mimeType?.contains("wav") == true || mimeType?.contains("wave") == true -> AudioCodec.WAV
             mimeType?.contains("aiff") == true -> AudioCodec.AIFF
             mimeType?.contains("x-ms-wma") == true -> AudioCodec.WMA
