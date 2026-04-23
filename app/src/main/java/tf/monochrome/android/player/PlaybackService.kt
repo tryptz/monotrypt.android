@@ -32,7 +32,6 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import tf.monochrome.android.audio.dsp.DspEngineManager
 import tf.monochrome.android.audio.dsp.MixBusProcessor
-import tf.monochrome.android.audio.dsp.SpatialAudioProcessor
 import tf.monochrome.android.audio.eq.AutoEqProcessor
 import tf.monochrome.android.audio.eq.ParametricEqProcessor
 import tf.monochrome.android.audio.eq.SpectrumAnalyzerTap
@@ -61,7 +60,6 @@ class PlaybackService : MediaSessionService() {
     @Inject lateinit var autoEqProcessor: AutoEqProcessor
     @Inject lateinit var parametricEqProcessor: ParametricEqProcessor
     @Inject lateinit var spectrumAnalyzerTap: SpectrumAnalyzerTap
-    @Inject lateinit var spatialProcessor: SpatialAudioProcessor
 
     private var mediaSession: MediaSession? = null
     private lateinit var player: ExoPlayer
@@ -212,7 +210,6 @@ class PlaybackService : MediaSessionService() {
                         .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
                         .setAudioProcessors(
                             arrayOf(
-                                spatialProcessor,       // Dolby Atmos: multichannel → binaural (first in chain)
                                 mixBusProcessor,        // DSP engine (mixer/effects)
                                 autoEqProcessor,        // AutoEQ (independent, always-on when enabled)
                                 parametricEqProcessor,  // Parametric EQ (after AutoEQ, stacks on top)
@@ -237,28 +234,6 @@ class PlaybackService : MediaSessionService() {
                 }
             }
 
-            override fun buildAudioRenderers(
-                context: android.content.Context,
-                extensionRendererMode: Int,
-                mediaCodecSelector: androidx.media3.exoplayer.mediacodec.MediaCodecSelector,
-                enableDecoderFallback: Boolean,
-                audioSink: AudioSink,
-                eventHandler: android.os.Handler,
-                eventListener: androidx.media3.exoplayer.audio.AudioRendererEventListener,
-                out: java.util.ArrayList<androidx.media3.exoplayer.Renderer>
-            ) {
-                out.add(tf.monochrome.android.player.atmos.AtmosAudioRenderer(eventHandler, eventListener, audioSink, mixBusProcessor))
-                super.buildAudioRenderers(
-                    context, 
-                    extensionRendererMode, 
-                    mediaCodecSelector, 
-                    enableDecoderFallback, 
-                    audioSink, 
-                    eventHandler, 
-                    eventListener, 
-                    out
-                )
-            }
         }
     }
 
