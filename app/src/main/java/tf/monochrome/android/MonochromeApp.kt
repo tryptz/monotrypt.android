@@ -24,6 +24,24 @@ import javax.inject.Inject
 @HiltAndroidApp
 class MonochromeApp : Application(), Configuration.Provider, SingletonImageLoader.Factory {
 
+    companion object {
+        init {
+            // Cap the coroutine Default scheduler to 2 workers so background work
+            // (FFT tap, scanner, sync, Palette decode) can't pile up on every
+            // available core. Target profile: a 2022 mid-range phone (2 perf
+            // cores, 6 efficiency cores). On an 8-core SoC the default pool
+            // would be 8 workers and could saturate the whole CPU, leaving the
+            // UI thread starved. The IO pool is still allowed to grow for
+            // concurrent blocking disk/network, but bounded.
+            //
+            // These must be set before any Dispatchers.Default access, which is
+            // why this lives in a companion-object `init` — it runs when the
+            // Application class is loaded, before onCreate().
+            System.setProperty("kotlinx.coroutines.scheduler.core.pool.size", "2")
+            System.setProperty("kotlinx.coroutines.scheduler.max.pool.size", "6")
+        }
+    }
+
     @Inject
     lateinit var workerFactory: HiltWorkerFactory
 
