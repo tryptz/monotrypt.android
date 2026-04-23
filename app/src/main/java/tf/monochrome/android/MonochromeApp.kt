@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import tf.monochrome.android.data.auth.SupabaseAuthManager
 import tf.monochrome.android.data.device.DeviceRegistry
+import tf.monochrome.android.debug.DebugLogCollector
 import tf.monochrome.android.performance.DeviceCapabilities
 import tf.monochrome.android.performance.PerformanceProfile
 import javax.inject.Inject
@@ -69,6 +70,9 @@ class MonochromeApp : Application(), Configuration.Provider, SingletonImageLoade
     @Inject
     lateinit var deviceRegistry: DeviceRegistry
 
+    @Inject
+    lateinit var debugLogCollector: DebugLogCollector
+
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override val workManagerConfiguration: Configuration
@@ -101,6 +105,9 @@ class MonochromeApp : Application(), Configuration.Provider, SingletonImageLoade
 
     override fun onCreate() {
         super.onCreate()
+        // Start the in-app logcat collector as early as possible so the "View
+        // debug log" screen has a buffered history from (almost) app start.
+        debugLogCollector.start()
         // Restore auth on app start, then register this device against whichever
         // user is signed in. The collector re-fires on sign-in / sign-out.
         appScope.launch {
