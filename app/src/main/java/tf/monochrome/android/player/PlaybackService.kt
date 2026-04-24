@@ -181,6 +181,7 @@ class PlaybackService : MediaSessionService() {
         )
         mediaSession = MediaSession.Builder(this, forwardingPlayer)
             .setSessionActivity(createSessionActivity())
+            .setCallback(PlaybackResumptionCallback())
             .build()
 
         // Seamlessly apply playback speed when settings change
@@ -544,5 +545,43 @@ class PlaybackService : MediaSessionService() {
             }
             parametricEqProcessor.applyBands(bands, preamp.toFloat(), enabled)
         } catch (_: Exception) { }
+    }
+
+    /**
+     * Restores the last-known queue when the user taps play on a detached
+     * notification / lock-screen button / BT remote after the MediaSession
+     * has been idle. Without this, Media3 falls back to the default
+     * `MediaSession.Callback.onPlaybackResumption` which throws
+     * `UnsupportedOperationException` (visible in logcat as a big stack
+     * trace) and the play tap silently does nothing.
+     *
+     * Returns the current QueueManager contents rebuilt into MediaItems.
+     * The returned items carry only the track id as mediaId — they aren't
+     * directly playable; when Media3 calls `player.prepare()` our
+     * onMediaItemTransition listener and the existing `playQueue()` path
+     * take over to resolve the actual stream URL.
+     */
+    private inner class PlaybackResumptionCallback : MediaSession.Callback {
+        override fun onPlaybackResumption(
+            mediaSession: MediaSession,
+            controller: MediaSession.ControllerInfo,
+        ): com.google.common.util.concurrent.ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+            val snapshot = queueManager.currentQueue
+            val index = queueManager.currentQueueIndex.coerceAtLeast(0)
+            val items = snapshot.map { track ->
+                MediaItem.Builder()
+                    .setMediaId(track.id.toString())
+                    .build()
+            }
+            // Empty queue on first launch → hand back an empty resumption;
+            // Media3 treats that as "nothing to resume" and the user lands
+            // on Home instead of the play tap being silently eaten.
+            val resumption = MediaSession.MediaItemsWithStartPosition(
+                items,
+                index,
+                /* startPositionMs = */ 0L,
+            )
+            return com.google.common.util.concurrent.Futures.immediateFuture(resumption)
+        }
     }
 }
