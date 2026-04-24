@@ -252,6 +252,29 @@ class PlaybackService : MediaSessionService() {
                 setExtensionRendererMode(EXTENSION_RENDERER_MODE_ON)
             }
 
+            // Wrap the platform-default MediaCodecAdapter.Factory in
+            // ImportanceMediaCodecAdapterFactory so every codec we configure
+            // (AAC, Opus, ALAC, Vorbis, FLAC, …) gets KEY_IMPORTANCE = 0 set
+            // in its MediaFormat. That marks our codecs as the last to be
+            // reclaimed by Android's IResourceManagerService — without it,
+            // mid-track and during cross-format transitions logcat shows
+            // `E MediaCodec: Released by resource manager` followed by
+            // audio dropouts.
+            //
+            // Cached so successive calls return the same wrapper instance
+            // (DefaultRenderersFactory calls getCodecAdapterFactory() per
+            // renderer construction).
+            private var cachedImportanceFactory:
+                androidx.media3.exoplayer.mediacodec.MediaCodecAdapter.Factory? = null
+
+            override fun getCodecAdapterFactory():
+                androidx.media3.exoplayer.mediacodec.MediaCodecAdapter.Factory {
+                cachedImportanceFactory?.let { return it }
+                val wrapped = ImportanceMediaCodecAdapterFactory(super.getCodecAdapterFactory())
+                cachedImportanceFactory = wrapped
+                return wrapped
+            }
+
             override fun buildAudioSink(
                 context: android.content.Context,
                 enableFloatOutput: Boolean,
