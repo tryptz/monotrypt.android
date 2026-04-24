@@ -102,31 +102,37 @@ class ParametricEqProcessor @Inject constructor() : AudioProcessor {
             scratchR = FloatArray(numFrames)
         }
 
+        // Deinterleave with index-based reads — no asFloatBuffer / asShortBuffer
+        // view allocations on the audio thread.
+        val startPos = inputBuffer.position()
         if (inputChannels == 1) {
             if (encoding == C.ENCODING_PCM_FLOAT) {
-                val fb = inputBuffer.asFloatBuffer()
                 for (i in 0 until numFrames) {
-                    val s = fb.get(); scratchL[i] = s; scratchR[i] = s
+                    val s = inputBuffer.getFloat(startPos + i * 4)
+                    scratchL[i] = s; scratchR[i] = s
                 }
             } else {
-                val sb = inputBuffer.asShortBuffer()
                 for (i in 0 until numFrames) {
-                    val s = sb.get().toFloat() / 32768f; scratchL[i] = s; scratchR[i] = s
+                    val s = inputBuffer.getShort(startPos + i * 2).toFloat() / 32768f
+                    scratchL[i] = s; scratchR[i] = s
                 }
             }
         } else {
             if (encoding == C.ENCODING_PCM_FLOAT) {
-                val fb = inputBuffer.asFloatBuffer()
-                for (i in 0 until numFrames) { scratchL[i] = fb.get(); scratchR[i] = fb.get() }
-            } else {
-                val sb = inputBuffer.asShortBuffer()
                 for (i in 0 until numFrames) {
-                    scratchL[i] = sb.get().toFloat() / 32768f
-                    scratchR[i] = sb.get().toFloat() / 32768f
+                    val off = startPos + i * 8
+                    scratchL[i] = inputBuffer.getFloat(off)
+                    scratchR[i] = inputBuffer.getFloat(off + 4)
+                }
+            } else {
+                for (i in 0 until numFrames) {
+                    val off = startPos + i * 4
+                    scratchL[i] = inputBuffer.getShort(off).toFloat() / 32768f
+                    scratchR[i] = inputBuffer.getShort(off + 2).toFloat() / 32768f
                 }
             }
         }
-        inputBuffer.position(inputBuffer.position() + numFrames * frameSize)
+        inputBuffer.position(startPos + numFrames * frameSize)
 
         val snap = stateRef.get()
         if (snap.enabled) {
@@ -144,14 +150,18 @@ class ParametricEqProcessor @Inject constructor() : AudioProcessor {
         } else {
             outputBuffer.clear()
         }
+        // Interleave via positional put* — no view allocations on the hot path.
         if (encoding == C.ENCODING_PCM_FLOAT) {
-            val fb = outputBuffer.asFloatBuffer()
-            for (i in 0 until numFrames) { fb.put(scratchL[i]); fb.put(scratchR[i]) }
-        } else {
-            val sb = outputBuffer.asShortBuffer()
             for (i in 0 until numFrames) {
-                sb.put((scratchL[i] * 32768f).toInt().coerceIn(-32768, 32767).toShort())
-                sb.put((scratchR[i] * 32768f).toInt().coerceIn(-32768, 32767).toShort())
+                val off = i * 8
+                outputBuffer.putFloat(off, scratchL[i])
+                outputBuffer.putFloat(off + 4, scratchR[i])
+            }
+        } else {
+            for (i in 0 until numFrames) {
+                val off = i * 4
+                outputBuffer.putShort(off, (scratchL[i] * 32768f).toInt().coerceIn(-32768, 32767).toShort())
+                outputBuffer.putShort(off + 2, (scratchR[i] * 32768f).toInt().coerceIn(-32768, 32767).toShort())
             }
         }
         outputBuffer.position(0)

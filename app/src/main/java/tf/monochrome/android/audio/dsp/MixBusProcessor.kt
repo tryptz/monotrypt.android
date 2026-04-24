@@ -42,6 +42,12 @@ class MixBusProcessor @Inject constructor(
     // JNI native methods
     private external fun nativeCreate(sampleRate: Int, maxBlockSize: Int): Long
     private external fun nativeDestroy(enginePtr: Long)
+    // Live format swap that keeps the bus graph + plugin instances alive.
+    // ExoPlayer flushes AudioProcessors on every track transition; recreating
+    // the engine at that point drops audio for 5–10 ms while plugin
+    // constructors re-allocate FFT tables etc. — audible as a gap between
+    // tracks of different sample rates (44.1k → 48k is the common case).
+    private external fun nativeReconfigure(enginePtr: Long, sampleRate: Int, maxBlockSize: Int)
     private external fun nativeProcess(
         enginePtr: Long,
         inputL: FloatArray, inputR: FloatArray,
@@ -139,41 +145,42 @@ class MixBusProcessor @Inject constructor(
             scratchOutR = FloatArray(numFrames)
         }
 
-        // Deinterleave input to L/R float arrays
+        // Deinterleave input to L/R float arrays. Using index-based getShort /
+        // getFloat rather than `asShortBuffer()` / `asFloatBuffer()` — those
+        // allocate a view wrapper on every queueInput call (4 processors × ~47
+        // Hz = ~190 allocs/sec on the audio thread), which accumulates into
+        // young-gen GC pauses that stall the renderer past the buffer deadline.
+        val startPos = inputBuffer.position()
         if (inputChannels == 1) {
-            // Mono: duplicate to both channels
             if (encoding == C.ENCODING_PCM_FLOAT) {
-                val fb = inputBuffer.asFloatBuffer()
                 for (i in 0 until numFrames) {
-                    val s = fb.get()
+                    val s = inputBuffer.getFloat(startPos + i * 4)
                     scratchInL[i] = s
                     scratchInR[i] = s
                 }
             } else {
-                val sb = inputBuffer.asShortBuffer()
                 for (i in 0 until numFrames) {
-                    val s = sb.get().toFloat() / 32768f
+                    val s = inputBuffer.getShort(startPos + i * 2).toFloat() / 32768f
                     scratchInL[i] = s
                     scratchInR[i] = s
                 }
             }
         } else {
-            // Stereo
             if (encoding == C.ENCODING_PCM_FLOAT) {
-                val fb = inputBuffer.asFloatBuffer()
                 for (i in 0 until numFrames) {
-                    scratchInL[i] = fb.get()
-                    scratchInR[i] = fb.get()
+                    val off = startPos + i * 8
+                    scratchInL[i] = inputBuffer.getFloat(off)
+                    scratchInR[i] = inputBuffer.getFloat(off + 4)
                 }
             } else {
-                val sb = inputBuffer.asShortBuffer()
                 for (i in 0 until numFrames) {
-                    scratchInL[i] = sb.get().toFloat() / 32768f
-                    scratchInR[i] = sb.get().toFloat() / 32768f
+                    val off = startPos + i * 4
+                    scratchInL[i] = inputBuffer.getShort(off).toFloat() / 32768f
+                    scratchInR[i] = inputBuffer.getShort(off + 2).toFloat() / 32768f
                 }
             }
         }
-        inputBuffer.position(inputBuffer.position() + numFrames * frameSize)
+        inputBuffer.position(startPos + numFrames * frameSize)
 
         // Always process through native engine — AutoEQ lives on the master bus
         // and must run regardless of the mixer DSP toggle. The toggle controls
@@ -197,21 +204,23 @@ class MixBusProcessor @Inject constructor(
             outputBuffer.clear()
         }
 
+        // Interleave via positional put* — no asFloatBuffer / asShortBuffer view
+        // allocations on the hot path.
         if (encoding == C.ENCODING_PCM_FLOAT) {
-            val fb = outputBuffer.asFloatBuffer()
             for (i in 0 until numFrames) {
-                fb.put(useL[i])
-                fb.put(useR[i])
+                val off = i * 8
+                outputBuffer.putFloat(off, useL[i])
+                outputBuffer.putFloat(off + 4, useR[i])
             }
         } else {
             // PCM16 output with TPDF dithering (triangular 1-LSB noise)
-            val sb = outputBuffer.asShortBuffer()
             for (i in 0 until numFrames) {
                 val d1 = nextDitherSample()
                 val d2 = nextDitherSample()
-                val dither = (d1 + d2) // TPDF: sum of two uniform = triangular
-                sb.put(((useL[i] * 32768f) + dither).toInt().coerceIn(-32768, 32767).toShort())
-                sb.put(((useR[i] * 32768f) + dither).toInt().coerceIn(-32768, 32767).toShort())
+                val dither = d1 + d2 // TPDF: sum of two uniform = triangular
+                val off = i * 4
+                outputBuffer.putShort(off, ((useL[i] * 32768f) + dither).toInt().coerceIn(-32768, 32767).toShort())
+                outputBuffer.putShort(off + 2, ((useR[i] * 32768f) + dither).toInt().coerceIn(-32768, 32767).toShort())
             }
         }
         outputBuffer.position(0)
@@ -245,23 +254,21 @@ class MixBusProcessor @Inject constructor(
             || inputFormat.channelCount != pendingFormat.channelCount
 
         if (formatChanged) {
-            // Save current state so it survives engine recreation
-            val savedState = if (enginePtr != 0L) nativeGetStateJson(enginePtr) else null
-
-            if (enginePtr != 0L) {
-                nativeDestroy(enginePtr)
-            }
             inputFormat = pendingFormat
-            enginePtr = nativeCreate(inputFormat.sampleRate, MAX_BLOCK_SIZE)
+            if (enginePtr == 0L) {
+                // Cold start — no existing engine, full construct + state restore.
+                enginePtr = nativeCreate(inputFormat.sampleRate, MAX_BLOCK_SIZE)
+            } else {
+                // Hot path — live reconfigure keeps the bus graph, plugin
+                // instances, and every atomic parameter untouched. No state
+                // JSON round-trip, no FFT table reallocation, no audible gap.
+                nativeReconfigure(enginePtr, inputFormat.sampleRate, MAX_BLOCK_SIZE)
+            }
 
-            // Prepare Oxford post-chain at the new sample rate (always stereo — output is stereo)
+            // Oxford post-chain isn't part of the native engine; still needs
+            // its own sample-rate prep call on every format change.
             inflator.prepare(inputFormat.sampleRate.toDouble(), 2)
             compressor.prepare(inputFormat.sampleRate.toDouble(), 2)
-
-            // Restore state into the new engine immediately (same thread, no race)
-            if (!savedState.isNullOrEmpty() && savedState != "{}") {
-                nativeLoadStateJson(enginePtr, savedState)
-            }
 
             // Signal ready (false→true transition ensures StateFlow emits)
             _engineReady.value = false

@@ -85,6 +85,25 @@ class PlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
 
+        // Tuned for hi-fi streaming: buffer 30 s minimum and 120 s cap so a
+        // brief cell-signal dip mid-track doesn't rebuffer, and the 48 kHz
+        // Opus / FLAC / ALAC tail has room without starving the audio
+        // thread. Playback starts after 2.5 s of buffered audio (down from
+        // the 5 s default) so tapping play feels immediate on a warm cache;
+        // rebuffer after an underrun waits for 5 s so we don't churn. See
+        // androidx.media3.exoplayer.DefaultLoadControl defaults — this
+        // widens the ceiling by 2-3× to absorb hi-bitrate streams.
+        val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                /* minBufferMs */ 30_000,
+                /* maxBufferMs */ 120_000,
+                /* bufferForPlaybackMs */ 2_500,
+                /* bufferForPlaybackAfterRebufferMs */ 5_000,
+            )
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .setTargetBufferBytes(C.LENGTH_UNSET)
+            .build()
+
         player = ExoPlayer.Builder(this, buildRenderersFactory())
             .setAudioAttributes(
                 AudioAttributes.Builder()
@@ -95,7 +114,19 @@ class PlaybackService : MediaSessionService() {
             )
             .setHandleAudioBecomingNoisy(true)
             .setWakeMode(C.WAKE_MODE_LOCAL)
+            .setLoadControl(loadControl)
             .build()
+            .apply {
+                // Spins up the next media item's decoder + fills 10 s of its
+                // buffer before the current track ends. Paired with the DSP
+                // engine's live reconfigure path (no destroy/create), this
+                // is what makes cross-sample-rate transitions silent.
+                setPreloadConfiguration(
+                    ExoPlayer.PreloadConfiguration(
+                        /* targetPreloadDurationUs */ 10_000_000L,
+                    )
+                )
+            }
 
         player.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -150,6 +181,7 @@ class PlaybackService : MediaSessionService() {
         )
         mediaSession = MediaSession.Builder(this, forwardingPlayer)
             .setSessionActivity(createSessionActivity())
+            .setCallback(PlaybackResumptionCallback())
             .build()
 
         // Seamlessly apply playback speed when settings change
@@ -219,6 +251,29 @@ class PlaybackService : MediaSessionService() {
         return object : io.github.anilbeesetti.nextlib.media3ext.ffdecoder.NextRenderersFactory(this@PlaybackService) {
             init {
                 setExtensionRendererMode(EXTENSION_RENDERER_MODE_ON)
+            }
+
+            // Wrap the platform-default MediaCodecAdapter.Factory in
+            // ImportanceMediaCodecAdapterFactory so every codec we configure
+            // (AAC, Opus, ALAC, Vorbis, FLAC, …) gets KEY_IMPORTANCE = 0 set
+            // in its MediaFormat. That marks our codecs as the last to be
+            // reclaimed by Android's IResourceManagerService — without it,
+            // mid-track and during cross-format transitions logcat shows
+            // `E MediaCodec: Released by resource manager` followed by
+            // audio dropouts.
+            //
+            // Cached so successive calls return the same wrapper instance
+            // (DefaultRenderersFactory calls getCodecAdapterFactory() per
+            // renderer construction).
+            private var cachedImportanceFactory:
+                androidx.media3.exoplayer.mediacodec.MediaCodecAdapter.Factory? = null
+
+            override fun getCodecAdapterFactory():
+                androidx.media3.exoplayer.mediacodec.MediaCodecAdapter.Factory {
+                cachedImportanceFactory?.let { return it }
+                val wrapped = ImportanceMediaCodecAdapterFactory(super.getCodecAdapterFactory())
+                cachedImportanceFactory = wrapped
+                return wrapped
             }
 
             override fun buildAudioSink(
@@ -490,5 +545,45 @@ class PlaybackService : MediaSessionService() {
             }
             parametricEqProcessor.applyBands(bands, preamp.toFloat(), enabled)
         } catch (_: Exception) { }
+    }
+
+    /**
+     * Restores the last-known queue when the user taps play on a detached
+     * notification / lock-screen button / BT remote after the MediaSession
+     * has been idle. Without this, Media3 falls back to the default
+     * `MediaSession.Callback.onPlaybackResumption` which throws
+     * `UnsupportedOperationException` (visible in logcat as a big stack
+     * trace) and the play tap silently does nothing.
+     *
+     * Returns the current QueueManager contents rebuilt into MediaItems.
+     * The returned items carry only the track id as mediaId — they aren't
+     * directly playable; when Media3 calls `player.prepare()` our
+     * onMediaItemTransition listener and the existing `playQueue()` path
+     * take over to resolve the actual stream URL.
+     */
+    @OptIn(UnstableApi::class)
+    private inner class PlaybackResumptionCallback : MediaSession.Callback {
+        @OptIn(UnstableApi::class)
+        override fun onPlaybackResumption(
+            mediaSession: MediaSession,
+            controller: MediaSession.ControllerInfo,
+        ): com.google.common.util.concurrent.ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+            val snapshot = queueManager.currentQueue
+            val index = queueManager.currentQueueIndex.coerceAtLeast(0)
+            val items = snapshot.map { track ->
+                MediaItem.Builder()
+                    .setMediaId(track.id.toString())
+                    .build()
+            }
+            // Empty queue on first launch → hand back an empty resumption;
+            // Media3 treats that as "nothing to resume" and the user lands
+            // on Home instead of the play tap being silently eaten.
+            val resumption = MediaSession.MediaItemsWithStartPosition(
+                items,
+                index,
+                /* startPositionMs = */ 0L,
+            )
+            return com.google.common.util.concurrent.Futures.immediateFuture(resumption)
+        }
     }
 }

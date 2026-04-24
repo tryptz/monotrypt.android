@@ -289,38 +289,40 @@ class SpectrumAnalyzerTap @Inject constructor(
         val startPos = inputBuffer.position()
 
         if (analysisActive) {
-            // Mono-sum into ring buffer
+            // Mono-sum into ring buffer via index-based reads — no duplicate() /
+            // asFloatBuffer() / asShortBuffer() wrapper allocations per call.
             val ringLocal = ring
             val ringLen = ringLocal.size
             var w = ringWrite
             if (encoding == C.ENCODING_PCM_FLOAT) {
-                val dup = inputBuffer.duplicate().order(inputBuffer.order()).asFloatBuffer()
                 if (channels == 1) {
                     for (i in 0 until numFrames) {
-                        ringLocal[w] = dup.get()
+                        ringLocal[w] = inputBuffer.getFloat(startPos + i * 4)
                         w++
                         if (w >= ringLen) w = 0
                     }
                 } else {
                     for (i in 0 until numFrames) {
-                        val l = dup.get(); val r = dup.get()
+                        val off = startPos + i * 8
+                        val l = inputBuffer.getFloat(off)
+                        val r = inputBuffer.getFloat(off + 4)
                         ringLocal[w] = (l + r) * 0.5f
                         w++
                         if (w >= ringLen) w = 0
                     }
                 }
             } else {
-                val dup = inputBuffer.duplicate().order(inputBuffer.order()).asShortBuffer()
                 if (channels == 1) {
                     for (i in 0 until numFrames) {
-                        ringLocal[w] = dup.get().toFloat() / 32768f
+                        ringLocal[w] = inputBuffer.getShort(startPos + i * 2).toFloat() / 32768f
                         w++
                         if (w >= ringLen) w = 0
                     }
                 } else {
                     for (i in 0 until numFrames) {
-                        val l = dup.get().toFloat() / 32768f
-                        val r = dup.get().toFloat() / 32768f
+                        val off = startPos + i * 4
+                        val l = inputBuffer.getShort(off).toFloat() / 32768f
+                        val r = inputBuffer.getShort(off + 2).toFloat() / 32768f
                         ringLocal[w] = (l + r) * 0.5f
                         w++
                         if (w >= ringLen) w = 0
@@ -330,18 +332,21 @@ class SpectrumAnalyzerTap @Inject constructor(
             ringWrite = w
         }
 
-        // Pass through — wrap the input slice as-is
+        // Pass through without allocating a duplicate ByteBuffer wrapper.
+        // Temporarily narrow the source limit so put(src) copies exactly the
+        // slice we want, then restore. The relative `put(ByteBuffer)` call
+        // advances both positions — inputBuffer ends at startPos + byteCount,
+        // matching what DefaultAudioSink expects from an AudioProcessor.
         if (outputBuffer.capacity() < byteCount) {
             outputBuffer = ByteBuffer.allocateDirect(byteCount).order(ByteOrder.nativeOrder())
         } else {
             outputBuffer.clear()
         }
-        val srcDup = inputBuffer.duplicate().order(inputBuffer.order())
-        srcDup.limit(startPos + byteCount)
-        srcDup.position(startPos)
-        outputBuffer.put(srcDup)
+        val savedLimit = inputBuffer.limit()
+        inputBuffer.limit(startPos + byteCount)
+        outputBuffer.put(inputBuffer)
+        inputBuffer.limit(savedLimit)
         outputBuffer.flip()
-        inputBuffer.position(startPos + byteCount)
     }
 
     override fun getOutput(): ByteBuffer {
