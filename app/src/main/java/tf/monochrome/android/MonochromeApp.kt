@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import tf.monochrome.android.data.auth.SupabaseAuthManager
 import tf.monochrome.android.data.device.DeviceRegistry
+import tf.monochrome.android.debug.CrashLogger
 import tf.monochrome.android.debug.DebugLogCollector
 import tf.monochrome.android.performance.DeviceCapabilities
 import tf.monochrome.android.performance.PerformanceProfile
@@ -76,6 +77,9 @@ class MonochromeApp : Application(), Configuration.Provider, SingletonImageLoade
     @Inject
     lateinit var debugLogCollector: DebugLogCollector
 
+    @Inject
+    lateinit var crashLogger: CrashLogger
+
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override val workManagerConfiguration: Configuration
@@ -108,6 +112,11 @@ class MonochromeApp : Application(), Configuration.Provider, SingletonImageLoade
 
     override fun onCreate() {
         super.onCreate()
+        // Catch uncaught exceptions and dump the in-memory log + stack trace
+        // to Downloads/monotrypt-crash-<timestamp>.log before chaining to the
+        // system handler. Installed before anything else so a crash anywhere
+        // in onCreate is captured.
+        crashLogger.install()
         // Pre-create the Now Playing channel so the first foreground-service
         // notification from Media3 has a named channel instead of showing up
         // under "default" in Android Settings → App → Notifications. Media3
