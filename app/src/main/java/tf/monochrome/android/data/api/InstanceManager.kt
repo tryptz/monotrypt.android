@@ -127,6 +127,16 @@ class InstanceManager @Inject constructor(
         }
     }
 
+    // Strict resolution of the configured Qobuz instance — null when unset.
+    // Unlike getInstances(DOWNLOAD), this never falls back to the TIDAL pool,
+    // so callers like Qobuz-only search don't accidentally duplicate TIDAL
+    // results when the user hasn't configured a Qobuz endpoint.
+    suspend fun qobuzInstanceOrNull(): Instance? {
+        val raw = preferences.qobuzInstanceUrl.first()?.trim()?.takeIf { it.isNotBlank() }
+            ?: return null
+        return Instance(raw.trimEnd('/'))
+    }
+
     private fun isCacheValid(): Boolean {
         return System.currentTimeMillis() - cacheTimestamp < CACHE_DURATION_MS
     }

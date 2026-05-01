@@ -7,6 +7,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -40,6 +41,12 @@ class SearchViewModel @Inject constructor(
      */
     companion object {
         private const val SEARCH_DEBOUNCE_MS = 250L
+        // Hard ceiling on the Qobuz fan-out so the TIDAL flow can never be
+        // blocked behind a slow or hung Qobuz instance (coroutineScope waits
+        // for all children, so an unbounded child would freeze the whole
+        // search). HiFiApiClient.searchQobuz already times out per
+        // sub-request — this is a belt-and-suspenders ceiling.
+        private const val QOBUZ_BUDGET_MS = 7_000L
         private const val SCORE_WEIGHT_PRIMARY = 4_000
         private const val SCORE_WEIGHT_SECONDARY = 1_800
         private const val SCORE_WEIGHT_TERTIARY = 1_200
@@ -177,13 +184,18 @@ class SearchViewModel @Inject constructor(
         // swallowed so the existing TIDAL flow keeps working unchanged.
         val (searchResult, qobuzResult, unifiedResultsResult) = coroutineScope {
             val apiDeferred = async { runCatching { repository.search(trimmedQuery) } }
-            val qobuzDeferred = async { runCatching { repository.searchQobuz(trimmedQuery) } }
+            val qobuzDeferred = async {
+                withTimeoutOrNull(QOBUZ_BUDGET_MS) {
+                    runCatching { repository.searchQobuz(trimmedQuery) }
+                }
+            }
             val libraryDeferred = async { runCatching { unifiedLibrarySearch.search(trimmedQuery).first() } }
             Triple(apiDeferred.await(), qobuzDeferred.await(), libraryDeferred.await())
         }
         val unifiedResults = unifiedResultsResult.getOrNull()
 
-        if (searchResult.isFailure && unifiedResults == null && qobuzResult.isFailure) {
+        val qobuzAvailable = qobuzResult?.isSuccess == true
+        if (searchResult.isFailure && unifiedResults == null && !qobuzAvailable) {
             clearResults()
             _isSearching.value = false
             return
@@ -194,7 +206,7 @@ class SearchViewModel @Inject constructor(
             unifiedResults?.collectionTracks
         ).flatten()
 
-        val qobuzSearch = qobuzResult.getOrNull()?.getOrNull()
+        val qobuzSearch = qobuzResult?.getOrNull()?.getOrNull()
         val qobuzTracks = qobuzSearch?.tracks?.map { it.toQobuzUnifiedTrack() } ?: emptyList()
         val qobuzAlbums = qobuzSearch?.albums ?: emptyList()
         val qobuzArtists = qobuzSearch?.artists ?: emptyList()

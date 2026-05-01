@@ -6,7 +6,10 @@ import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.isSuccess
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import tf.monochrome.android.data.api.model.AlbumResponse
 import tf.monochrome.android.data.api.model.AlbumTrackItem
@@ -46,6 +49,13 @@ class HiFiApiClient @Inject constructor(
     private val json: Json
 ) {
     private val cache = LruCache<String, CacheEntry>(200)
+
+    companion object {
+        // Hard ceiling per Qobuz sub-request so a slow or unreachable Qobuz
+        // instance can't stall the search UI behind coroutineScope's
+        // wait-for-all-children semantics.
+        private const val QOBUZ_REQUEST_TIMEOUT_MS = 6_000L
+    }
 
     private data class CacheEntry(
         val data: Any,
@@ -177,26 +187,34 @@ class HiFiApiClient @Inject constructor(
         )
     }
 
-    // Qobuz catalog search — hits the user-configured Qobuz instance via
-    // InstanceType.DOWNLOAD (same pool used for downloads). Returns an empty
-    // SearchResult when the instance isn't set or the request fails, so the
-    // TIDAL search flow keeps working even if the Qobuz endpoint is offline.
+    // Qobuz catalog search — hits ONLY the user-configured Qobuz instance.
+    // Returns an empty SearchResult when the instance isn't set, the request
+    // times out, or the response can't be parsed, so the TIDAL search flow
+    // is never blocked or duplicated by Qobuz state.
     suspend fun searchQobuz(query: String): SearchResult {
-        suspend fun parsedSearch(path: String) =
-            runCatching {
-                val body = fetchWithRetry(path, instanceType = InstanceType.DOWNLOAD)
-                parseSearchResponse(body)
-            }.getOrNull()
+        val instance = instanceManager.qobuzInstanceOrNull() ?: return SearchResult()
+        val base = instance.url.trimEnd('/')
 
-        val tracks = parsedSearch("/search/?s=${query.encodeUrl()}")?.items?.map { it.toTrack() }
-            ?: emptyList()
-        val albums = parsedSearch("/search/?al=${query.encodeUrl()}")?.items?.map { it.toAlbum() }
-            ?: emptyList()
-        val artists = parsedSearch("/search/?a=${query.encodeUrl()}")?.items?.map { it.toArtist() }
-            ?: emptyList()
-        val playlists = parsedSearch("/search/?p=${query.encodeUrl()}")?.items?.map { it.toPlaylist() }
-            ?: emptyList()
-        return SearchResult(tracks = tracks, albums = albums, artists = artists, playlists = playlists)
+        suspend fun parsedSearch(path: String): SearchResponse? = withTimeoutOrNull(QOBUZ_REQUEST_TIMEOUT_MS) {
+            runCatching {
+                val response = httpClient.get(base + path)
+                if (!response.status.isSuccess()) return@runCatching null
+                parseSearchResponse(response.bodyAsText())
+            }.getOrNull()
+        }
+
+        return coroutineScope {
+            val tracksDeferred = async { parsedSearch("/search/?s=${query.encodeUrl()}") }
+            val albumsDeferred = async { parsedSearch("/search/?al=${query.encodeUrl()}") }
+            val artistsDeferred = async { parsedSearch("/search/?a=${query.encodeUrl()}") }
+            val playlistsDeferred = async { parsedSearch("/search/?p=${query.encodeUrl()}") }
+            SearchResult(
+                tracks = tracksDeferred.await()?.items?.map { it.toTrack() } ?: emptyList(),
+                albums = albumsDeferred.await()?.items?.map { it.toAlbum() } ?: emptyList(),
+                artists = artistsDeferred.await()?.items?.map { it.toArtist() } ?: emptyList(),
+                playlists = playlistsDeferred.await()?.items?.map { it.toPlaylist() } ?: emptyList(),
+            )
+        }
     }
 
     // --- Album ---
