@@ -27,6 +27,9 @@ import javax.inject.Singleton
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "monochrome_prefs")
 
+/** Which catalog(s) drive search and discovery surfaces. */
+enum class SourceMode { BOTH, TIDAL_ONLY, QOBUZ_ONLY }
+
 @Singleton
 class PreferencesManager @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -70,6 +73,7 @@ class PreferencesManager @Inject constructor(
         private val QOBUZ_INSTANCE_URL = stringPreferencesKey("qobuz_instance_url")
         private val QOBUZ_AUTH_COOKIE = stringPreferencesKey("qobuz_auth_cookie")
         private val DEV_MODE_ENABLED = booleanPreferencesKey("dev_mode_enabled")
+        private val SOURCE_MODE = stringPreferencesKey("source_mode")
 
         // Interface
         private val GAPLESS_PLAYBACK = booleanPreferencesKey("gapless_playback")
@@ -368,6 +372,22 @@ class PreferencesManager @Inject constructor(
                 it.remove(QOBUZ_AUTH_COOKIE)
             }
         }
+    }
+
+    /**
+     * Which catalog(s) drive search/discovery. BOTH (default) is the
+     * existing fan-out behavior; TIDAL_ONLY skips the Qobuz call so search
+     * doesn't surface Qobuz hits; QOBUZ_ONLY skips the TIDAL pool. Stream
+     * playback and downloads still follow the per-track PlaybackSource —
+     * the setting only governs which catalogs feed search results.
+     */
+    val sourceMode: Flow<SourceMode> = dataStore.data.map { prefs ->
+        prefs[SOURCE_MODE]?.let { runCatching { SourceMode.valueOf(it) }.getOrNull() }
+            ?: SourceMode.BOTH
+    }
+
+    suspend fun setSourceMode(mode: SourceMode) {
+        dataStore.edit { it[SOURCE_MODE] = mode.name }
     }
 
     val devModeEnabled: Flow<Boolean> = dataStore.data.map { prefs ->

@@ -176,6 +176,12 @@ class SettingsViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
     val devModeEnabled: StateFlow<Boolean> = preferences.devModeEnabled
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    val sourceMode: StateFlow<tf.monochrome.android.data.preferences.SourceMode> =
+        preferences.sourceMode.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            tf.monochrome.android.data.preferences.SourceMode.BOTH,
+        )
     private val _instancesRefreshing = MutableStateFlow(false)
     val instancesRefreshing: StateFlow<Boolean> = _instancesRefreshing.asStateFlow()
 
@@ -445,6 +451,13 @@ class SettingsViewModel @Inject constructor(
     fun setQobuzCookie(cookie: String?) {
         viewModelScope.launch {
             preferences.setQobuzAuthCookie(cookie)
+        }
+    }
+
+    fun setSourceMode(mode: tf.monochrome.android.data.preferences.SourceMode) {
+        viewModelScope.launch {
+            preferences.setSourceMode(mode)
+            loadInstances()
         }
     }
 

@@ -183,10 +183,28 @@ class SearchViewModel @Inject constructor(
         // Qobuz failures (instance unset, network error, schema mismatch) are
         // swallowed so the existing TIDAL flow keeps working unchanged.
         val (searchResult, qobuzResult, unifiedResultsResult) = coroutineScope {
-            val apiDeferred = async { runCatching { repository.search(trimmedQuery) } }
+            // Source mode (Settings → Instances → Source) gates which
+            // catalogs we fan out to. TIDAL_ONLY / QOBUZ_ONLY skip the
+            // disabled side; BOTH (default) keeps the existing behavior.
+            val sourceMode = preferences.sourceMode.first()
+            val apiDeferred = async {
+                if (sourceMode == tf.monochrome.android.data.preferences.SourceMode.QOBUZ_ONLY) {
+                    runCatching {
+                        Result.failure<tf.monochrome.android.domain.model.SearchResult>(
+                            IllegalStateException("TIDAL disabled by source mode")
+                        )
+                    }
+                } else {
+                    runCatching { repository.search(trimmedQuery) }
+                }
+            }
             val qobuzDeferred = async {
-                withTimeoutOrNull(QOBUZ_BUDGET_MS) {
-                    runCatching { repository.searchQobuz(trimmedQuery) }
+                if (sourceMode == tf.monochrome.android.data.preferences.SourceMode.TIDAL_ONLY) {
+                    null
+                } else {
+                    withTimeoutOrNull(QOBUZ_BUDGET_MS) {
+                        runCatching { repository.searchQobuz(trimmedQuery) }
+                    }
                 }
             }
             val libraryDeferred = async { runCatching { unifiedLibrarySearch.search(trimmedQuery).first() } }

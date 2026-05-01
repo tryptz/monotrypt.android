@@ -45,6 +45,9 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -1053,12 +1056,49 @@ private fun InstancesTab(viewModel: SettingsViewModel) {
     val qobuzEndpoint by viewModel.qobuzEndpoint.collectAsState()
     val qobuzCookie by viewModel.qobuzCookie.collectAsState()
     val devModeEnabled by viewModel.devModeEnabled.collectAsState()
+    val sourceMode by viewModel.sourceMode.collectAsState()
     val refreshing by viewModel.instancesRefreshing.collectAsState()
     var customInput by remember(customEndpoint) { mutableStateOf(customEndpoint ?: "") }
     var qobuzInput by remember(qobuzEndpoint) { mutableStateOf(qobuzEndpoint ?: "") }
     var qobuzCookieInput by remember(qobuzCookie) { mutableStateOf(qobuzCookie ?: "") }
 
     SettingsTabContent {
+        // Source mode picker — controls which catalogs feed search/discovery.
+        // Plays/downloads still follow the per-track PlaybackSource so a
+        // download you triggered earlier keeps working regardless of this
+        // setting.
+        Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+            Text(
+                text = "Catalog source",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = "Which catalogs power Search and Browse.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            val sourceOptions = listOf(
+                tf.monochrome.android.data.preferences.SourceMode.BOTH to "Both",
+                tf.monochrome.android.data.preferences.SourceMode.TIDAL_ONLY to "TIDAL only",
+                tf.monochrome.android.data.preferences.SourceMode.QOBUZ_ONLY to "Qobuz only",
+            )
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                sourceOptions.forEachIndexed { index, (mode, label) ->
+                    SegmentedButton(
+                        selected = sourceMode == mode,
+                        onClick = { viewModel.setSourceMode(mode) },
+                        shape = SegmentedButtonDefaults.itemShape(index, sourceOptions.size),
+                    ) {
+                        Text(label)
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
         SettingSwitchItem(
             title = "Dev Mode",
             subtitle = "Route all Tidal API/streaming requests through your own server. Requires a compatible Tidal HiFi instance at the URL below.",
