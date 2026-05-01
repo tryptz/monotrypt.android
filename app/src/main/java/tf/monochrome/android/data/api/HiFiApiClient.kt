@@ -126,7 +126,28 @@ class HiFiApiClient @Inject constructor(
                         instanceIndex++
                     }
                     response.status.isSuccess() -> {
-                        return response.bodyAsText()
+                        val body = response.bodyAsText()
+                        // Reject HTML payloads — most often the user has Dev
+                        // Mode pointed at a SPA (e.g. trypt-hifi root) that
+                        // serves index.html for any unknown path. Surfacing
+                        // the raw HTML to a JSON parser produces a confusing
+                        // 'Unexpected JSON token at offset 0' error in the
+                        // detail screens; treat it as an instance failure
+                        // and fall through to the next one. Sniff only the
+                        // first non-whitespace char so we don't allocate a
+                        // copy of large bodies just to check.
+                        val sniff = body.asSequence().take(64)
+                            .dropWhile { it.isWhitespace() }
+                            .firstOrNull()
+                        if (sniff == '<') {
+                            lastError = Exception(
+                                "Instance returned HTML instead of JSON " +
+                                    "(check Settings → Instances → Dev Mode URL)"
+                            )
+                            instanceIndex++
+                        } else {
+                            return body
+                        }
                     }
                     else -> {
                         lastError = Exception("HTTP ${response.status.value}")
