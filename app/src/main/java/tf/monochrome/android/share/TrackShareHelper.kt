@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.util.Log
+import android.widget.Toast
 import androidx.core.content.FileProvider
 import androidx.core.net.toUri
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -47,18 +48,37 @@ class TrackShareHelper @Inject constructor(
         if (downloaded != null) {
             return@withContext shareDownloadedTrack(downloaded)
         }
-        // Fall back to whatever's parked in the Qobuz cache. Try the qualities
-        // we actually save under — LOSSLESS first, then HI_RES, since the
-        // cache key encodes (id, quality) and we don't know which qualities
-        // the user has played at.
+        // Already cached from a previous play? Try the qualities we save under
+        // — LOSSLESS first, then HI_RES, since the cache key encodes (id,
+        // quality) and we don't know which qualities the user has played at.
         for (quality in arrayOf(AudioQuality.LOSSLESS, AudioQuality.HI_RES, AudioQuality.HIGH, AudioQuality.LOW)) {
             val cached = runCatching { qobuzCache.peekCached(track.id, quality) }.getOrNull()
             if (cached != null) {
                 return@withContext shareLocalFile(cached, track.title, mimeFor(cached.name))
             }
         }
-        Log.i(TAG, "shareTrack: no local file for trackId=${track.id}")
+        // Download-on-demand: nothing local, so reach out to the Qobuz
+        // instance and pull the file into the playback cache, then share
+        // from there. This may take several seconds for a typical FLAC —
+        // surface a Toast so the user knows the tap registered.
+        // PlayerViewModel.shareTrack drives this from viewModelScope so
+        // the fetch outlives the originating tap.
+        toast("Preparing ${track.title} for share…")
+        val fetched = runCatching {
+            qobuzCache.getOrFetch(track.id, AudioQuality.LOSSLESS)
+        }.getOrNull()
+        if (fetched != null) {
+            return@withContext shareLocalFile(fetched, track.title, mimeFor(fetched.name))
+        }
+        toast("No file available to share")
+        Log.i(TAG, "shareTrack: no local file and download-on-demand failed for trackId=${track.id}")
         false
+    }
+
+    private suspend fun toast(message: String) {
+        withContext(Dispatchers.Main) {
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        }
     }
 
     fun shareDownloadedTrack(entity: DownloadedTrackEntity): Boolean {
