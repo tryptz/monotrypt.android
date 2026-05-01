@@ -63,6 +63,7 @@ class SearchViewModel @Inject constructor(
     enum class SearchSourceFilter(val label: String, val sourceType: SourceType?) {
         ALL("All", null),
         TIDAL("TIDAL", SourceType.API),
+        QOBUZ("Qobuz", SourceType.QOBUZ),
         LOCAL("Local", SourceType.LOCAL),
         COLLECTION("Collection", SourceType.COLLECTION)
     }
@@ -171,14 +172,18 @@ class SearchViewModel @Inject constructor(
     private suspend fun performSearch(query: String) {
         _isSearching.value = true
         val trimmedQuery = query.trim()
-        val (searchResult, unifiedResultsResult) = coroutineScope {
+        // TIDAL, Qobuz, and the local/collection library all run in parallel.
+        // Qobuz failures (instance unset, network error, schema mismatch) are
+        // swallowed so the existing TIDAL flow keeps working unchanged.
+        val (searchResult, qobuzResult, unifiedResultsResult) = coroutineScope {
             val apiDeferred = async { runCatching { repository.search(trimmedQuery) } }
+            val qobuzDeferred = async { runCatching { repository.searchQobuz(trimmedQuery) } }
             val libraryDeferred = async { runCatching { unifiedLibrarySearch.search(trimmedQuery).first() } }
-            apiDeferred.await() to libraryDeferred.await()
+            Triple(apiDeferred.await(), qobuzDeferred.await(), libraryDeferred.await())
         }
         val unifiedResults = unifiedResultsResult.getOrNull()
 
-        if (searchResult.isFailure && unifiedResults == null) {
+        if (searchResult.isFailure && unifiedResults == null && qobuzResult.isFailure) {
             clearResults()
             _isSearching.value = false
             return
@@ -189,27 +194,45 @@ class SearchViewModel @Inject constructor(
             unifiedResults?.collectionTracks
         ).flatten()
 
+        val qobuzSearch = qobuzResult.getOrNull()?.getOrNull()
+        val qobuzTracks = qobuzSearch?.tracks?.map { it.toQobuzUnifiedTrack() } ?: emptyList()
+        val qobuzAlbums = qobuzSearch?.albums ?: emptyList()
+        val qobuzArtists = qobuzSearch?.artists ?: emptyList()
+        val qobuzPlaylists = qobuzSearch?.playlists ?: emptyList()
+
         if (searchResult.getOrNull()?.isSuccess == true) {
             val result = searchResult.getOrThrow().getOrThrow()
             _allTracks.value = scoreTracks(
                 query = trimmedQuery,
                 tracks = localAndCollectionTracks +
-                    result.tracks.map { it.toUnifiedTrack() }
+                    result.tracks.map { it.toUnifiedTrack() } +
+                    qobuzTracks
             )
-            _allAlbums.value = scoreItems(trimmedQuery, result.albums) { listOf(it.title, it.displayArtist) }
-            _allArtists.value = scoreItems(trimmedQuery, result.artists) { listOf(it.name) }
-            _allPlaylists.value = scoreItems(trimmedQuery, result.playlists) {
-                listOfNotNull(it.title, it.creator?.name, it.description)
-            }
+            _allAlbums.value = scoreItems(
+                trimmedQuery,
+                (result.albums + qobuzAlbums).distinctBy { it.id },
+            ) { listOf(it.title, it.displayArtist) }
+            _allArtists.value = scoreItems(
+                trimmedQuery,
+                (result.artists + qobuzArtists).distinctBy { it.id },
+            ) { listOf(it.name) }
+            _allPlaylists.value = scoreItems(
+                trimmedQuery,
+                (result.playlists + qobuzPlaylists).distinctBy { it.uuid },
+            ) { listOfNotNull(it.title, it.creator?.name, it.description) }
             preferences.addSearchHistoryQuery(trimmedQuery)
         } else {
+            // TIDAL is down — still surface Qobuz + local results so search
+            // doesn't feel broken when the public TIDAL pool is unreachable.
             _allTracks.value = scoreTracks(
                 query = trimmedQuery,
-                tracks = localAndCollectionTracks
+                tracks = localAndCollectionTracks + qobuzTracks
             )
-            _allAlbums.value = emptyList()
-            _allArtists.value = emptyList()
-            _allPlaylists.value = emptyList()
+            _allAlbums.value = scoreItems(trimmedQuery, qobuzAlbums) { listOf(it.title, it.displayArtist) }
+            _allArtists.value = scoreItems(trimmedQuery, qobuzArtists) { listOf(it.name) }
+            _allPlaylists.value = scoreItems(trimmedQuery, qobuzPlaylists) {
+                listOfNotNull(it.title, it.creator?.name, it.description)
+            }
         }
         _isSearching.value = false
     }
@@ -237,6 +260,26 @@ class SearchViewModel @Inject constructor(
         artworkUri = coverUrl,
         source = PlaybackSource.HiFiApi(tidalId = id),
         sourceType = SourceType.API
+    )
+
+    // Qobuz tracks share the Track shape with TIDAL but are tagged so the UI
+    // can label them and so the existing dedup (distinctBy id) doesn't collapse
+    // a Qobuz hit onto the same numeric ID from TIDAL.
+    private fun Track.toQobuzUnifiedTrack(): UnifiedTrack = UnifiedTrack(
+        id = "qobuz_$id",
+        title = title,
+        durationSeconds = duration,
+        trackNumber = trackNumber,
+        discNumber = volumeNumber,
+        explicit = explicit,
+        artistName = displayArtist.ifBlank { DEFAULT_ARTIST_NAME },
+        artistNames = artists.map { it.name }.ifEmpty { listOfNotNull(artist?.name) },
+        albumArtistName = artist?.name,
+        albumTitle = album?.title,
+        albumId = album?.id?.toString(),
+        artworkUri = coverUrl,
+        source = PlaybackSource.HiFiApi(tidalId = id),
+        sourceType = SourceType.QOBUZ,
     )
 
     private fun scoreTracks(
@@ -269,6 +312,9 @@ class SearchViewModel @Inject constructor(
         SourceType.LOCAL -> SOURCE_BOOST_LOCAL
         SourceType.COLLECTION -> SOURCE_BOOST_COLLECTION
         SourceType.API -> SOURCE_BOOST_API
+        // Qobuz is download-only — keep below TIDAL streaming so taps default
+        // to a playable result when both sources surface the same query.
+        SourceType.QOBUZ -> SOURCE_BOOST_API - 5
     }
 
     private fun scoreField(query: String, rawValue: String?, baseScore: Int): Int {

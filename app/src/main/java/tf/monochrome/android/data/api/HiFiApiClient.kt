@@ -177,6 +177,28 @@ class HiFiApiClient @Inject constructor(
         )
     }
 
+    // Qobuz catalog search — hits the user-configured Qobuz instance via
+    // InstanceType.DOWNLOAD (same pool used for downloads). Returns an empty
+    // SearchResult when the instance isn't set or the request fails, so the
+    // TIDAL search flow keeps working even if the Qobuz endpoint is offline.
+    suspend fun searchQobuz(query: String): SearchResult {
+        suspend fun parsedSearch(path: String) =
+            runCatching {
+                val body = fetchWithRetry(path, instanceType = InstanceType.DOWNLOAD)
+                parseSearchResponse(body)
+            }.getOrNull()
+
+        val tracks = parsedSearch("/search/?s=${query.encodeUrl()}")?.items?.map { it.toTrack() }
+            ?: emptyList()
+        val albums = parsedSearch("/search/?al=${query.encodeUrl()}")?.items?.map { it.toAlbum() }
+            ?: emptyList()
+        val artists = parsedSearch("/search/?a=${query.encodeUrl()}")?.items?.map { it.toArtist() }
+            ?: emptyList()
+        val playlists = parsedSearch("/search/?p=${query.encodeUrl()}")?.items?.map { it.toPlaylist() }
+            ?: emptyList()
+        return SearchResult(tracks = tracks, albums = albums, artists = artists, playlists = playlists)
+    }
+
     // --- Album ---
 
     suspend fun getAlbum(albumId: Long): AlbumDetail {

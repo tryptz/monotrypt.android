@@ -221,7 +221,7 @@ fun buildCoverUrl(coverId: String, size: Int): String {
 
 // ========== Unified Three-Source Models ==========
 
-enum class SourceType { API, COLLECTION, LOCAL }
+enum class SourceType { API, COLLECTION, LOCAL, QOBUZ }
 
 enum class AudioCodec(val displayName: String) {
     FLAC("FLAC"),

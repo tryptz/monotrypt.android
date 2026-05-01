@@ -40,6 +40,10 @@ class MusicRepository @Inject constructor(
         apiClient.search(query)
     }
 
+    suspend fun searchQobuz(query: String): Result<SearchResult> = runCatching {
+        apiClient.searchQobuz(query)
+    }
+
     suspend fun searchTracks(query: String): Result<List<Track>> = runCatching {
         apiClient.searchTracks(query)
     }

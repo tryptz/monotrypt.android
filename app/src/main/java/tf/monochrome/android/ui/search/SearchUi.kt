@@ -335,7 +335,8 @@ fun SearchResultsContent(
                             isLiked = favoriteTrackIds.contains(track.toLegacyTrack().id),
                             onLikeClick = { playerViewModel.toggleFavorite(track.toLegacyTrack()) },
                             onClick = { playerViewModel.playUnifiedTrack(track, tracks) },
-                            onMoreClick = if (track.sourceType == SourceType.API) {
+                            onMoreClick = if (track.sourceType == SourceType.API ||
+                                track.sourceType == SourceType.QOBUZ) {
                                 { showContextMenuForTrack = track.toLegacyTrack() }
                             } else null
                         )
@@ -585,4 +586,5 @@ private fun SourceType.label(): String = when (this) {
     SourceType.API -> "TIDAL"
     SourceType.LOCAL -> "Local"
     SourceType.COLLECTION -> "Collection"
+    SourceType.QOBUZ -> "Qobuz"
 }
