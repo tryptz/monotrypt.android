@@ -6,11 +6,13 @@ import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.isSuccess
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import tf.monochrome.android.data.api.model.AlbumResponse
 import tf.monochrome.android.data.api.model.AlbumTrackItem
 import tf.monochrome.android.data.api.model.ArtistContentResponse
@@ -187,34 +189,34 @@ class HiFiApiClient @Inject constructor(
         )
     }
 
-    // Qobuz catalog search — hits ONLY the user-configured Qobuz instance.
-    // Returns an empty SearchResult when the instance isn't set, the request
-    // times out, or the response can't be parsed, so the TIDAL search flow
-    // is never blocked or duplicated by Qobuz state.
+    // Qobuz catalog search — hits the user-configured trypt-hifi instance
+    // at GET /api/get-music?q=<query>&offset=<n>. Returns an empty
+    // SearchResult when the instance isn't set, the request times out, or
+    // the response can't be parsed, so the TIDAL search flow is never
+    // blocked by Qobuz state.
+    //
+    // The response shape isn't fully documented here — `parseSearchResponse`
+    // already handles wrapped {data:...}, {items:[...]}, and bare arrays, so
+    // most reasonable shapes get mapped to tracks. Albums/artists/playlists
+    // are left empty until the response payload is verified end-to-end.
     suspend fun searchQobuz(query: String): SearchResult {
         val instance = instanceManager.qobuzInstanceOrNull() ?: return SearchResult()
         val base = instance.url.trimEnd('/')
 
-        suspend fun parsedSearch(path: String): SearchResponse? = withTimeoutOrNull(QOBUZ_REQUEST_TIMEOUT_MS) {
+        val response = withTimeoutOrNull(QOBUZ_REQUEST_TIMEOUT_MS) {
             runCatching {
-                val response = httpClient.get(base + path)
-                if (!response.status.isSuccess()) return@runCatching null
-                parseSearchResponse(response.bodyAsText())
+                val res = httpClient.get("$base/api/get-music?q=${query.encodeUrl()}&offset=0")
+                if (!res.status.isSuccess()) return@runCatching null
+                parseSearchResponse(res.bodyAsText())
             }.getOrNull()
-        }
+        } ?: return SearchResult()
 
-        return coroutineScope {
-            val tracksDeferred = async { parsedSearch("/search/?s=${query.encodeUrl()}") }
-            val albumsDeferred = async { parsedSearch("/search/?al=${query.encodeUrl()}") }
-            val artistsDeferred = async { parsedSearch("/search/?a=${query.encodeUrl()}") }
-            val playlistsDeferred = async { parsedSearch("/search/?p=${query.encodeUrl()}") }
-            SearchResult(
-                tracks = tracksDeferred.await()?.items?.map { it.toTrack() } ?: emptyList(),
-                albums = albumsDeferred.await()?.items?.map { it.toAlbum() } ?: emptyList(),
-                artists = artistsDeferred.await()?.items?.map { it.toArtist() } ?: emptyList(),
-                playlists = playlistsDeferred.await()?.items?.map { it.toPlaylist() } ?: emptyList(),
-            )
-        }
+        return SearchResult(
+            tracks = response.items.map { it.toTrack() },
+            albums = emptyList(),
+            artists = emptyList(),
+            playlists = emptyList(),
+        )
     }
 
     // --- Album ---
@@ -380,9 +382,28 @@ class HiFiApiClient @Inject constructor(
         quality: AudioQuality,
         forDownload: Boolean = false
     ): TrackStream {
+        // Downloads route through the project-private trypt-hifi (Qobuz) API
+        // when configured. The frontend's network trace shows the real call
+        // is GET /api/download-music?track_id=<id>&quality=<qobuz_code>, which
+        // returns a JSON envelope containing a short-lived HMAC-signed
+        // /api/file?... URL we then stream the bytes from.
+        if (forDownload) {
+            val qobuzUrl = runCatching { resolveQobuzDownloadUrl(trackId, quality) }.getOrNull()
+            if (qobuzUrl != null) {
+                return TrackStream(
+                    track = Track(id = trackId, title = "", duration = 0),
+                    streamUrl = qobuzUrl,
+                    isDash = false,
+                    replayGain = ReplayGainValues()
+                )
+            }
+            // Qobuz unset or upstream returned nothing — fall through to the
+            // existing TIDAL streaming path so the user still gets bytes.
+        }
+
         val body = fetchWithRetry(
             "/track/?id=$trackId&quality=${quality.apiValue}",
-            instanceType = if (forDownload) InstanceType.DOWNLOAD else InstanceType.STREAMING
+            instanceType = InstanceType.STREAMING
         )
         val streamResponse = json.decodeFromString<TrackStreamResponse>(unwrapResponse(body))
 
@@ -610,6 +631,80 @@ class HiFiApiClient @Inject constructor(
 
     private fun String.encodeUrl(): String {
         return java.net.URLEncoder.encode(this, "UTF-8")
+    }
+
+    // --- Qobuz (trypt-hifi) download resolution -----------------------------
+    //
+    // The trypt-hifi frontend at https://<host>/ ships a SPA, but the same
+    // origin also exposes a JSON API under /api/. The download flow seen in
+    // the frontend's network trace is:
+    //
+    //   1. GET /api/download-music?track_id=<id>&quality=<qobuz_code>
+    //        → small JSON envelope with a stream URL (per-request HMAC-signed)
+    //   2. GET that returned URL  → audio bytes (FLAC for quality 6/7/27,
+    //                                MP3 for 5)
+    //
+    // Step 2 is just a regular byte download, which DownloadWorker already
+    // handles. So all we need to do is resolve step 1 and return the URL.
+
+    private suspend fun resolveQobuzDownloadUrl(trackId: Long, quality: AudioQuality): String? {
+        val instance = instanceManager.qobuzInstanceOrNull() ?: return null
+        val base = instance.url.trimEnd('/')
+        val code = quality.qobuzCode()
+        val response = httpClient.get("$base/api/download-music?track_id=$trackId&quality=$code")
+        if (!response.status.isSuccess()) return null
+        val body = response.bodyAsText()
+        return extractQobuzFileUrl(body, base)
+            // Hi-Res isn't always available on Qobuz — fall back to lossless
+            // exactly like the TIDAL path does, instead of failing the
+            // download.
+            ?: if (quality == AudioQuality.HI_RES) {
+                resolveQobuzDownloadUrl(trackId, AudioQuality.LOSSLESS)
+            } else null
+    }
+
+    // Qobuz exposes four quality codes; map our 4-tier AudioQuality onto them.
+    // Reference: 5 = MP3 320kbps, 6 = FLAC 16/44.1, 7 = FLAC 24/96, 27 = FLAC
+    // hi-res. Quality 27 was the one observed in the captured request.
+    private fun AudioQuality.qobuzCode(): Int = when (this) {
+        AudioQuality.LOW, AudioQuality.HIGH -> 5
+        AudioQuality.LOSSLESS -> 6
+        AudioQuality.HI_RES -> 27
+    }
+
+    // Defensive parser — the response body is short JSON but the field name
+    // hasn't been verified, so we try a handful of common shapes (top-level
+    // url, file_url, stream_url, download_url, nested data.url) and finally
+    // fall back to a regex scan for any /api/file? URL hosted on the same
+    // instance. Returns null if no candidate is found.
+    private fun extractQobuzFileUrl(body: String, base: String): String? {
+        val parsed = runCatching { json.parseToJsonElement(body) }.getOrNull()
+        val direct = (parsed as? JsonObject)?.let { obj ->
+            obj["url"]?.jsonPrimitive?.contentOrNull
+                ?: obj["file_url"]?.jsonPrimitive?.contentOrNull
+                ?: obj["stream_url"]?.jsonPrimitive?.contentOrNull
+                ?: obj["download_url"]?.jsonPrimitive?.contentOrNull
+                ?: (obj["data"] as? JsonObject)?.get("url")?.jsonPrimitive?.contentOrNull
+        } ?: (parsed as? JsonPrimitive)?.contentOrNull
+        if (!direct.isNullOrBlank()) return absoluteUrl(direct, base)
+
+        // Regex fallback — match either the full URL or the relative path
+        // and resolve against the instance base. Trace showed the frontend's
+        // file URL begins with "file?uid=...&eid=...&hmac=...", so we accept
+        // both /api/file?... and bare file?... shapes.
+        val urlMatch = Regex("https?://[^\"\\s]*?/api/file\\?[^\"\\s]+").find(body)?.value
+        if (urlMatch != null) return urlMatch
+        val pathMatch = Regex("/?(?:api/)?file\\?[^\"\\s]+").find(body)?.value
+        return pathMatch?.let { absoluteUrl(it, base) }
+    }
+
+    private fun absoluteUrl(value: String, base: String): String {
+        return when {
+            value.startsWith("http://") || value.startsWith("https://") -> value
+            value.startsWith("/api/") -> base + value
+            value.startsWith("/") -> "$base/api${value}".replace("/api/api/", "/api/")
+            else -> "$base/api/$value"
+        }
     }
 }
 
