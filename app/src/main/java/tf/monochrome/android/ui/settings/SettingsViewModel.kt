@@ -170,6 +170,8 @@ class SettingsViewModel @Inject constructor(
     val streamingInstances: StateFlow<List<Instance>> = _streamingInstances.asStateFlow()
     val customEndpoint: StateFlow<String?> = preferences.customApiEndpoint
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    val qobuzEndpoint: StateFlow<String?> = preferences.qobuzInstanceUrl
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
     val devModeEnabled: StateFlow<Boolean> = preferences.devModeEnabled
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
     private val _instancesRefreshing = MutableStateFlow(false)
@@ -429,6 +431,12 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             preferences.setCustomApiEndpoint(endpoint)
             loadInstances()
+        }
+    }
+
+    fun setQobuzEndpoint(endpoint: String?) {
+        viewModelScope.launch {
+            preferences.setQobuzInstanceUrl(endpoint)
         }
     }
 

@@ -11,7 +11,6 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import tf.monochrome.android.BuildConfig
 import tf.monochrome.android.data.preferences.PreferencesManager
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -48,16 +47,6 @@ class InstanceManager @Inject constructor(
             Instance("https://hifi.geeked.wtf"),
             Instance("https://monochrome-api.samidy.com"),
         )
-
-        // Optional project-private download source, configured per-build via
-        // local.properties (`download.instance.url`). When unset, this list is
-        // empty and downloads transparently fall back to the public streaming
-        // pool — so OSS contributors don't need the private endpoint to build.
-        private val DOWNLOAD_INSTANCES: List<Instance> =
-            BuildConfig.DOWNLOAD_INSTANCE_URL
-                .takeIf { it.isNotBlank() }
-                ?.let { listOf(Instance(it)) }
-                ?: emptyList()
     }
 
     private var cachedApiInstances: List<Instance>? = null
@@ -65,11 +54,14 @@ class InstanceManager @Inject constructor(
     private var cacheTimestamp: Long = 0L
 
     suspend fun getInstances(type: InstanceType): List<Instance> {
-        // Downloads pin to the per-build private instance when configured; skip
-        // uptime resolution and Dev Mode overrides so the source can't drift.
-        // If unconfigured, fall through and serve the public streaming pool.
-        if (type == InstanceType.DOWNLOAD && DOWNLOAD_INSTANCES.isNotEmpty()) {
-            return DOWNLOAD_INSTANCES
+        // Downloads pin to the user-configured Qobuz instance (Settings →
+        // Instances → Qobuz URL) when set, regardless of Dev Mode. If unset,
+        // fall through and serve the public streaming pool.
+        if (type == InstanceType.DOWNLOAD) {
+            val qobuz = preferences.qobuzInstanceUrl.first()?.trim()?.takeIf { it.isNotBlank() }
+            if (qobuz != null) {
+                return listOf(Instance(qobuz.trimEnd('/')))
+            }
         }
         val effectiveType = if (type == InstanceType.DOWNLOAD) InstanceType.STREAMING else type
 

@@ -55,15 +55,6 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        // Optional: project-private download instance. Read from local.properties
-        // (gitignored) so the URL never lands in committed source. When unset,
-        // downloads silently fall back to the public streaming pool.
-        buildConfigField(
-            "String",
-            "DOWNLOAD_INSTANCE_URL",
-            "\"${localProperties.getProperty("download.instance.url", "").trim().trimEnd('/')}\"",
-        )
-
         externalNativeBuild {
             cmake {
                 cppFlags += "-std=c++17"

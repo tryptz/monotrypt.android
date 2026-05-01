@@ -67,6 +67,7 @@ class PreferencesManager @Inject constructor(
 
         // Custom API endpoint
         private val CUSTOM_API_ENDPOINT = stringPreferencesKey("custom_api_endpoint")
+        private val QOBUZ_INSTANCE_URL = stringPreferencesKey("qobuz_instance_url")
         private val DEV_MODE_ENABLED = booleanPreferencesKey("dev_mode_enabled")
 
         // Interface
@@ -330,6 +331,22 @@ class PreferencesManager @Inject constructor(
                 it[CUSTOM_API_ENDPOINT] = endpoint
             } else {
                 it.remove(CUSTOM_API_ENDPOINT)
+            }
+        }
+    }
+
+    // Qobuz instance — used for downloads. Independent of Dev Mode: any
+    // value set here is honored whenever the download path is invoked.
+    val qobuzInstanceUrl: Flow<String?> = dataStore.data.map { prefs ->
+        prefs[QOBUZ_INSTANCE_URL]
+    }
+
+    suspend fun setQobuzInstanceUrl(endpoint: String?) {
+        dataStore.edit {
+            if (endpoint != null) {
+                it[QOBUZ_INSTANCE_URL] = endpoint
+            } else {
+                it.remove(QOBUZ_INSTANCE_URL)
             }
         }
     }

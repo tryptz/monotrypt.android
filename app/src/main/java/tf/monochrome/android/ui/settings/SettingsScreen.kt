@@ -1050,14 +1050,16 @@ private fun InstancesTab(viewModel: SettingsViewModel) {
     val apiInstances by viewModel.apiInstances.collectAsState()
     val streamingInstances by viewModel.streamingInstances.collectAsState()
     val customEndpoint by viewModel.customEndpoint.collectAsState()
+    val qobuzEndpoint by viewModel.qobuzEndpoint.collectAsState()
     val devModeEnabled by viewModel.devModeEnabled.collectAsState()
     val refreshing by viewModel.instancesRefreshing.collectAsState()
     var customInput by remember(customEndpoint) { mutableStateOf(customEndpoint ?: "") }
+    var qobuzInput by remember(qobuzEndpoint) { mutableStateOf(qobuzEndpoint ?: "") }
 
     SettingsTabContent {
         SettingSwitchItem(
             title = "Dev Mode",
-            subtitle = "Route all API requests through a local Tidal HiFi API server. Requires a compatible server running at the specified URL.",
+            subtitle = "Route all Tidal API/streaming requests through your own server. Requires a compatible Tidal HiFi instance at the URL below.",
             checked = devModeEnabled,
             onCheckedChange = { viewModel.setDevModeEnabled(it) }
         )
@@ -1068,12 +1070,12 @@ private fun InstancesTab(viewModel: SettingsViewModel) {
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Dev Mode API URL",
+                    text = "Tidal HiFi URL",
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = "The URL of your local Tidal HiFi API instance",
+                    text = "Used for search, browse, and streaming when Dev Mode is on",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1106,6 +1108,52 @@ private fun InstancesTab(viewModel: SettingsViewModel) {
                             val trimmed = latestInput.value.trim().ifBlank { null }
                             if (trimmed != latestSaved.value) {
                                 viewModel.setCustomEndpoint(trimmed)
+                            }
+                        }
+                    }
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Qobuz URL",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "Used for downloads. Honored whenever set, independent of Dev Mode.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            val latestQobuzInput = rememberUpdatedState(qobuzInput)
+            val latestQobuzSaved = rememberUpdatedState(qobuzEndpoint)
+            OutlinedTextField(
+                value = qobuzInput,
+                onValueChange = { qobuzInput = it },
+                placeholder = {
+                    Text(
+                        "https://your-qobuz-instance",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = {
+                    viewModel.setQobuzEndpoint(latestQobuzInput.value.trim().ifBlank { null })
+                }),
+                modifier = Modifier
+                    .widthIn(max = 240.dp)
+                    .onFocusChanged { focusState ->
+                        if (!focusState.isFocused) {
+                            val trimmed = latestQobuzInput.value.trim().ifBlank { null }
+                            if (trimmed != latestQobuzSaved.value) {
+                                viewModel.setQobuzEndpoint(trimmed)
                             }
                         }
                     }
