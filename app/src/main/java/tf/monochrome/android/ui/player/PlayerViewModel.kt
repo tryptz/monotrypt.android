@@ -12,11 +12,14 @@ import com.google.common.util.concurrent.MoreExecutors
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
@@ -524,6 +527,31 @@ class PlayerViewModel @Inject constructor(
 
     private val _activeDownloads = MutableStateFlow<Map<Long, tf.monochrome.android.data.downloads.TrackDownloadState>>(emptyMap())
     val activeDownloads: StateFlow<Map<Long, tf.monochrome.android.data.downloads.TrackDownloadState>> = _activeDownloads.asStateFlow()
+
+    // Live download state for whichever track is currently playing — drives
+    // the player's download button visual feedback (queued/downloading arc,
+    // completed checkmark, failed indicator).
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val currentTrackDownloadState: StateFlow<tf.monochrome.android.data.downloads.TrackDownloadState> =
+        currentTrack
+            .flatMapLatest { track ->
+                if (track == null) flowOf(tf.monochrome.android.data.downloads.TrackDownloadState())
+                else downloadManager.observeDownloadState(track.id)
+            }
+            .stateIn(
+                viewModelScope,
+                SharingStarted.WhileSubscribed(5000),
+                tf.monochrome.android.data.downloads.TrackDownloadState()
+            )
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val isCurrentTrackDownloaded: StateFlow<Boolean> =
+        currentTrack
+            .flatMapLatest { track ->
+                if (track == null) flowOf(false)
+                else libraryRepository.isDownloadedFlow(track.id)
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     fun downloadTrack(track: Track) {
         downloadManager.downloadTrack(track)

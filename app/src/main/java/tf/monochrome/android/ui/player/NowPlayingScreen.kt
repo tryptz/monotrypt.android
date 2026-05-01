@@ -1,8 +1,12 @@
 package tf.monochrome.android.ui.player
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -13,6 +17,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -32,6 +37,9 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.DownloadDone
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -44,6 +52,7 @@ import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
@@ -166,6 +175,8 @@ fun NowPlayingScreen(
     val shuffleEnabled by playerViewModel.shuffleEnabled.collectAsState()
     val repeatMode by playerViewModel.repeatMode.collectAsState()
     val isLiked by playerViewModel.isCurrentTrackLiked.collectAsState()
+    val downloadState by playerViewModel.currentTrackDownloadState.collectAsState()
+    val isDownloaded by playerViewModel.isCurrentTrackDownloaded.collectAsState()
     val lyrics by playerViewModel.currentLyrics.collectAsState()
     val isLyricsLoading by playerViewModel.isLyricsLoading.collectAsState()
     val viewMode by playerViewModel.nowPlayingViewMode.collectAsState()
@@ -459,9 +470,11 @@ fun NowPlayingScreen(
                         IconButton(onClick = { showSpeedPanel = !showSpeedPanel }) {
                             Icon(Icons.Default.GraphicEq, "Audio/Speed", tint = Color.White)
                         }
-                        IconButton(onClick = { currentTrack?.let { playerViewModel.downloadTrack(it) } }) {
-                            Icon(Icons.Default.LibraryMusic, "Download", tint = Color.White)
-                        }
+                        DownloadActionButton(
+                            state = downloadState,
+                            isDownloaded = isDownloaded,
+                            onClick = { currentTrack?.let { playerViewModel.downloadTrack(it) } }
+                        )
                         IconButton(onClick = { showLyricsSheet = true }) {
                             Icon(Icons.AutoMirrored.Filled.FormatAlignLeft, "Lyrics", tint = Color.White)
                         }
@@ -469,6 +482,11 @@ fun NowPlayingScreen(
                             Icon(Icons.AutoMirrored.Filled.QueueMusic, "Queue", tint = Color.White)
                         }
                     }
+
+                    DownloadStatusStrip(
+                        state = downloadState,
+                        isDownloaded = isDownloaded,
+                    )
 
                     // Up Next glass strip
                     Column(
@@ -1651,6 +1669,148 @@ private fun VisualizerActionPill(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
+        }
+    }
+}
+
+// Download button with state-driven icon, accent tint, and a circular
+// progress arc. The arc is determinate during DOWNLOADING (driven by
+// WorkManager.setProgress) and indeterminate during QUEUED so the user
+// sees motion even before WorkManager picks the job up.
+@Composable
+private fun DownloadActionButton(
+    state: tf.monochrome.android.data.downloads.TrackDownloadState,
+    isDownloaded: Boolean,
+    onClick: () -> Unit,
+) {
+    val status = state.status
+    val showCompleted = isDownloaded ||
+        status == tf.monochrome.android.data.downloads.DownloadStatus.COMPLETED
+    val isDownloading =
+        status == tf.monochrome.android.data.downloads.DownloadStatus.DOWNLOADING
+    val isQueued =
+        status == tf.monochrome.android.data.downloads.DownloadStatus.QUEUED
+    val isFailed =
+        status == tf.monochrome.android.data.downloads.DownloadStatus.FAILED
+
+    val targetTint = when {
+        isFailed -> Color(0xFFFF6B6B)
+        showCompleted -> PlayerGlowMint
+        isDownloading || isQueued -> PlayerGlowPink
+        else -> Color.White
+    }
+    val tint by animateColorAsState(targetTint, label = "downloadTint")
+    val animatedProgress by animateFloatAsState(
+        targetValue = state.progress.coerceIn(0f, 1f),
+        label = "downloadProgress"
+    )
+
+    Box(contentAlignment = Alignment.Center) {
+        when {
+            isDownloading -> CircularProgressIndicator(
+                progress = { animatedProgress.coerceAtLeast(0.02f) },
+                modifier = Modifier.size(38.dp),
+                color = tint,
+                trackColor = Color.White.copy(alpha = 0.18f),
+                strokeWidth = 2.dp,
+            )
+            isQueued -> CircularProgressIndicator(
+                modifier = Modifier.size(38.dp),
+                color = tint.copy(alpha = 0.6f),
+                trackColor = Color.White.copy(alpha = 0.10f),
+                strokeWidth = 2.dp,
+            )
+        }
+        IconButton(onClick = onClick) {
+            val icon = when {
+                isFailed -> Icons.Default.ErrorOutline
+                showCompleted -> Icons.Default.DownloadDone
+                else -> Icons.Default.Download
+            }
+            val description = when {
+                isFailed -> "Download failed — tap to retry"
+                showCompleted -> "Downloaded"
+                isDownloading -> "Downloading"
+                isQueued -> "Queued for download"
+                else -> "Download"
+            }
+            Icon(icon, contentDescription = description, tint = tint)
+        }
+    }
+}
+
+// Status pill underneath the action row. Fades in only while a download
+// is in flight (or just failed) so the player UI stays uncluttered for
+// idle and already-downloaded tracks. The percentage is rendered to the
+// nearest whole number to avoid jittery decimals during fast updates.
+@Composable
+private fun DownloadStatusStrip(
+    state: tf.monochrome.android.data.downloads.TrackDownloadState,
+    isDownloaded: Boolean,
+) {
+    val status = state.status
+    val visible =
+        status == tf.monochrome.android.data.downloads.DownloadStatus.DOWNLOADING ||
+        status == tf.monochrome.android.data.downloads.DownloadStatus.QUEUED ||
+        status == tf.monochrome.android.data.downloads.DownloadStatus.FAILED ||
+        (status == tf.monochrome.android.data.downloads.DownloadStatus.COMPLETED && !isDownloaded)
+
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(),
+        exit = fadeOut(),
+    ) {
+        val accent = when (status) {
+            tf.monochrome.android.data.downloads.DownloadStatus.FAILED -> Color(0xFFFF6B6B)
+            tf.monochrome.android.data.downloads.DownloadStatus.COMPLETED -> PlayerGlowMint
+            else -> PlayerGlowPink
+        }
+        val percent = (state.progress.coerceIn(0f, 1f) * 100f).toInt()
+        val label = when (status) {
+            tf.monochrome.android.data.downloads.DownloadStatus.QUEUED -> "Download queued"
+            tf.monochrome.android.data.downloads.DownloadStatus.DOWNLOADING -> "Downloading $percent%"
+            tf.monochrome.android.data.downloads.DownloadStatus.COMPLETED -> "Download complete"
+            tf.monochrome.android.data.downloads.DownloadStatus.FAILED -> "Download failed — tap the icon to retry"
+            else -> ""
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .liquidGlass(
+                    shape = RoundedCornerShape(14.dp),
+                    tintAlpha = 0.10f,
+                    borderAlpha = 0.08f,
+                )
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = when (status) {
+                    tf.monochrome.android.data.downloads.DownloadStatus.FAILED -> Icons.Default.ErrorOutline
+                    tf.monochrome.android.data.downloads.DownloadStatus.COMPLETED -> Icons.Default.DownloadDone
+                    else -> Icons.Default.Download
+                },
+                contentDescription = null,
+                tint = accent,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = Color.White.copy(alpha = 0.92f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (status == tf.monochrome.android.data.downloads.DownloadStatus.DOWNLOADING) {
+                Text(
+                    text = "$percent%",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = accent,
+                )
+            }
         }
     }
 }
