@@ -789,7 +789,11 @@ private fun QobuzAlbumItem.toDomainAlbum(): tf.monochrome.android.domain.model.A
 
 private fun QobuzTrackItem.toDomainTrack(): tf.monochrome.android.domain.model.Track {
     val resolvedAlbum = album?.toDomainAlbum()
-    val resolvedArtist = performer?.toDomainArtistRef()
+    // performer is the track-level primary artist ({id, name}). Fall back to
+    // the album's main artist when missing (the response always populates one
+    // or the other).
+    val resolvedArtist = performer?.toDomainArtist()
+        ?: album?.artist?.toDomainArtistRef()
     return tf.monochrome.android.domain.model.Track(
         id = id ?: 0L,
         title = listOfNotNull(title.takeIf { it.isNotBlank() }, version?.takeIf { it.isNotBlank() })
@@ -804,6 +808,13 @@ private fun QobuzTrackItem.toDomainTrack(): tf.monochrome.android.domain.model.T
         volumeNumber = mediaNumber,
     )
 }
+
+private fun QobuzPerson.toDomainArtist(): tf.monochrome.android.domain.model.Artist =
+    tf.monochrome.android.domain.model.Artist(
+        id = id ?: 0L,
+        name = name,
+        picture = null,
+    )
 
 private fun QobuzArtistItem.toDomainArtist(): tf.monochrome.android.domain.model.Artist =
     tf.monochrome.android.domain.model.Artist(

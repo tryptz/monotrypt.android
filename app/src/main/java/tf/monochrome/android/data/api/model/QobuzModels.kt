@@ -64,16 +64,38 @@ data class QobuzTrackItem(
     val duration: Int? = null,
     @SerialName("track_number") val trackNumber: Int? = null,
     @SerialName("media_number") val mediaNumber: Int? = null,
-    val performer: QobuzArtistRef? = null,
-    val composer: QobuzArtistRef? = null,
+    // Real response uses "performer" as a single object {id, name} for the
+    // primary credited artist on a track. There's also "performers" (string)
+    // and "composer" (single object) which we keep optional.
+    val performer: QobuzPerson? = null,
+    val composer: QobuzPerson? = null,
+    val performers: String? = null,
     val album: QobuzAlbumItem? = null,
+    @SerialName("audio_info") val audioInfo: QobuzTrackAudioInfo? = null,
     @SerialName("parental_warning") val parentalWarning: Boolean = false,
     val downloadable: Boolean = true,
     val streamable: Boolean = true,
     val hires: Boolean = false,
+    @SerialName("hires_streamable") val hiresStreamable: Boolean = false,
     @SerialName("maximum_bit_depth") val maximumBitDepth: Int? = null,
     @SerialName("maximum_sampling_rate") val maximumSamplingRate: Double? = null,
-    @SerialName("isrc") val isrc: String? = null,
+    val isrc: String? = null,
+)
+
+// Lightweight credit (track-level performer/composer). Response uses just
+// {id, name} here, distinct from the richer QobuzArtistRef on albums.
+@Serializable
+data class QobuzPerson(
+    val id: Long? = null,
+    val name: String = "",
+)
+
+@Serializable
+data class QobuzTrackAudioInfo(
+    @SerialName("replaygain_track_gain") val replayGainTrackGain: Float? = null,
+    @SerialName("replaygain_track_peak") val replayGainTrackPeak: Float? = null,
+    @SerialName("replaygain_album_gain") val replayGainAlbumGain: Float? = null,
+    @SerialName("replaygain_album_peak") val replayGainAlbumPeak: Float? = null,
 )
 
 @Serializable
@@ -97,12 +119,18 @@ data class QobuzArtistRef(
     @SerialName("albums_count") val albumsCount: Int? = null,
 )
 
+// Album covers: small/thumbnail/large/back. Artist images: small/medium/
+// large/extralarge/mega. Both are accepted on the same type because
+// ignoreUnknownKeys = true silently drops the missing fields per source.
 @Serializable
 data class QobuzImage(
     val small: String? = null,
     val thumbnail: String? = null,
     val large: String? = null,
     val back: String? = null,
+    val medium: String? = null,
+    val extralarge: String? = null,
+    val mega: String? = null,
 )
 
 @Serializable
