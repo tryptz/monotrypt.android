@@ -26,6 +26,21 @@
         android:usesCleartextTraffic="false"
         tools:targetApi="36">
 
+        <!-- Backs the per-track 'Share file' action: a FileProvider grants
+             time-limited content:// URIs for downloaded FLACs and Qobuz
+             stream cache files so other apps (Messages, Drive, etc.)
+             can read them through the share sheet. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+
         <activity
             android:name=".ui.main.MainActivity"
             android:exported="true"

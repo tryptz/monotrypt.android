@@ -53,6 +53,7 @@ class PlayerViewModel @Inject constructor(
     private val preferences: PreferencesManager,
     private val projectMEngineRepository: ProjectMEngineRepository,
     private val unifiedTrackRegistry: tf.monochrome.android.player.UnifiedTrackRegistry,
+    private val trackShareHelper: tf.monochrome.android.share.TrackShareHelper,
     val spectrumAnalyzer: SpectrumAnalyzerTap
 ) : ViewModel() {
 
@@ -561,6 +562,21 @@ class PlayerViewModel @Inject constructor(
     fun downloadAllTracks(tracks: List<Track>) {
         downloadManager.downloadTracks(tracks)
         tracks.forEach { observeTrackDownload(it.id) }
+    }
+
+    /**
+     * Hand the track's local audio file to Android's share sheet. Resolves
+     * a downloaded copy first, then a Qobuz cache hit; if neither exists
+     * the call is a no-op (logged in TrackShareHelper).
+     */
+    fun shareTrack(track: Track) {
+        viewModelScope.launch {
+            trackShareHelper.shareTrack(track)
+        }
+    }
+
+    fun shareDownloadedTrack(entity: tf.monochrome.android.data.db.entity.DownloadedTrackEntity) {
+        trackShareHelper.shareDownloadedTrack(entity)
     }
 
     private fun observeTrackDownload(trackId: Long) {

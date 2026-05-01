@@ -116,6 +116,17 @@ class QobuzStreamCacheManager @Inject constructor(
         }
     }
 
+    /**
+     * Synchronous lookup that returns the cached file if it exists for
+     * (qobuzId, quality), without triggering a network fetch. Used by the
+     * share helper so it can hand the FLAC out to other apps when the user
+     * has already played the track once.
+     */
+    fun peekCached(qobuzId: Long, quality: AudioQuality): File? {
+        val target = File(cacheDir, "${cacheKey(qobuzId, quality)}.bin")
+        return if (isComplete(target)) target else null
+    }
+
     /** Trim the cache to [MAX_BYTES] by deleting the oldest .bin entries. */
     private fun evictIfNeeded() {
         val files = cacheDir.listFiles()?.filter { it.isFile && it.name.endsWith(".bin") }

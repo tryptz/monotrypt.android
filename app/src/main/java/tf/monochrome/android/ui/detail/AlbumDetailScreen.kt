@@ -74,6 +74,7 @@ fun AlbumDetailScreen(
             onToggleLike = { playerViewModel.toggleFavorite(track) },
             onAddToPlaylist = { showAddToPlaylistForTrack = track },
             onDownloadTrack = { playerViewModel.downloadTrack(track) },
+            onShareFile = { playerViewModel.shareTrack(track) },
             onGoToAlbum = null, // Already here
             onGoToArtist = track.artist?.id?.let { artistId ->
                 { navController.navigate(Screen.ArtistDetail.createRoute(artistId)) }

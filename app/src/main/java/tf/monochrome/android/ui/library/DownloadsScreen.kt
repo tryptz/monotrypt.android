@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -116,6 +117,7 @@ fun DownloadsScreen(
                     val tappedUnified = track.toUnifiedTrack()
                     playerViewModel.playUnifiedTrack(tappedUnified, allUnified)
                 },
+                onShare = { playerViewModel.shareDownloadedTrack(track) },
                 onDelete = { viewModel.deleteDownload(track) },
             )
         }
@@ -162,6 +164,7 @@ private fun AlbumCard(
 private fun DownloadedTrackRow(
     track: DownloadedTrackEntity,
     onClick: () -> Unit,
+    onShare: () -> Unit,
     onDelete: () -> Unit,
 ) {
     Row(
@@ -196,7 +199,13 @@ private fun DownloadedTrackRow(
                 overflow = TextOverflow.Ellipsis
             )
         }
-        Spacer(modifier = Modifier.width(16.dp))
+        IconButton(onClick = onShare) {
+            Icon(
+                Icons.Default.Share,
+                contentDescription = "Share Download",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         IconButton(onClick = onDelete) {
             Icon(
                 Icons.Default.Delete,
