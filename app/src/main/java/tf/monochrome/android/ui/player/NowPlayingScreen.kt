@@ -78,6 +78,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
@@ -101,6 +102,7 @@ import coil3.compose.SubcomposeAsyncImage
 import coil3.compose.SubcomposeAsyncImageContent
 import coil3.request.ImageRequest
 import coil3.request.allowHardware
+import coil3.request.crossfade
 import coil3.toBitmap
 import tf.monochrome.android.domain.model.Lyrics
 import tf.monochrome.android.domain.model.NowPlayingViewMode
@@ -475,12 +477,6 @@ fun NowPlayingScreen(
                             isDownloaded = isDownloaded,
                             onClick = { currentTrack?.let { playerViewModel.downloadTrack(it) } }
                         )
-                        IconButton(onClick = { showLyricsSheet = true }) {
-                            Icon(Icons.AutoMirrored.Filled.FormatAlignLeft, "Lyrics", tint = Color.White)
-                        }
-                        IconButton(onClick = { showQueueSheet = true }) {
-                            Icon(Icons.AutoMirrored.Filled.QueueMusic, "Queue", tint = Color.White)
-                        }
                     }
 
                     DownloadStatusStrip(
@@ -847,7 +843,11 @@ private fun NowPlayingHero(
                         )
                         NowPlayingViewMode.LYRICS -> LyricsHeroPanel(
                             lyrics = lyrics,
-                            isLoading = isLyricsLoading
+                            isLoading = isLyricsLoading,
+                            coverUrl = currentTrack?.coverUrl,
+                            albumColors = albumColors,
+                            positionMs = playerViewModel.positionMs,
+                            onSeekTo = { ms -> playerViewModel.seekTo(ms) },
                         )
                         NowPlayingViewMode.QUEUE -> QueueHeroPanel(queuePreview = queuePreview)
                     }
@@ -1199,69 +1199,217 @@ private fun HeroCoverArt(
     }
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun LyricsHeroPanel(
     lyrics: Lyrics?,
-    isLoading: Boolean
+    isLoading: Boolean,
+    coverUrl: String?,
+    albumColors: AlbumColors,
+    positionMs: kotlinx.coroutines.flow.StateFlow<Long>,
+    onSeekTo: (Long) -> Unit,
 ) {
-    val previewLines = lyrics?.lines?.take(5).orEmpty()
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                brush = Brush.linearGradient(
-                    colors = listOf(
-                        Color(0xFF111421),
-                        Color(0xFF0F2430),
-                        Color(0xFF15111D)
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Blurred album cover backdrop. Modifier.blur is API 31+; on older
+        // devices the modifier is silently a no-op so the cover still
+        // shows, just sharper. Either way we layer a dimming gradient on
+        // top so foreground text stays legible.
+        if (!coverUrl.isNullOrBlank()) {
+            SubcomposeAsyncImage(
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(coverUrl)
+                    .crossfade(true)
+                    .build(),
+                contentDescription = null,
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .blur(40.dp)
+                    .graphicsLayer { alpha = 0.55f },
+            )
+        }
+        // Dim + tint overlay using the album's dominant palette colour.
+        // The vertical gradient keeps the active line area readable while
+        // letting the cover bleed in through the rest.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            albumColors.dominant.copy(alpha = 0.55f),
+                            Color.Black.copy(alpha = 0.78f),
+                            albumColors.dominant.copy(alpha = 0.65f),
+                        )
                     )
                 )
-            )
-            .padding(24.dp)
-    ) {
-        Column(
-            modifier = Modifier.align(Alignment.BottomStart),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Text(
-                text = "Lyrics",
-                style = MaterialTheme.typography.labelLarge,
-                color = Color.White.copy(alpha = 0.7f)
-            )
-            when {
-                isLoading -> {
-                    Text(
-                        text = "Loading synced lines...",
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = Color.White
-                    )
-                }
+        )
 
-                previewLines.isEmpty() -> {
+        when {
+            isLoading -> {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
                     Text(
-                        text = "No lyrics for this track yet.",
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = Color.White
+                        text = "Loading lyrics…",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color.White.copy(alpha = 0.85f),
                     )
-                }
-
-                else -> {
-                    previewLines.forEachIndexed { index, line ->
-                        Text(
-                            text = line.text.ifBlank { "..." },
-                            style = if (index == 0) {
-                                MaterialTheme.typography.headlineSmall
-                            } else {
-                                MaterialTheme.typography.bodyLarge
-                            },
-                            color = Color.White.copy(alpha = if (index == 0) 1f else 0.72f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
                 }
             }
+            lyrics == null || lyrics.lines.isEmpty() -> {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "No lyrics available for this track.",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = Color.White.copy(alpha = 0.7f),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 24.dp),
+                    )
+                }
+            }
+            lyrics.isSynced -> SyncedLyricsView(
+                lines = lyrics.lines,
+                positionMs = positionMs,
+                accent = albumColors.vibrant,
+                onSeekTo = onSeekTo,
+            )
+            else -> UnsyncedLyricsView(lines = lyrics.lines)
+        }
+    }
+}
+
+@Composable
+private fun SyncedLyricsView(
+    lines: List<tf.monochrome.android.domain.model.LyricLine>,
+    positionMs: kotlinx.coroutines.flow.StateFlow<Long>,
+    accent: Color,
+    onSeekTo: (Long) -> Unit,
+) {
+    val position by positionMs.collectAsState()
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    var currentLineIndex by remember { mutableStateOf(-1) }
+
+    LaunchedEffect(position, lines) {
+        // indexOfLast gives the most recent line whose start has passed —
+        // exactly the karaoke "current line" semantics. Cheap on lists of
+        // a few hundred lines; no need for binary search.
+        val newIndex = lines.indexOfLast { it.timeMs <= position }
+        if (newIndex != currentLineIndex && newIndex >= 0) currentLineIndex = newIndex
+    }
+
+    LaunchedEffect(currentLineIndex) {
+        if (currentLineIndex >= 0) {
+            listState.animateScrollToItem(
+                index = currentLineIndex,
+                scrollOffset = -300,
+            )
+        }
+    }
+
+    androidx.compose.foundation.lazy.LazyColumn(
+        state = listState,
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 28.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 80.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        androidx.compose.foundation.lazy.itemsIndexed(lines) { index, line ->
+            val isActive = index == currentLineIndex
+            if (line.words.isNotEmpty()) {
+                KaraokeWordLine(
+                    line = line,
+                    isActive = isActive,
+                    position = position,
+                    accent = accent,
+                    onClick = { onSeekTo(line.timeMs) },
+                )
+            } else {
+                val color by androidx.compose.animation.animateColorAsState(
+                    targetValue = when {
+                        isActive -> accent
+                        index < currentLineIndex -> Color.White.copy(alpha = 0.35f)
+                        else -> Color.White.copy(alpha = 0.62f)
+                    },
+                    label = "lyricColor",
+                )
+                Text(
+                    text = line.text.ifBlank { "♪" },
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = if (isActive) 24.sp else 18.sp,
+                        fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
+                    ),
+                    color = color,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onSeekTo(line.timeMs) }
+                        .padding(vertical = 6.dp),
+                )
+            }
+        }
+    }
+}
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun KaraokeWordLine(
+    line: tf.monochrome.android.domain.model.LyricLine,
+    isActive: Boolean,
+    position: Long,
+    accent: Color,
+    onClick: () -> Unit,
+) {
+    androidx.compose.foundation.layout.FlowRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 6.dp),
+        horizontalArrangement = Arrangement.Start,
+    ) {
+        line.words.forEach { word ->
+            val isWordActive = position in word.startMs until word.endMs
+            val wasWordPlayed = position >= word.endMs
+            val color by androidx.compose.animation.animateColorAsState(
+                targetValue = when {
+                    isWordActive -> accent
+                    wasWordPlayed && isActive -> accent.copy(alpha = 0.85f)
+                    isActive -> Color.White.copy(alpha = 0.45f)
+                    else -> Color.White.copy(alpha = 0.4f)
+                },
+                label = "wordColor",
+            )
+            Text(
+                text = word.text + " ",
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontSize = if (isActive) 24.sp else 18.sp,
+                    fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
+                ),
+                color = color,
+            )
+        }
+    }
+}
+
+@Composable
+private fun UnsyncedLyricsView(lines: List<tf.monochrome.android.domain.model.LyricLine>) {
+    androidx.compose.foundation.lazy.LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 28.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 60.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        androidx.compose.foundation.lazy.itemsIndexed(lines) { _, line ->
+            Text(
+                text = line.text.ifBlank { "" },
+                style = MaterialTheme.typography.bodyLarge.copy(fontSize = 18.sp),
+                color = Color.White.copy(alpha = 0.85f),
+            )
         }
     }
 }
