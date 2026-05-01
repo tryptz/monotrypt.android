@@ -335,10 +335,14 @@ class HiFiApiClient @Inject constructor(
 
     // --- Streaming ---
 
-    suspend fun getTrackStream(trackId: Long, quality: AudioQuality): TrackStream {
+    suspend fun getTrackStream(
+        trackId: Long,
+        quality: AudioQuality,
+        forDownload: Boolean = false
+    ): TrackStream {
         val body = fetchWithRetry(
             "/track/?id=$trackId&quality=${quality.apiValue}",
-            instanceType = InstanceType.STREAMING
+            instanceType = if (forDownload) InstanceType.DOWNLOAD else InstanceType.STREAMING
         )
         val streamResponse = json.decodeFromString<TrackStreamResponse>(unwrapResponse(body))
 
@@ -348,7 +352,7 @@ class HiFiApiClient @Inject constructor(
         if (streamUrl == null) {
             // Fallback to lower quality
             if (quality == AudioQuality.HI_RES) {
-                return getTrackStream(trackId, AudioQuality.LOSSLESS)
+                return getTrackStream(trackId, AudioQuality.LOSSLESS, forDownload)
             }
             throw Exception("Could not extract stream URL for track $trackId")
         }

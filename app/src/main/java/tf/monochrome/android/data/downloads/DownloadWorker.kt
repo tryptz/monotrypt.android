@@ -60,8 +60,8 @@ class DownloadWorker @AssistedInject constructor(
             // Get download quality preference
             val quality = preferences.downloadQuality.first()
 
-            // Get streaming URL
-            val streamResponse = apiClient.getTrackStream(trackId, quality)
+            // Get streaming URL from the dedicated TrypT HiFi (Qobuz) download instance
+            val streamResponse = apiClient.getTrackStream(trackId, quality, forDownload = true)
             val streamUrl = streamResponse.streamUrl
                 ?: return Result.failure()
 
