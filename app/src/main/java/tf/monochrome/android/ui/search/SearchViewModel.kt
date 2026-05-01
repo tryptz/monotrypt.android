@@ -208,9 +208,14 @@ class SearchViewModel @Inject constructor(
 
         val qobuzSearch = qobuzResult?.getOrNull()?.getOrNull()
         val qobuzTracks = qobuzSearch?.tracks?.map { it.toQobuzUnifiedTrack() } ?: emptyList()
-        val qobuzAlbums = qobuzSearch?.albums ?: emptyList()
-        val qobuzArtists = qobuzSearch?.artists ?: emptyList()
-        val qobuzPlaylists = qobuzSearch?.playlists ?: emptyList()
+        // Qobuz album/artist detail endpoints aren't wired yet — clicking a
+        // Qobuz album would route through getAlbum(qobuzId) on the TIDAL pool
+        // (or Dev Mode override) and either return HTML (SPA index) or 404,
+        // surfacing as a JSON parse error in the detail screen. Drop them
+        // from the merged results until /api/get-album and /api/get-artist
+        // are wired. Tracks are still surfaced because their playback path
+        // (PlaybackSource.QobuzCached → /api/download-music → app cache)
+        // doesn't depend on a detail endpoint.
 
         if (searchResult.getOrNull()?.isSuccess == true) {
             val result = searchResult.getOrThrow().getOrThrow()
@@ -220,31 +225,23 @@ class SearchViewModel @Inject constructor(
                     result.tracks.map { it.toUnifiedTrack() } +
                     qobuzTracks
             )
-            _allAlbums.value = scoreItems(
-                trimmedQuery,
-                (result.albums + qobuzAlbums).distinctBy { it.id },
-            ) { listOf(it.title, it.displayArtist) }
-            _allArtists.value = scoreItems(
-                trimmedQuery,
-                (result.artists + qobuzArtists).distinctBy { it.id },
-            ) { listOf(it.name) }
-            _allPlaylists.value = scoreItems(
-                trimmedQuery,
-                (result.playlists + qobuzPlaylists).distinctBy { it.uuid },
-            ) { listOfNotNull(it.title, it.creator?.name, it.description) }
+            _allAlbums.value = scoreItems(trimmedQuery, result.albums) { listOf(it.title, it.displayArtist) }
+            _allArtists.value = scoreItems(trimmedQuery, result.artists) { listOf(it.name) }
+            _allPlaylists.value = scoreItems(trimmedQuery, result.playlists) {
+                listOfNotNull(it.title, it.creator?.name, it.description)
+            }
             preferences.addSearchHistoryQuery(trimmedQuery)
         } else {
-            // TIDAL is down — still surface Qobuz + local results so search
-            // doesn't feel broken when the public TIDAL pool is unreachable.
+            // TIDAL is down — still surface Qobuz tracks + local results so
+            // search doesn't feel broken when the public TIDAL pool is
+            // unreachable.
             _allTracks.value = scoreTracks(
                 query = trimmedQuery,
                 tracks = localAndCollectionTracks + qobuzTracks
             )
-            _allAlbums.value = scoreItems(trimmedQuery, qobuzAlbums) { listOf(it.title, it.displayArtist) }
-            _allArtists.value = scoreItems(trimmedQuery, qobuzArtists) { listOf(it.name) }
-            _allPlaylists.value = scoreItems(trimmedQuery, qobuzPlaylists) {
-                listOfNotNull(it.title, it.creator?.name, it.description)
-            }
+            _allAlbums.value = emptyList()
+            _allArtists.value = emptyList()
+            _allPlaylists.value = emptyList()
         }
         _isSearching.value = false
     }
@@ -276,7 +273,9 @@ class SearchViewModel @Inject constructor(
 
     // Qobuz tracks share the Track shape with TIDAL but are tagged so the UI
     // can label them and so the existing dedup (distinctBy id) doesn't collapse
-    // a Qobuz hit onto the same numeric ID from TIDAL.
+    // a Qobuz hit onto the same numeric ID from TIDAL. Source is QobuzCached
+    // — playback fetches the file via /api/download-music into the app cache
+    // and ExoPlayer plays from the local file.
     private fun Track.toQobuzUnifiedTrack(): UnifiedTrack = UnifiedTrack(
         id = "qobuz_$id",
         title = title,
@@ -290,7 +289,7 @@ class SearchViewModel @Inject constructor(
         albumTitle = album?.title,
         albumId = album?.id?.toString(),
         artworkUri = coverUrl,
-        source = PlaybackSource.HiFiApi(tidalId = id),
+        source = PlaybackSource.QobuzCached(qobuzId = id),
         sourceType = SourceType.QOBUZ,
     )
 

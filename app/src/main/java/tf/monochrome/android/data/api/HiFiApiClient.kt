@@ -661,6 +661,12 @@ class HiFiApiClient @Inject constructor(
     // Step 2 is just a regular byte download, which DownloadWorker already
     // handles. So all we need to do is resolve step 1 and return the URL.
 
+    // Public entry point for callers (DownloadWorker via getTrackStream, the
+    // streaming cache manager, etc.) that need to resolve a Qobuz file URL
+    // without the TIDAL fallthrough getTrackStream(forDownload=true) does.
+    suspend fun getQobuzDownloadUrl(trackId: Long, quality: AudioQuality): String? =
+        resolveQobuzDownloadUrl(trackId, quality)
+
     private suspend fun resolveQobuzDownloadUrl(trackId: Long, quality: AudioQuality): String? {
         val instance = instanceManager.qobuzInstanceOrNull() ?: return null
         val base = instance.url.trimEnd('/')

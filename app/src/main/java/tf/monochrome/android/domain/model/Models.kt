@@ -261,6 +261,18 @@ sealed class PlaybackSource {
         val sampleRate: Int,
         val bitDepth: Int? = null
     ) : PlaybackSource()
+
+    /**
+     * Qobuz (trypt-hifi) source — fetches the audio file via /api/download-music
+     * on first play, parks it in the cache directory, and plays subsequent
+     * times from local disk. The HMAC-signed file URL the backend returns
+     * isn't suitable for long-running streams (signature is time-bounded), so
+     * pre-fetching the whole file is more reliable than progressive streaming.
+     */
+    data class QobuzCached(
+        val qobuzId: Long,
+        val preferredQuality: AudioQuality = AudioQuality.LOSSLESS,
+    ) : PlaybackSource()
 }
 
 data class CollectionDirectLink(
@@ -350,6 +362,7 @@ data class UnifiedTrack(
     fun toLegacyTrack(): Track {
         val tidalId = when (val s = source) {
             is PlaybackSource.HiFiApi -> s.tidalId
+            is PlaybackSource.QobuzCached -> s.qobuzId
             else -> id.hashCode().toLong()
         }
         return Track(

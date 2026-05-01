@@ -6,6 +6,7 @@ import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.util.UnstableApi
+import tf.monochrome.android.data.cache.QobuzStreamCacheManager
 import tf.monochrome.android.data.repository.MusicRepository
 import tf.monochrome.android.domain.model.CollectionDirectLink
 import tf.monochrome.android.domain.model.PlaybackSource
@@ -28,7 +29,8 @@ data class ResolvedMedia(
 
 @Singleton
 class StreamResolver @Inject constructor(
-    private val repository: MusicRepository
+    private val repository: MusicRepository,
+    private val qobuzCache: QobuzStreamCacheManager,
 ) {
     private fun normalizeArtworkUri(raw: String?): Uri? {
         if (raw.isNullOrBlank()) return null
@@ -57,7 +59,41 @@ class StreamResolver @Inject constructor(
             is PlaybackSource.LocalFile -> resolveLocalFile(track, source)
             is PlaybackSource.CollectionDirect -> resolveCollectionDirect(track, source)
             is PlaybackSource.HiFiApi -> resolveHiFiApi(track, source)
+            is PlaybackSource.QobuzCached -> resolveQobuzCached(track, source)
         }
+    }
+
+    // Qobuz resolution = "fetch via /api/download-music, park in app cache,
+    // play from local file". The cache manager dedupes concurrent plays of
+    // the same track and evicts oldest entries when over the size cap. If
+    // Qobuz isn't configured or the fetch fails, return a media item with
+    // an empty URI so ExoPlayer surfaces an error instead of silently
+    // hanging on a malformed source.
+    private suspend fun resolveQobuzCached(
+        track: UnifiedTrack,
+        source: PlaybackSource.QobuzCached,
+    ): ResolvedMedia {
+        val cachedFile = qobuzCache.getOrFetch(source.qobuzId, source.preferredQuality)
+
+        val metadata = MediaMetadata.Builder()
+            .setTitle(track.title)
+            .setArtist(track.artistName)
+            .setAlbumTitle(track.albumTitle)
+            .setArtworkUri(normalizeArtworkUri(track.artworkUri))
+            .setTrackNumber(track.trackNumber)
+            .setDiscNumber(track.discNumber)
+            .build()
+
+        val mediaItem = MediaItem.Builder()
+            .setMediaId(track.id)
+            .setUri(cachedFile?.let { Uri.fromFile(it) } ?: Uri.EMPTY)
+            .setMediaMetadata(metadata)
+            .build()
+
+        return ResolvedMedia(
+            mediaItem = mediaItem,
+            isLocalFile = cachedFile != null,
+        )
     }
 
     private fun resolveLocalFile(
