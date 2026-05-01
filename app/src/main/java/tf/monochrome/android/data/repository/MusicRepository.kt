@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.first
 import tf.monochrome.android.data.ai.AudioSnippetFetcher
 import tf.monochrome.android.data.ai.GeminiClient
 import tf.monochrome.android.data.api.HiFiApiClient
+import tf.monochrome.android.data.api.LrcLibClient
 import tf.monochrome.android.data.preferences.PreferencesManager
 import tf.monochrome.android.domain.model.AiFilter
 import tf.monochrome.android.domain.model.Album
@@ -29,6 +30,7 @@ import javax.inject.Singleton
 @Singleton
 class MusicRepository @Inject constructor(
     private val apiClient: HiFiApiClient,
+    private val lrcLibClient: LrcLibClient,
     private val preferences: PreferencesManager,
     private val geminiClient: GeminiClient,
     private val audioSnippetFetcher: AudioSnippetFetcher,
@@ -160,9 +162,25 @@ class MusicRepository @Inject constructor(
 
     // --- Lyrics ---
 
-    suspend fun getLyrics(trackId: Long): Result<Lyrics?> = runCatching {
+    suspend fun getLyrics(trackId: Long, track: Track? = null): Result<Lyrics?> = runCatching {
         val romajiEnabled = preferences.romajiLyrics.first()
-        apiClient.getLyrics(trackId, romajiEnabled)
+        // TIDAL first — when it has the lyrics this is the highest-quality
+        // path (LRC + word-level timing on Tidal Hi-Fi).
+        val tidalLyrics = apiClient.getLyrics(trackId, romajiEnabled)
+        if (tidalLyrics != null) return@runCatching tidalLyrics
+        // Tidal returned 404 / empty — fall back to LRCLib (open API,
+        // no auth) using the track's metadata. Skip when we don't have
+        // enough info to make any reasonable query.
+        val title = track?.title?.takeIf { it.isNotBlank() } ?: return@runCatching null
+        val artistName = (track.artist?.name ?: track.artists.firstOrNull()?.name)
+            ?.takeIf { it.isNotBlank() } ?: return@runCatching null
+        lrcLibClient.lookup(
+            title = title,
+            artist = artistName,
+            album = track.album?.title,
+            durationSeconds = track.duration.takeIf { it > 0 },
+            convertToRomaji = romajiEnabled,
+        )
     }
 
     // --- Quality ---

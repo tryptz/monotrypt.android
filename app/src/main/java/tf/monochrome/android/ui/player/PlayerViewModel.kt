@@ -199,7 +199,10 @@ class PlayerViewModel @Inject constructor(
                         _currentLyrics.value = null
                         
                         launch {
-                            _currentLyrics.value = repository.getLyrics(track.id).getOrNull()
+                            // Pass the full Track so the repository can fall
+                            // back to LRCLib (track + artist + album +
+                            // duration) when TIDAL returns no lyrics.
+                            _currentLyrics.value = repository.getLyrics(track.id, track).getOrNull()
                             _isLyricsLoading.value = false
                         }
 

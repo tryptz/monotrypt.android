@@ -31,6 +31,7 @@ class DownloadWorker @AssistedInject constructor(
     @Assisted private val context: Context,
     @Assisted params: WorkerParameters,
     private val apiClient: HiFiApiClient,
+    private val lrcLibClient: tf.monochrome.android.data.api.LrcLibClient,
     private val httpClient: HttpClient,
     private val preferences: PreferencesManager,
     private val downloadDao: DownloadDao
@@ -118,11 +119,19 @@ class DownloadWorker @AssistedInject constructor(
                 filePath = saveToInternal(trackId, fileName, audioData)
             }
 
-            // Save lyrics if enabled
+            // Save lyrics if enabled. TIDAL is preferred (best quality
+            // synced LRC); LRCLib fills in for anything TIDAL 404s on,
+            // which is most older / niche / non-Western catalog.
             val downloadLyricsEnabled = preferences.downloadLyrics.first()
             if (downloadLyricsEnabled) {
                 try {
                     val lyrics = apiClient.getLyrics(trackId)
+                        ?: lrcLibClient.lookup(
+                            title = trackTitle,
+                            artist = artistName,
+                            album = albumTitle,
+                            durationSeconds = duration.takeIf { it > 0 },
+                        )
                     if (lyrics != null && lyrics.isSynced) {
                         val lrcContent = StringBuilder()
                         lyrics.lines.forEach { line ->
