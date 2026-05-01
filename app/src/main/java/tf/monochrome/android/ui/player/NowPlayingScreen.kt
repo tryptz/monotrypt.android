@@ -408,7 +408,10 @@ fun NowPlayingScreen(
                         spectrumBins = spectrumBins,
                         spectrumColor = spectrumColor,
                         showSpectrum = showNpSpectrum,
-                        onToggleShowSpectrum = onToggleShowSpectrum
+                        onToggleShowSpectrum = onToggleShowSpectrum,
+                        albumColors = albumColors,
+                        positionMs = playerViewModel.positionMs,
+                        onSeekTo = playerViewModel::seekTo,
                     )
                 }
 
@@ -749,7 +752,10 @@ private fun NowPlayingHero(
     spectrumBins: FloatArray = FloatArray(0),
     spectrumColor: Color = Color(0xFF7EB6FF),
     showSpectrum: Boolean = true,
-    onToggleShowSpectrum: () -> Unit = {}
+    onToggleShowSpectrum: () -> Unit = {},
+    albumColors: AlbumColors,
+    positionMs: kotlinx.coroutines.flow.StateFlow<Long>,
+    onSeekTo: (Long) -> Unit,
 ) {
     var showOverlay by androidx.compose.runtime.remember(viewMode) {
         androidx.compose.runtime.mutableStateOf(viewMode == NowPlayingViewMode.VISUALIZER) 
@@ -844,10 +850,10 @@ private fun NowPlayingHero(
                         NowPlayingViewMode.LYRICS -> LyricsHeroPanel(
                             lyrics = lyrics,
                             isLoading = isLyricsLoading,
-                            coverUrl = currentTrack?.coverUrl,
+                            coverUrl = track?.coverUrl,
                             albumColors = albumColors,
-                            positionMs = playerViewModel.positionMs,
-                            onSeekTo = { ms -> playerViewModel.seekTo(ms) },
+                            positionMs = positionMs,
+                            onSeekTo = onSeekTo,
                         )
                         NowPlayingViewMode.QUEUE -> QueueHeroPanel(queuePreview = queuePreview)
                     }
