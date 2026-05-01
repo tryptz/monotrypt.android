@@ -68,6 +68,7 @@ class PreferencesManager @Inject constructor(
         // Custom API endpoint
         private val CUSTOM_API_ENDPOINT = stringPreferencesKey("custom_api_endpoint")
         private val QOBUZ_INSTANCE_URL = stringPreferencesKey("qobuz_instance_url")
+        private val QOBUZ_AUTH_COOKIE = stringPreferencesKey("qobuz_auth_cookie")
         private val DEV_MODE_ENABLED = booleanPreferencesKey("dev_mode_enabled")
 
         // Interface
@@ -347,6 +348,24 @@ class PreferencesManager @Inject constructor(
                 it[QOBUZ_INSTANCE_URL] = endpoint
             } else {
                 it.remove(QOBUZ_INSTANCE_URL)
+            }
+        }
+    }
+
+    // Optional session cookie pinned by the user from their browser. The
+    // trypt-hifi backend issues a session cookie on login and expects it on
+    // every /api/ request; without it the backend returns 401. Stored as the
+    // raw header value (one or more "name=value" pairs separated by "; ").
+    val qobuzAuthCookie: Flow<String?> = dataStore.data.map { prefs ->
+        prefs[QOBUZ_AUTH_COOKIE]
+    }
+
+    suspend fun setQobuzAuthCookie(cookie: String?) {
+        dataStore.edit {
+            if (cookie != null) {
+                it[QOBUZ_AUTH_COOKIE] = cookie
+            } else {
+                it.remove(QOBUZ_AUTH_COOKIE)
             }
         }
     }

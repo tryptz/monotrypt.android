@@ -3,10 +3,13 @@ package tf.monochrome.android.data.api
 import android.util.Base64
 import android.util.LruCache
 import io.ktor.client.HttpClient
+import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.isSuccess
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -21,6 +24,12 @@ import tf.monochrome.android.data.api.model.LyricsResponse
 import tf.monochrome.android.data.api.model.ManifestJson
 import tf.monochrome.android.data.api.model.MixResponse
 import tf.monochrome.android.data.api.model.PlaylistResponse
+import tf.monochrome.android.data.api.model.QobuzAlbumItem
+import tf.monochrome.android.data.api.model.QobuzArtistItem
+import tf.monochrome.android.data.api.model.QobuzArtistRef
+import tf.monochrome.android.data.api.model.QobuzDownloadEnvelope
+import tf.monochrome.android.data.api.model.QobuzSearchEnvelope
+import tf.monochrome.android.data.api.model.QobuzTrackItem
 import tf.monochrome.android.data.api.model.RecommendationsResponse
 import tf.monochrome.android.data.api.model.SearchResponse
 import tf.monochrome.android.data.api.model.TrackInfoResponse
@@ -48,7 +57,8 @@ import kotlin.random.Random
 class HiFiApiClient @Inject constructor(
     private val instanceManager: InstanceManager,
     private val httpClient: HttpClient,
-    private val json: Json
+    private val json: Json,
+    private val preferences: tf.monochrome.android.data.preferences.PreferencesManager,
 ) {
     private val cache = LruCache<String, CacheEntry>(200)
 
@@ -189,32 +199,36 @@ class HiFiApiClient @Inject constructor(
         )
     }
 
-    // Qobuz catalog search — hits the user-configured trypt-hifi instance
-    // at GET /api/get-music?q=<query>&offset=<n>. Returns an empty
-    // SearchResult when the instance isn't set, the request times out, or
-    // the response can't be parsed, so the TIDAL search flow is never
-    // blocked by Qobuz state.
+    // Qobuz catalog search — hits the user-configured trypt-hifi instance at
+    // GET /api/get-music?q=<query>&offset=<n>. Response envelope shape is
+    // { success, data: { albums?: { items: [...] }, tracks?: ..., artists?:
+    // ... } }. Whichever section the user's tab targeted is populated; the
+    // others are absent. We accept all three so a single parser works.
     //
-    // The response shape isn't fully documented here — `parseSearchResponse`
-    // already handles wrapped {data:...}, {items:[...]}, and bare arrays, so
-    // most reasonable shapes get mapped to tracks. Albums/artists/playlists
-    // are left empty until the response payload is verified end-to-end.
+    // Returns an empty SearchResult when the instance isn't set, the request
+    // times out, or the response can't be parsed, so the TIDAL search flow
+    // is never blocked by Qobuz state.
     suspend fun searchQobuz(query: String): SearchResult {
         val instance = instanceManager.qobuzInstanceOrNull() ?: return SearchResult()
         val base = instance.url.trimEnd('/')
+        val cookie = preferences.qobuzAuthCookie.first()
 
-        val response = withTimeoutOrNull(QOBUZ_REQUEST_TIMEOUT_MS) {
+        val envelope: QobuzSearchEnvelope? = withTimeoutOrNull(QOBUZ_REQUEST_TIMEOUT_MS) {
             runCatching {
-                val res = httpClient.get("$base/api/get-music?q=${query.encodeUrl()}&offset=0")
+                val res = httpClient.get("$base/api/get-music?q=${query.encodeUrl()}&offset=0") {
+                    attachQobuzAuth(cookie)
+                }
                 if (!res.status.isSuccess()) return@runCatching null
-                parseSearchResponse(res.bodyAsText())
+                json.decodeFromString<QobuzSearchEnvelope>(res.bodyAsText())
             }.getOrNull()
         } ?: return SearchResult()
 
+        if (!envelope.success || envelope.data == null) return SearchResult()
+        val data = envelope.data
         return SearchResult(
-            tracks = response.items.map { it.toTrack() },
-            albums = emptyList(),
-            artists = emptyList(),
+            tracks = data.tracks?.items?.map { it.toDomainTrack() } ?: emptyList(),
+            albums = data.albums?.items?.map { it.toDomainAlbum() } ?: emptyList(),
+            artists = data.artists?.items?.map { it.toDomainArtist() } ?: emptyList(),
             playlists = emptyList(),
         )
     }
@@ -650,17 +664,40 @@ class HiFiApiClient @Inject constructor(
     private suspend fun resolveQobuzDownloadUrl(trackId: Long, quality: AudioQuality): String? {
         val instance = instanceManager.qobuzInstanceOrNull() ?: return null
         val base = instance.url.trimEnd('/')
+        val cookie = preferences.qobuzAuthCookie.first()
         val code = quality.qobuzCode()
-        val response = httpClient.get("$base/api/download-music?track_id=$trackId&quality=$code")
+        val response = httpClient.get("$base/api/download-music?track_id=$trackId&quality=$code") {
+            attachQobuzAuth(cookie)
+        }
         if (!response.status.isSuccess()) return null
         val body = response.bodyAsText()
-        return extractQobuzFileUrl(body, base)
+        val resolved = extractQobuzFileUrlFromEnvelope(body, base)
+            ?: extractQobuzFileUrl(body, base)
+        return resolved
             // Hi-Res isn't always available on Qobuz — fall back to lossless
             // exactly like the TIDAL path does, instead of failing the
             // download.
             ?: if (quality == AudioQuality.HI_RES) {
                 resolveQobuzDownloadUrl(trackId, AudioQuality.LOSSLESS)
             } else null
+    }
+
+    private fun extractQobuzFileUrlFromEnvelope(body: String, base: String): String? {
+        val parsed = runCatching { json.decodeFromString<QobuzDownloadEnvelope>(body) }.getOrNull()
+            ?: return null
+        if (!parsed.success && parsed.data == null && parsed.url == null
+            && parsed.fileUrl == null && parsed.streamUrl == null && parsed.downloadUrl == null) {
+            return null
+        }
+        val candidate = parsed.url
+            ?: parsed.fileUrl
+            ?: parsed.streamUrl
+            ?: parsed.downloadUrl
+            ?: parsed.data?.url
+            ?: parsed.data?.fileUrl
+            ?: parsed.data?.streamUrl
+            ?: parsed.data?.downloadUrl
+        return candidate?.let { absoluteUrl(it, base) }
     }
 
     // Qobuz exposes four quality codes; map our 4-tier AudioQuality onto them.
@@ -706,7 +743,75 @@ class HiFiApiClient @Inject constructor(
             else -> "$base/api/$value"
         }
     }
+
+    // Attach the user-pinned Qobuz session cookie (Settings → Instances →
+    // Qobuz Auth Cookie) when one is set. The trypt-hifi backend issues a
+    // session cookie at login that the SPA forwards on every /api/ request;
+    // without it the backend 401s. Cookie value should be the raw header
+    // form (one or more "name=value" pairs separated by "; "), as copied
+    // from DevTools → Application → Cookies.
+    private fun HttpRequestBuilder.attachQobuzAuth(rawCookie: String?) {
+        val trimmed = rawCookie?.trim().orEmpty()
+        if (trimmed.isNotEmpty()) {
+            header("Cookie", trimmed)
+        }
+    }
 }
+
+// --- Qobuz item → domain mappers (file-private extensions) -----------------
+
+private fun QobuzAlbumItem.toDomainAlbum(): tf.monochrome.android.domain.model.Album {
+    val resolvedArtist = artist?.toDomainArtistRef()
+    val resolvedArtists = artists.map { it.toDomainArtistRef() }
+    val cover = image?.large ?: image?.small ?: image?.thumbnail
+    val explicit = parentalWarning
+    val typeLabel = if ((tracksCount ?: 0) <= 4) "EP" else "ALBUM"
+    return tf.monochrome.android.domain.model.Album(
+        id = qobuzId ?: id?.hashCode()?.toLong() ?: 0L,
+        title = listOfNotNull(title.takeIf { it.isNotBlank() }, version?.takeIf { it.isNotBlank() })
+            .joinToString(" — "),
+        artist = resolvedArtist,
+        artists = resolvedArtists,
+        numberOfTracks = tracksCount,
+        releaseDate = releaseDateOriginal,
+        cover = cover,
+        explicit = explicit,
+        type = typeLabel,
+        duration = duration,
+    )
+}
+
+private fun QobuzTrackItem.toDomainTrack(): tf.monochrome.android.domain.model.Track {
+    val resolvedAlbum = album?.toDomainAlbum()
+    val resolvedArtist = performer?.toDomainArtistRef()
+    return tf.monochrome.android.domain.model.Track(
+        id = id ?: 0L,
+        title = listOfNotNull(title.takeIf { it.isNotBlank() }, version?.takeIf { it.isNotBlank() })
+            .joinToString(" — "),
+        duration = duration ?: 0,
+        artist = resolvedArtist,
+        artists = listOfNotNull(resolvedArtist),
+        album = resolvedAlbum,
+        audioQuality = if (hires) "HI_RES_LOSSLESS" else if ((maximumBitDepth ?: 0) >= 16) "LOSSLESS" else null,
+        explicit = parentalWarning,
+        trackNumber = trackNumber,
+        volumeNumber = mediaNumber,
+    )
+}
+
+private fun QobuzArtistItem.toDomainArtist(): tf.monochrome.android.domain.model.Artist =
+    tf.monochrome.android.domain.model.Artist(
+        id = id ?: 0L,
+        name = name,
+        picture = image?.large ?: image?.small ?: picture,
+    )
+
+private fun QobuzArtistRef.toDomainArtistRef(): tf.monochrome.android.domain.model.Artist =
+    tf.monochrome.android.domain.model.Artist(
+        id = id ?: 0L,
+        name = name,
+        picture = image?.large ?: image?.small ?: picture,
+    )
 
 // --- Extension functions for API model → Domain model conversion ---
 
