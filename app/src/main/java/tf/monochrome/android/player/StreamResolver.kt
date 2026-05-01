@@ -100,8 +100,19 @@ class StreamResolver @Inject constructor(
         track: UnifiedTrack,
         source: PlaybackSource.LocalFile
     ): ResolvedMedia {
-        val file = File(source.filePath)
-        val uri = Uri.fromFile(file)
+        // DownloadWorker stores filePath either as an absolute filesystem path
+        // (internal storage) or as a content:// URI string (when the user
+        // picked a SAF folder). Wrapping a content:// path with File(...) +
+        // Uri.fromFile produces a malformed file:// URI that ExoPlayer can't
+        // open and DefaultMediaSourceFactory NPEs on. Detect the scheme and
+        // route accordingly.
+        val uri = if (source.filePath.startsWith("content://") ||
+            source.filePath.startsWith("file://")
+        ) {
+            source.filePath.toUri()
+        } else {
+            Uri.fromFile(File(source.filePath))
+        }
 
         val metadata = MediaMetadata.Builder()
             .setTitle(track.title)

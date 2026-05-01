@@ -585,5 +585,23 @@ class PlaybackService : MediaSessionService() {
             )
             return com.google.common.util.concurrent.Futures.immediateFuture(resumption)
         }
+
+        /**
+         * Echo controller-provided MediaItems back unchanged. PlayerViewModel
+         * already resolves URIs (and other LocalConfiguration) before calling
+         * `MediaController.setMediaItem(...)`, so the items the session
+         * receives are play-ready. Without this override, the default impl
+         * throws `UnsupportedOperationException` on every play tap (visible
+         * as a long MediaSessionStub stack trace in logcat) and the
+         * downstream PlayerWrapper.setMediaItems then NPEs in
+         * DefaultMediaSourceFactory because it gets fed empty items.
+         */
+        override fun onAddMediaItems(
+            mediaSession: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            mediaItems: MutableList<MediaItem>,
+        ): com.google.common.util.concurrent.ListenableFuture<MutableList<MediaItem>> {
+            return com.google.common.util.concurrent.Futures.immediateFuture(mediaItems)
+        }
     }
 }
