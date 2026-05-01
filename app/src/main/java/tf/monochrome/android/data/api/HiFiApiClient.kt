@@ -213,7 +213,7 @@ class HiFiApiClient @Inject constructor(
         val base = instance.url.trimEnd('/')
         val cookie = preferences.qobuzAuthCookie.first()
 
-        val envelope: QobuzSearchEnvelope? = withTimeoutOrNull(QOBUZ_REQUEST_TIMEOUT_MS) {
+        val envelope = withTimeoutOrNull(QOBUZ_REQUEST_TIMEOUT_MS) {
             runCatching {
                 val res = httpClient.get("$base/api/get-music?q=${query.encodeUrl()}&offset=0") {
                     attachQobuzAuth(cookie)
