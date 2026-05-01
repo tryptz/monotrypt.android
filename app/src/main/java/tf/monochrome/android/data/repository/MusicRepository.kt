@@ -44,6 +44,16 @@ class MusicRepository @Inject constructor(
         apiClient.searchQobuz(query)
     }
 
+    /**
+     * Qobuz album-detail fetch. Returns Result.failure when the Qobuz instance
+     * isn't configured or the lookup fails so the detail VM can fall back to
+     * the TIDAL path cleanly.
+     */
+    suspend fun getQobuzAlbum(albumSlug: String): Result<AlbumDetail> = runCatching {
+        apiClient.getQobuzAlbum(albumSlug)
+            ?: throw IllegalStateException("Qobuz album not available: $albumSlug")
+    }
+
     suspend fun searchTracks(query: String): Result<List<Track>> = runCatching {
         apiClient.searchTracks(query)
     }

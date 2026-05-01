@@ -24,10 +24,12 @@ import tf.monochrome.android.data.api.model.LyricsResponse
 import tf.monochrome.android.data.api.model.ManifestJson
 import tf.monochrome.android.data.api.model.MixResponse
 import tf.monochrome.android.data.api.model.PlaylistResponse
+import tf.monochrome.android.data.api.model.QobuzAlbumDetailEnvelope
 import tf.monochrome.android.data.api.model.QobuzAlbumItem
 import tf.monochrome.android.data.api.model.QobuzArtistItem
 import tf.monochrome.android.data.api.model.QobuzArtistRef
 import tf.monochrome.android.data.api.model.QobuzDownloadEnvelope
+import tf.monochrome.android.data.api.model.QobuzPerson
 import tf.monochrome.android.data.api.model.QobuzSearchEnvelope
 import tf.monochrome.android.data.api.model.QobuzTrackItem
 import tf.monochrome.android.data.api.model.RecommendationsResponse
@@ -59,6 +61,7 @@ class HiFiApiClient @Inject constructor(
     private val httpClient: HttpClient,
     private val json: Json,
     private val preferences: tf.monochrome.android.data.preferences.PreferencesManager,
+    private val qobuzIdRegistry: QobuzIdRegistry,
 ) {
     private val cache = LruCache<String, CacheEntry>(200)
 
@@ -225,12 +228,59 @@ class HiFiApiClient @Inject constructor(
 
         if (!envelope.success || envelope.data == null) return SearchResult()
         val data = envelope.data
+
+        // Record (qobuz_id -> alphanumeric slug) so the detail VM can look the
+        // slug back up at navigation time. Numeric artist ids are also tagged
+        // as Qobuz so ArtistDetailViewModel can route appropriately.
+        data.albums?.items?.forEach { item ->
+            val qid = item.qobuzId
+            val slug = item.id
+            if (qid != null && !slug.isNullOrBlank()) {
+                qobuzIdRegistry.registerAlbum(qid, slug)
+            }
+        }
+        data.artists?.items?.forEach { item -> item.id?.let { qobuzIdRegistry.registerArtist(it) } }
+
         return SearchResult(
             tracks = data.tracks?.items?.map { it.toDomainTrack() } ?: emptyList(),
             albums = data.albums?.items?.map { it.toDomainAlbum() } ?: emptyList(),
             artists = data.artists?.items?.map { it.toDomainArtist() } ?: emptyList(),
             playlists = emptyList(),
         )
+    }
+
+    /**
+     * Qobuz album detail — GET /api/get-album?album_id=<alphanumeric-slug>.
+     * The response is the standard {success, data: …} envelope; data has all
+     * the QobuzAlbumItem fields plus a `tracks: { items: [...] }` block with
+     * the album's full track list. Returns null when the Qobuz instance
+     * isn't configured, the request fails, or the body can't be parsed.
+     */
+    suspend fun getQobuzAlbum(albumSlug: String): AlbumDetail? {
+        val instance = instanceManager.qobuzInstanceOrNull() ?: return null
+        if (albumSlug.isBlank()) return null
+        val base = instance.url.trimEnd('/')
+        val cookie = preferences.qobuzAuthCookie.first()
+
+        val envelope = withTimeoutOrNull(QOBUZ_REQUEST_TIMEOUT_MS) {
+            runCatching {
+                val res = httpClient.get(
+                    "$base/api/get-album?album_id=${albumSlug.encodeUrl()}"
+                ) { attachQobuzAuth(cookie) }
+                if (!res.status.isSuccess()) return@runCatching null
+                json.decodeFromString<QobuzAlbumDetailEnvelope>(res.bodyAsText())
+            }.getOrNull()
+        } ?: return null
+
+        if (!envelope.success || envelope.data == null) return null
+        val albumItem = envelope.data
+        val album = albumItem.toDomainAlbum()
+        val tracks = albumItem.tracks?.items?.map { item ->
+            // Detail responses don't repeat the album object inside each track
+            // — provide it explicitly so playback / display has full context.
+            item.toDomainTrack(fallbackAlbum = album)
+        } ?: emptyList()
+        return AlbumDetail(album = album, tracks = tracks)
     }
 
     // --- Album ---
@@ -787,13 +837,16 @@ private fun QobuzAlbumItem.toDomainAlbum(): tf.monochrome.android.domain.model.A
     )
 }
 
-private fun QobuzTrackItem.toDomainTrack(): tf.monochrome.android.domain.model.Track {
-    val resolvedAlbum = album?.toDomainAlbum()
+private fun QobuzTrackItem.toDomainTrack(
+    fallbackAlbum: tf.monochrome.android.domain.model.Album? = null,
+): tf.monochrome.android.domain.model.Track {
+    val resolvedAlbum = album?.toDomainAlbum() ?: fallbackAlbum
     // performer is the track-level primary artist ({id, name}). Fall back to
     // the album's main artist when missing (the response always populates one
     // or the other).
     val resolvedArtist = performer?.toDomainArtist()
         ?: album?.artist?.toDomainArtistRef()
+        ?: fallbackAlbum?.artist
     return tf.monochrome.android.domain.model.Track(
         id = id ?: 0L,
         title = listOfNotNull(title.takeIf { it.isNotBlank() }, version?.takeIf { it.isNotBlank() })

@@ -208,14 +208,14 @@ class SearchViewModel @Inject constructor(
 
         val qobuzSearch = qobuzResult?.getOrNull()?.getOrNull()
         val qobuzTracks = qobuzSearch?.tracks?.map { it.toQobuzUnifiedTrack() } ?: emptyList()
-        // Qobuz album/artist detail endpoints aren't wired yet — clicking a
-        // Qobuz album would route through getAlbum(qobuzId) on the TIDAL pool
-        // (or Dev Mode override) and either return HTML (SPA index) or 404,
-        // surfacing as a JSON parse error in the detail screen. Drop them
-        // from the merged results until /api/get-album and /api/get-artist
-        // are wired. Tracks are still surfaced because their playback path
-        // (PlaybackSource.QobuzCached → /api/download-music → app cache)
-        // doesn't depend on a detail endpoint.
+        val qobuzAlbums = qobuzSearch?.albums ?: emptyList()
+        val qobuzArtists = qobuzSearch?.artists ?: emptyList()
+        // Qobuz album clicks are now wired through QobuzIdRegistry +
+        // AlbumDetailViewModel's Qobuz-first lookup. Artist clicks still fall
+        // through to the TIDAL artist endpoint until /api/get-artist's
+        // contract is verified — when that endpoint surfaces an unknown id
+        // it returns a Result.failure and the screen renders an error
+        // (handled, not a crash).
 
         if (searchResult.getOrNull()?.isSuccess == true) {
             val result = searchResult.getOrThrow().getOrThrow()
@@ -225,22 +225,27 @@ class SearchViewModel @Inject constructor(
                     result.tracks.map { it.toUnifiedTrack() } +
                     qobuzTracks
             )
-            _allAlbums.value = scoreItems(trimmedQuery, result.albums) { listOf(it.title, it.displayArtist) }
-            _allArtists.value = scoreItems(trimmedQuery, result.artists) { listOf(it.name) }
+            _allAlbums.value = scoreItems(
+                trimmedQuery,
+                (result.albums + qobuzAlbums).distinctBy { it.id },
+            ) { listOf(it.title, it.displayArtist) }
+            _allArtists.value = scoreItems(
+                trimmedQuery,
+                (result.artists + qobuzArtists).distinctBy { it.id },
+            ) { listOf(it.name) }
             _allPlaylists.value = scoreItems(trimmedQuery, result.playlists) {
                 listOfNotNull(it.title, it.creator?.name, it.description)
             }
             preferences.addSearchHistoryQuery(trimmedQuery)
         } else {
-            // TIDAL is down — still surface Qobuz tracks + local results so
-            // search doesn't feel broken when the public TIDAL pool is
-            // unreachable.
+            // TIDAL is down — still surface Qobuz + local results so search
+            // doesn't feel broken when the public TIDAL pool is unreachable.
             _allTracks.value = scoreTracks(
                 query = trimmedQuery,
                 tracks = localAndCollectionTracks + qobuzTracks
             )
-            _allAlbums.value = emptyList()
-            _allArtists.value = emptyList()
+            _allAlbums.value = scoreItems(trimmedQuery, qobuzAlbums) { listOf(it.title, it.displayArtist) }
+            _allArtists.value = scoreItems(trimmedQuery, qobuzArtists) { listOf(it.name) }
             _allPlaylists.value = emptyList()
         }
         _isSearching.value = false

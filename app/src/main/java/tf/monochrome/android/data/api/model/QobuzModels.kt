@@ -54,6 +54,19 @@ data class QobuzAlbumItem(
     val label: QobuzLabel? = null,
     val upc: String? = null,
     val url: String? = null,
+    // Album-detail responses (/api/get-album?album_id=) embed the track list
+    // here. Search responses leave it null — ignoreUnknownKeys drops the
+    // detail-only fields like description, awards, track_ids, etc.
+    val tracks: QobuzPaginated<QobuzTrackItem>? = null,
+    val description: String? = null,
+)
+
+// Detail envelope — wraps the same QobuzAlbumItem shape (now with `tracks`
+// populated) under the standard {success, data: …} response.
+@Serializable
+data class QobuzAlbumDetailEnvelope(
+    val success: Boolean = false,
+    val data: QobuzAlbumItem? = null,
 )
 
 @Serializable
