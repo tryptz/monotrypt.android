@@ -28,6 +28,11 @@ import javax.inject.Singleton
 class QobuzIdRegistry @Inject constructor() {
     private val albumSlugs = ConcurrentHashMap<Long, String>()
     private val qobuzArtistIds: MutableSet<Long> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+    // Set of track ids we know to be Qobuz. PlayerViewModel.resolveAndPlay
+    // consults this so a Qobuz-album track row plays via the QobuzCached
+    // path instead of falling through to TIDAL streaming with a Qobuz id
+    // that TIDAL either doesn't have or maps to a different track.
+    private val qobuzTrackIds: MutableSet<Long> = java.util.concurrent.ConcurrentHashMap.newKeySet()
 
     fun registerAlbum(qobuzId: Long, slug: String) {
         if (slug.isBlank()) return
@@ -41,4 +46,10 @@ class QobuzIdRegistry @Inject constructor() {
     }
 
     fun isQobuzArtist(id: Long): Boolean = id in qobuzArtistIds
+
+    fun registerTrack(id: Long) {
+        qobuzTrackIds.add(id)
+    }
+
+    fun isQobuzTrack(id: Long): Boolean = id in qobuzTrackIds
 }

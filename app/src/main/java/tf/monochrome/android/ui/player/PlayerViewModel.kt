@@ -53,6 +53,7 @@ class PlayerViewModel @Inject constructor(
     private val preferences: PreferencesManager,
     private val projectMEngineRepository: ProjectMEngineRepository,
     private val unifiedTrackRegistry: tf.monochrome.android.player.UnifiedTrackRegistry,
+    private val qobuzIdRegistry: tf.monochrome.android.data.api.QobuzIdRegistry,
     private val trackShareHelper: tf.monochrome.android.share.TrackShareHelper,
     val spectrumAnalyzer: SpectrumAnalyzerTap
 ) : ViewModel() {
@@ -502,8 +503,19 @@ class PlayerViewModel @Inject constructor(
         val track = queueManager.currentTrack.value ?: return
         viewModelScope.launch {
             try {
-                // Check if this track has a unified source (local file, collection, etc.)
+                // Resolution priority:
+                //   1. unifiedTrackRegistry — local files / collections / Qobuz
+                //      tracks already promoted to UnifiedTrack at queue time.
+                //   2. qobuzIdRegistry — synthesize a QobuzCached UnifiedTrack
+                //      for tracks whose ids came in via getQobuzAlbum /
+                //      getQobuzArtist / searchQobuz but were enqueued as
+                //      legacy Track (e.g. an album-detail screen tap). Without
+                //      this step the legacy path below would call TIDAL
+                //      /track/?id=<qobuzId> which either 404s or returns the
+                //      wrong track because the numeric id doesn't match.
+                //   3. Legacy TIDAL path.
                 val unifiedTrack = unifiedTrackRegistry[track.id]
+                    ?: synthesizeQobuzUnifiedTrack(track)
                 if (unifiedTrack != null) {
                     val resolved = streamResolver.resolveUnifiedTrack(unifiedTrack)
                     mediaController?.let { mc ->
@@ -525,6 +537,33 @@ class PlayerViewModel @Inject constructor(
                 skipToNext()
             }
         }
+    }
+
+    /**
+     * Build a transient UnifiedTrack with PlaybackSource.QobuzCached for a
+     * legacy Track whose id was previously registered as Qobuz. Used by
+     * resolveAndPlay so a tap on a Qobuz-album track row routes through the
+     * cache-on-demand path rather than TIDAL streaming.
+     */
+    private fun synthesizeQobuzUnifiedTrack(track: Track): UnifiedTrack? {
+        if (!qobuzIdRegistry.isQobuzTrack(track.id)) return null
+        return UnifiedTrack(
+            id = "qobuz_${track.id}",
+            title = track.title,
+            durationSeconds = track.duration,
+            trackNumber = track.trackNumber,
+            discNumber = track.volumeNumber,
+            explicit = track.explicit,
+            artistName = track.displayArtist.ifBlank { "Unknown Artist" },
+            artistNames = track.artists.map { it.name }
+                .ifEmpty { listOfNotNull(track.artist?.name) },
+            albumArtistName = track.artist?.name,
+            albumTitle = track.album?.title,
+            albumId = track.album?.id?.toString(),
+            artworkUri = track.coverUrl,
+            source = tf.monochrome.android.domain.model.PlaybackSource.QobuzCached(qobuzId = track.id),
+            sourceType = tf.monochrome.android.domain.model.SourceType.QOBUZ,
+        )
     }
 
     // --- Downloads ---

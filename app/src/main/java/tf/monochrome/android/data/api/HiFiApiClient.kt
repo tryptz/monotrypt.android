@@ -262,7 +262,10 @@ class HiFiApiClient @Inject constructor(
         // also carry an album object — register those slugs too so navigation
         // from a track row resolves correctly.
         data.albums?.items?.forEach { registerAlbumWithRegistry(it) }
-        data.tracks?.items?.forEach { it.album?.let { album -> registerAlbumWithRegistry(album) } }
+        data.tracks?.items?.forEach { item ->
+            item.id?.let { qobuzIdRegistry.registerTrack(it) }
+            item.album?.let { album -> registerAlbumWithRegistry(album) }
+        }
         data.artists?.items?.forEach { item -> item.id?.let { qobuzIdRegistry.registerArtist(it) } }
 
         return SearchResult(
@@ -301,6 +304,10 @@ class HiFiApiClient @Inject constructor(
         registerAlbumWithRegistry(albumItem)
         val album = albumItem.toDomainAlbum()
         val tracks = albumItem.tracks?.items?.map { item ->
+            // Tag every track id as Qobuz so PlayerViewModel.resolveAndPlay
+            // routes it through the QobuzCached path rather than the TIDAL
+            // streaming fallback.
+            item.id?.let { qobuzIdRegistry.registerTrack(it) }
             // Detail responses don't repeat the album object inside each track
             // — provide it explicitly so playback / display has full context.
             item.toDomainTrack(fallbackAlbum = album)
@@ -341,7 +348,12 @@ class HiFiApiClient @Inject constructor(
 
         // Register top_track album slugs so clicking through to an album
         // from the artist screen still resolves via QobuzIdRegistry.
-        raw.topTracks.forEach { it.album?.let { album -> registerAlbumWithRegistry(album) } }
+        // Also tag each top_track id as Qobuz so playback routes through
+        // QobuzCached instead of falling through to TIDAL streaming.
+        raw.topTracks.forEach { topTrack ->
+            topTrack.id?.let { qobuzIdRegistry.registerTrack(it) }
+            topTrack.album?.let { album -> registerAlbumWithRegistry(album) }
+        }
 
         val artist = Artist(
             id = raw.id ?: artistId,
