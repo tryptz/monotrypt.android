@@ -69,6 +69,121 @@ data class QobuzAlbumDetailEnvelope(
     val data: QobuzAlbumItem? = null,
 )
 
+// ---------------------------------------------------------------------------
+// Artist-detail response shape (/api/get-artist?artist_id=<numeric>)
+//
+// Notably different from search/album responses:
+//   - name is a nested object {display: "..."} instead of a plain string
+//   - image is {portrait: {hash, format}} — URL has to be constructed:
+//     https://static.qobuz.com/images/artists/covers/<size>/<hash>.<format>
+//   - top_tracks is a flat array, NOT a paginated {items: [...]} structure
+//   - track entries inside top_tracks use rights/physical_support/audio_info
+//     wrappers instead of flat boolean fields
+//   - similar_artists has {has_more, items: [...]} structure
+@Serializable
+data class QobuzArtistDetailEnvelope(
+    val success: Boolean = false,
+    val data: QobuzArtistDetailData? = null,
+)
+
+@Serializable
+data class QobuzArtistDetailData(
+    val artist: QobuzArtistDetail? = null,
+)
+
+@Serializable
+data class QobuzArtistDetail(
+    val id: Long? = null,
+    val name: QobuzDisplayName? = null,
+    @SerialName("artist_category") val artistCategory: String? = null,
+    val biography: QobuzBiography? = null,
+    val images: QobuzArtistImages? = null,
+    @SerialName("similar_artists") val similarArtists: QobuzSimilarArtists? = null,
+    @SerialName("top_tracks") val topTracks: List<QobuzArtistTopTrack> = emptyList(),
+)
+
+@Serializable
+data class QobuzDisplayName(
+    val display: String? = null,
+)
+
+@Serializable
+data class QobuzBiography(
+    val content: String? = null,
+    val source: String? = null,
+    val language: String? = null,
+)
+
+@Serializable
+data class QobuzArtistImages(
+    val portrait: QobuzImageHash? = null,
+)
+
+@Serializable
+data class QobuzImageHash(
+    val hash: String? = null,
+    val format: String? = null,
+)
+
+@Serializable
+data class QobuzSimilarArtists(
+    @SerialName("has_more") val hasMore: Boolean = false,
+    val items: List<QobuzSimilarArtist> = emptyList(),
+)
+
+@Serializable
+data class QobuzSimilarArtist(
+    val id: Long? = null,
+    val name: QobuzDisplayName? = null,
+    val images: QobuzArtistImages? = null,
+)
+
+@Serializable
+data class QobuzArtistTopTrack(
+    val id: Long? = null,
+    val isrc: String? = null,
+    val title: String = "",
+    val version: String? = null,
+    val duration: Int? = null,
+    @SerialName("parental_warning") val parentalWarning: Boolean = false,
+    val composer: QobuzNamedRef? = null,
+    val artist: QobuzNamedRef? = null,
+    @SerialName("audio_info") val audioInfo: QobuzAudioSpec? = null,
+    val rights: QobuzTrackRights? = null,
+    @SerialName("physical_support") val physicalSupport: QobuzPhysicalSupport? = null,
+    val album: QobuzAlbumItem? = null,
+)
+
+@Serializable
+data class QobuzNamedRef(
+    val id: Long? = null,
+    val name: QobuzDisplayName? = null,
+)
+
+@Serializable
+data class QobuzAudioSpec(
+    @SerialName("maximum_bit_depth") val maximumBitDepth: Int? = null,
+    @SerialName("maximum_channel_count") val maximumChannelCount: Int? = null,
+    @SerialName("maximum_sampling_rate") val maximumSamplingRate: Double? = null,
+)
+
+@Serializable
+data class QobuzTrackRights(
+    val streamable: Boolean = false,
+    @SerialName("hires_streamable") val hiresStreamable: Boolean = false,
+    @SerialName("hires_purchasable") val hiresPurchasable: Boolean = false,
+    val purchasable: Boolean = false,
+    val downloadable: Boolean = false,
+    val previewable: Boolean = false,
+    val sampleable: Boolean = false,
+)
+
+@Serializable
+data class QobuzPhysicalSupport(
+    @SerialName("media_number") val mediaNumber: Int? = null,
+    @SerialName("track_number") val trackNumber: Int? = null,
+)
+
 @Serializable
 data class QobuzTrackItem(
     val id: Long? = null,

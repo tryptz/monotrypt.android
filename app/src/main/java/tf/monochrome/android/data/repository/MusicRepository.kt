@@ -54,6 +54,11 @@ class MusicRepository @Inject constructor(
             ?: throw IllegalStateException("Qobuz album not available: $albumSlug")
     }
 
+    suspend fun getQobuzArtist(artistId: Long): Result<ArtistDetail> = runCatching {
+        apiClient.getQobuzArtist(artistId)
+            ?: throw IllegalStateException("Qobuz artist not available: $artistId")
+    }
+
     suspend fun searchTracks(query: String): Result<List<Track>> = runCatching {
         apiClient.searchTracks(query)
     }

@@ -26,11 +26,17 @@ import tf.monochrome.android.data.api.model.MixResponse
 import tf.monochrome.android.data.api.model.PlaylistResponse
 import tf.monochrome.android.data.api.model.QobuzAlbumDetailEnvelope
 import tf.monochrome.android.data.api.model.QobuzAlbumItem
+import tf.monochrome.android.data.api.model.QobuzArtistDetail
+import tf.monochrome.android.data.api.model.QobuzArtistDetailEnvelope
+import tf.monochrome.android.data.api.model.QobuzArtistImages
 import tf.monochrome.android.data.api.model.QobuzArtistItem
 import tf.monochrome.android.data.api.model.QobuzArtistRef
+import tf.monochrome.android.data.api.model.QobuzArtistTopTrack
 import tf.monochrome.android.data.api.model.QobuzDownloadEnvelope
+import tf.monochrome.android.data.api.model.QobuzNamedRef
 import tf.monochrome.android.data.api.model.QobuzPerson
 import tf.monochrome.android.data.api.model.QobuzSearchEnvelope
+import tf.monochrome.android.data.api.model.QobuzSimilarArtist
 import tf.monochrome.android.data.api.model.QobuzTrackItem
 import tf.monochrome.android.data.api.model.RecommendationsResponse
 import tf.monochrome.android.data.api.model.SearchResponse
@@ -231,14 +237,11 @@ class HiFiApiClient @Inject constructor(
 
         // Record (qobuz_id -> alphanumeric slug) so the detail VM can look the
         // slug back up at navigation time. Numeric artist ids are also tagged
-        // as Qobuz so ArtistDetailViewModel can route appropriately.
-        data.albums?.items?.forEach { item ->
-            val qid = item.qobuzId
-            val slug = item.id
-            if (qid != null && !slug.isNullOrBlank()) {
-                qobuzIdRegistry.registerAlbum(qid, slug)
-            }
-        }
+        // as Qobuz so ArtistDetailViewModel can route appropriately. Tracks
+        // also carry an album object — register those slugs too so navigation
+        // from a track row resolves correctly.
+        data.albums?.items?.forEach { registerAlbumWithRegistry(it) }
+        data.tracks?.items?.forEach { it.album?.let { album -> registerAlbumWithRegistry(album) } }
         data.artists?.items?.forEach { item -> item.id?.let { qobuzIdRegistry.registerArtist(it) } }
 
         return SearchResult(
@@ -274,6 +277,7 @@ class HiFiApiClient @Inject constructor(
 
         if (!envelope.success || envelope.data == null) return null
         val albumItem = envelope.data
+        registerAlbumWithRegistry(albumItem)
         val album = albumItem.toDomainAlbum()
         val tracks = albumItem.tracks?.items?.map { item ->
             // Detail responses don't repeat the album object inside each track
@@ -281,6 +285,71 @@ class HiFiApiClient @Inject constructor(
             item.toDomainTrack(fallbackAlbum = album)
         } ?: emptyList()
         return AlbumDetail(album = album, tracks = tracks)
+    }
+
+    /**
+     * Qobuz artist detail — GET /api/get-artist?artist_id=<numeric-id>.
+     *
+     * Response shape is materially different from search/album:
+     *   {success, data: {artist: {id, name:{display}, biography, images:
+     *     {portrait:{hash, format}}, top_tracks:[…], similar_artists:
+     *     {has_more, items:[…]}}}}
+     *
+     * Album lists per artist aren't part of this payload — the SPA likely
+     * loads them via a separate call. Until that contract is known, the
+     * mapped ArtistDetail leaves albums/eps/singles empty and populates
+     * topTracks + similarArtists.
+     */
+    suspend fun getQobuzArtist(artistId: Long): ArtistDetail? {
+        val instance = instanceManager.qobuzInstanceOrNull() ?: return null
+        val base = instance.url.trimEnd('/')
+        val cookie = preferences.qobuzAuthCookie.first()
+
+        val envelope = withTimeoutOrNull(QOBUZ_REQUEST_TIMEOUT_MS) {
+            runCatching {
+                val res = httpClient.get("$base/api/get-artist?artist_id=$artistId") {
+                    attachQobuzAuth(cookie)
+                }
+                if (!res.status.isSuccess()) return@runCatching null
+                json.decodeFromString<QobuzArtistDetailEnvelope>(res.bodyAsText())
+            }.getOrNull()
+        } ?: return null
+
+        if (!envelope.success || envelope.data?.artist == null) return null
+        val raw = envelope.data.artist
+
+        // Register top_track album slugs so clicking through to an album
+        // from the artist screen still resolves via QobuzIdRegistry.
+        raw.topTracks.forEach { it.album?.let { album -> registerAlbumWithRegistry(album) } }
+
+        val artist = Artist(
+            id = raw.id ?: artistId,
+            name = raw.name?.display ?: "",
+            picture = raw.images?.portraitUrl(),
+        )
+        val topTracks = raw.topTracks.mapNotNull { it.toDomainTrack() }
+        val similar = raw.similarArtists?.items?.mapNotNull { it.toDomainArtist() } ?: emptyList()
+        return ArtistDetail(
+            artist = artist,
+            topTracks = topTracks,
+            albums = emptyList(),
+            eps = emptyList(),
+            singles = emptyList(),
+            unreleasedTracks = emptyList(),
+            similarArtists = similar,
+        )
+    }
+
+    // Side-channel registry update for any QobuzAlbumItem we decode. Album.id
+    // produced by toDomainAlbum is qobuz_id when available and slug.hashCode()
+    // otherwise — register that exact value so AlbumDetailViewModel's
+    // registry lookup always resolves regardless of which path produced the id.
+    private fun registerAlbumWithRegistry(item: QobuzAlbumItem) {
+        val albumId = item.qobuzId ?: item.id?.hashCode()?.toLong()
+        val slug = item.id
+        if (albumId != null && !slug.isNullOrBlank()) {
+            qobuzIdRegistry.registerAlbum(albumId, slug)
+        }
     }
 
     // --- Album ---
@@ -882,6 +951,57 @@ private fun QobuzArtistRef.toDomainArtistRef(): tf.monochrome.android.domain.mod
         name = name,
         picture = image?.large ?: image?.small ?: picture,
     )
+
+// Qobuz hashes artist images in the response; the actual URL is a templated
+// CDN path. "large" is a reasonable default for the artist detail screen.
+private fun QobuzArtistImages.portraitUrl(size: String = "large"): String? {
+    val p = portrait ?: return null
+    val hash = p.hash ?: return null
+    val format = p.format ?: "jpg"
+    return "https://static.qobuz.com/images/artists/covers/$size/$hash.$format"
+}
+
+private fun QobuzSimilarArtist.toDomainArtist(): tf.monochrome.android.domain.model.Artist? {
+    val artistId = id ?: return null
+    return tf.monochrome.android.domain.model.Artist(
+        id = artistId,
+        name = name?.display ?: "",
+        picture = images?.portraitUrl(size = "medium"),
+    )
+}
+
+private fun QobuzNamedRef.toDomainArtist(): tf.monochrome.android.domain.model.Artist =
+    tf.monochrome.android.domain.model.Artist(
+        id = id ?: 0L,
+        name = name?.display ?: "",
+    )
+
+// Top-tracks on the artist endpoint use a different shape than QobuzTrackItem
+// (rights/physical_support/audio_info wrappers, nested name objects). Map
+// directly so the artist screen surfaces playable rows.
+private fun QobuzArtistTopTrack.toDomainTrack(): tf.monochrome.android.domain.model.Track? {
+    val trackId = id ?: return null
+    val resolvedAlbum = album?.toDomainAlbum()
+    val resolvedArtist = artist?.toDomainArtist() ?: album?.artist?.toDomainArtistRef()
+    val audioQuality = when {
+        rights?.hiresStreamable == true -> "HI_RES_LOSSLESS"
+        (audioInfo?.maximumBitDepth ?: 0) >= 16 -> "LOSSLESS"
+        else -> null
+    }
+    return tf.monochrome.android.domain.model.Track(
+        id = trackId,
+        title = listOfNotNull(title.takeIf { it.isNotBlank() }, version?.takeIf { it.isNotBlank() })
+            .joinToString(" — "),
+        duration = duration ?: 0,
+        artist = resolvedArtist,
+        artists = listOfNotNull(resolvedArtist),
+        album = resolvedAlbum,
+        audioQuality = audioQuality,
+        explicit = parentalWarning,
+        trackNumber = physicalSupport?.trackNumber,
+        volumeNumber = physicalSupport?.mediaNumber,
+    )
+}
 
 // --- Extension functions for API model → Domain model conversion ---
 
