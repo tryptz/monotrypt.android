@@ -23,8 +23,12 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import LazyColumn
+import itemsIndexed
+import rememberLazyListState
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -1297,7 +1301,7 @@ private fun SyncedLyricsView(
     onSeekTo: (Long) -> Unit,
 ) {
     val position by positionMs.collectAsState()
-    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val listState = rememberLazyListState()
     var currentLineIndex by remember { mutableStateOf(-1) }
 
     LaunchedEffect(position, lines) {
@@ -1317,15 +1321,15 @@ private fun SyncedLyricsView(
         }
     }
 
-    androidx.compose.foundation.lazy.LazyColumn(
+    LazyColumn(
         state = listState,
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 28.dp),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 80.dp),
+        contentPadding = PaddingValues(vertical = 80.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        androidx.compose.foundation.lazy.itemsIndexed(lines) { index, line ->
+        itemsIndexed(lines) { index, line ->
             val isActive = index == currentLineIndex
             if (line.words.isNotEmpty()) {
                 KaraokeWordLine(
@@ -1403,14 +1407,14 @@ private fun KaraokeWordLine(
 
 @Composable
 private fun UnsyncedLyricsView(lines: List<tf.monochrome.android.domain.model.LyricLine>) {
-    androidx.compose.foundation.lazy.LazyColumn(
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 28.dp),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 60.dp),
+        contentPadding = PaddingValues(vertical = 60.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        androidx.compose.foundation.lazy.itemsIndexed(lines) { _, line ->
+        itemsIndexed(lines) { _, line ->
             Text(
                 text = line.text.ifBlank { "" },
                 style = MaterialTheme.typography.bodyLarge.copy(fontSize = 18.sp),
