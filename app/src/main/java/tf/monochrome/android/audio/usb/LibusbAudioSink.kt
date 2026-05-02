@@ -49,6 +49,27 @@ class LibusbAudioSink(
     // configure/flush so the next track gets a fresh attempt.
     private var lastEngageFailHash: Int = 0
 
+    // Wedged-iso-pump watchdog. driver.start() can succeed (returns
+    // true, _isStreaming flips on) but the iso completion callbacks
+    // never actually fire on some Android xHCI controllers — e.g.
+    // OnePlus OP611FL1 / CPH2749 in field reports. The user-visible
+    // symptom is "USB audio crash after a couple of seconds": the
+    // ring fills (~6 sec at 44.1k/16/2ch), driver.write() starts
+    // returning 0, ExoPlayer back-pressures, PipelineWatcher floods
+    // "pipelineFull (4)" for ~3.5 sec, then everything falls silent
+    // because the renderer thread stops feeding a sink that won't
+    // drain. There is no Java exception and no native tombstone —
+    // just dead audio. To recover, watch driver.playedFrames(): if it
+    // hasn't budged for kIsoStallNs after our first successful write
+    // we declare the iso pump wedged, latch bypass off, and let
+    // ForwardingAudioSink delegate to DefaultAudioSink so audio
+    // actually plays. Latch is cleared on flush()/configure() so the
+    // next track / next play attempt gets a fresh shot at bypass.
+    private var firstWriteNs: Long = 0L
+    private var lastPlayedFrames: Long = 0L
+    private var lastPlayedAdvanceNs: Long = 0L
+    private var watchdogTripped: Boolean = false
+
     override fun configure(
         inputFormat: Format,
         specifiedBufferSize: Int,
@@ -116,6 +137,7 @@ class LibusbAudioSink(
         if (bypassActive) {
             framesWritten = 0L
             startTimeUs = C.TIME_UNSET
+            resetWatchdog()
         }
     }
 
@@ -205,7 +227,48 @@ class LibusbAudioSink(
             processed.position(processed.position() + written * pcmBytesPerFrame)
         }
         framesWritten += written
+        checkIsoPumpWatchdog()
         return !buffer.hasRemaining()
+    }
+
+    // Trips bypass off if the iso pump accepted writes but never
+    // actually dispatched any frames. See the field-block comment on
+    // firstWriteNs for the failure mode this exists to catch.
+    private fun checkIsoPumpWatchdog() {
+        if (watchdogTripped) return
+        val now = System.nanoTime()
+        if (firstWriteNs == 0L) {
+            firstWriteNs = now
+            lastPlayedFrames = driver.playedFrames()
+            lastPlayedAdvanceNs = now
+            return
+        }
+        val played = driver.playedFrames()
+        if (played > lastPlayedFrames) {
+            lastPlayedFrames = played
+            lastPlayedAdvanceNs = now
+            return
+        }
+        // Both gates so we don't false-trip on the very first tick
+        // (pump hasn't had time to start) or on a brief stall mid-
+        // stream that recovers on its own.
+        val sinceFirstWriteNs = now - firstWriteNs
+        val sinceAdvanceNs = now - lastPlayedAdvanceNs
+        if (sinceFirstWriteNs > kIsoWarmupNs && sinceAdvanceNs > kIsoStallNs) {
+            Log.w(TAG, "iso pump wedged — playedFrames=$played stuck for " +
+                "${sinceAdvanceNs / 1_000_000} ms after $framesWritten frames " +
+                "written; falling back to delegate sink. Re-engages on next " +
+                "configure/flush.")
+            watchdogTripped = true
+            bypassActive = false
+            // Don't call driver.stop() here — nativeStop() spins up
+            // to a second waiting for cancelled transfers to drain,
+            // which would glitch the audio thread mid-buffer.
+            // ForwardingAudioSink's delegate is already configured
+            // with the same format (we always call super.configure
+            // in configure()), so the next handleBuffer flows
+            // straight to it.
+        }
     }
 
     override fun getCurrentPositionUs(sourceEnded: Boolean): Long {
@@ -255,6 +318,7 @@ class LibusbAudioSink(
             startTimeUs = C.TIME_UNSET
         }
         lastEngageFailHash = 0
+        resetWatchdog()
     }
 
     override fun reset() {
@@ -264,6 +328,14 @@ class LibusbAudioSink(
         bypassActive = false
         framesWritten = 0L
         startTimeUs = C.TIME_UNSET
+        resetWatchdog()
+    }
+
+    private fun resetWatchdog() {
+        firstWriteNs = 0L
+        lastPlayedFrames = 0L
+        lastPlayedAdvanceNs = 0L
+        watchdogTripped = false
     }
 
     override fun release() {
@@ -290,5 +362,17 @@ class LibusbAudioSink(
 
     companion object {
         private const val TAG = "LibusbAudioSink"
+        // Give the iso pump this long to start dispatching frames
+        // before we even consider it stuck. The first ~150 ms after
+        // configure can legitimately produce zero playedFrames while
+        // the URBs prime, the kernel schedules iso slots, and the
+        // ring fills up to the silence head-start.
+        private const val kIsoWarmupNs: Long = 250_000_000L
+        // After warmup, this much time without playedFrames advancing
+        // means the pump isn't draining and won't recover. Tuned to
+        // be well under the ~3.5 s of back-pressure the wedged-pump
+        // bug produces in field logs, so the user gets fallback
+        // audio before they notice the dropout.
+        private const val kIsoStallNs: Long = 250_000_000L
     }
 }
