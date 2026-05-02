@@ -5,13 +5,17 @@ import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import tf.monochrome.android.data.db.dao.DownloadDao
 import tf.monochrome.android.data.db.entity.DownloadedTrackEntity
+import tf.monochrome.android.data.preferences.PreferencesManager
 import tf.monochrome.android.domain.model.AudioCodec
 import tf.monochrome.android.domain.model.AudioQuality
 import tf.monochrome.android.domain.model.PlaybackSource
@@ -36,15 +40,34 @@ data class DownloadedAlbumGroup(
 @HiltViewModel
 class DownloadsViewModel @Inject constructor(
     private val appCtx: android.app.Application,
-    private val downloadDao: DownloadDao
+    private val downloadDao: DownloadDao,
+    private val preferences: PreferencesManager,
 ) : ViewModel() {
 
+    /**
+     * Combined view of downloads: every track tracked by Room
+     * (downloaded by this app) plus every audio file present in the
+     * user-selected SAF folder that the app didn't write itself
+     * (sideloaded files, prior installs, manual copies). Sideloaded
+     * files are surfaced as synthetic DownloadedTrackEntity rows so
+     * the rest of the screen — album grouping, tap-to-play, delete —
+     * works uniformly. The synthetic id is a stable hash of the URI
+     * so re-scans don't shuffle the list.
+     */
     val downloadedTracks: StateFlow<List<DownloadedTrackEntity>> =
-        downloadDao.getDownloadedTracks()
+        combine(
+            downloadDao.getDownloadedTracks(),
+            preferences.downloadFolderUri,
+        ) { roomRows, folderUri ->
+            val sideloaded = scanFolderForSideloadedTracks(folderUri, roomRows)
+            // Newest first overall; synthetic rows bias to file timestamp.
+            (roomRows + sideloaded).sortedByDescending { it.downloadedAt }
+        }
+            .flowOn(Dispatchers.IO)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val albumGroups: StateFlow<List<DownloadedAlbumGroup>> =
-        downloadDao.getDownloadedTracks()
+        downloadedTracks
             .map { entities ->
                 entities
                     .groupBy { (it.albumTitle ?: SINGLES_LABEL) to it.artistName }
@@ -63,6 +86,72 @@ class DownloadsViewModel @Inject constructor(
                     .sortedBy { it.title.lowercase() }
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /**
+     * Walk the SAF tree the user picked as the download folder and surface
+     * any audio file not already represented in Room. Slow on large folders
+     * (DocumentFile.listFiles round-trips through ContentResolver), so we
+     * only run it from the combine() flow which is dispatched on IO.
+     */
+    private fun scanFolderForSideloadedTracks(
+        folderUriString: String?,
+        knownRoomRows: List<DownloadedTrackEntity>,
+    ): List<DownloadedTrackEntity> {
+        if (folderUriString.isNullOrBlank()) return emptyList()
+        val tree = runCatching {
+            DocumentFile.fromTreeUri(appCtx, folderUriString.toUri())
+        }.getOrNull() ?: return emptyList()
+        if (!tree.canRead()) return emptyList()
+
+        // Quick lookup of paths Room already tracks so we don't double-list.
+        val knownPaths = knownRoomRows.mapTo(HashSet()) { it.filePath }
+        val out = mutableListOf<DownloadedTrackEntity>()
+        for (file in tree.listFiles()) {
+            if (!file.isFile) continue
+            if (!file.canRead()) continue
+            val name = file.name ?: continue
+            if (!isAudioFile(name, file.type)) continue
+            val pathString = file.uri.toString()
+            if (pathString in knownPaths) continue
+            out += syntheticEntityFor(file, pathString, name)
+        }
+        return out
+    }
+
+    private fun isAudioFile(name: String, mime: String?): Boolean {
+        if (mime?.startsWith("audio/") == true) return true
+        val lower = name.lowercase()
+        return AUDIO_EXTENSIONS.any { lower.endsWith(".$it") }
+    }
+
+    private fun syntheticEntityFor(
+        file: DocumentFile,
+        path: String,
+        name: String,
+    ): DownloadedTrackEntity {
+        // Filename convention written by DownloadWorker is
+        // "<artist> - <title>.<ext>" — try to recover the split, fall
+        // back to the bare name.
+        val withoutExt = name.substringBeforeLast('.', name)
+        val (artist, title) = withoutExt.split(" - ", limit = 2)
+            .let { if (it.size == 2) it[0] to it[1] else "" to withoutExt }
+        // Stable id derived from the URI so successive scans don't drift the
+        // LazyColumn keying. Always negative so it can't collide with a real
+        // catalog track id (those are positive Longs from TIDAL/Qobuz).
+        val syntheticId = -((path.hashCode().toLong() and 0x7FFFFFFFL) or 1L)
+        return DownloadedTrackEntity(
+            id = syntheticId,
+            title = title,
+            duration = 0,
+            artistName = artist,
+            albumTitle = null,
+            albumCover = null,
+            filePath = path,
+            quality = AudioQuality.LOSSLESS.name,
+            sizeBytes = file.length(),
+            downloadedAt = file.lastModified().takeIf { it > 0 } ?: 0L,
+        )
+    }
 
     fun deleteDownload(track: DownloadedTrackEntity) {
         viewModelScope.launch {
@@ -84,6 +173,13 @@ class DownloadsViewModel @Inject constructor(
 
     companion object {
         const val SINGLES_LABEL = "Singles"
+        // Lower-case extensions DownloadWorker may produce + the formats
+        // users typically sideload. Mime-type sniff still wins; this list
+        // catches files SAF reports without a type (common on some
+        // providers).
+        private val AUDIO_EXTENSIONS = setOf(
+            "flac", "alac", "mp3", "m4a", "aac", "ogg", "opus", "wav", "wma",
+        )
     }
 }
 
