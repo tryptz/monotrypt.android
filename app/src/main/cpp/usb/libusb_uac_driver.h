@@ -80,6 +80,23 @@ public:
         return streaming_.load(std::memory_order_acquire);
     }
 
+    // Discards any PCM still in the ring without tearing down the iso
+    // pump. Use between tracks (Media3 calls flush() on track end) so
+    // we don't release the streaming interface — releasing causes the
+    // Android kernel to briefly re-grab the audio interface, after
+    // which libusb_claim_interface returns BUSY on the next track and
+    // playback dies until the user re-plugs the DAC. The pump keeps
+    // running, sending silence iso packets, until the next handleBuffer
+    // resumes feeding the ring.
+    void flushRing();
+
+    // Returns true when the iso pump is already streaming a stream
+    // matching [sampleRate]/[bitsPerSample]/[channels]. Used by
+    // LibusbAudioSink.configure() to skip a redundant stop/start when
+    // the next track is the same format as the last (the common case
+    // for an album with consistent encoding).
+    bool isStreamingFormat(int sampleRate, int bitsPerSample, int channels) const;
+
     // Writes [frames] frames of interleaved PCM into the ring. Returns
     // the actual number written (may be less than requested if the
     // ring is nearly full). Caller will retry on the next audio-thread

@@ -365,6 +365,26 @@ bool LibusbUacDriver::start(int sampleRateHz, int bitsPerSample, int channels) {
     return true;
 }
 
+void LibusbUacDriver::flushRing() {
+    // Lockless reset of the SPSC ring. Producer + consumer both
+    // observe head==tail meaning empty on the very next access.
+    // Ordering: store tail first, then head — between the two
+    // moments, drainRing sees fewer bytes than actually present
+    // (worst case: it pads with silence, which is what we want
+    // anyway). Other order (head, then tail) could briefly let
+    // drainRing think there are huge ring contents that are
+    // actually stale.
+    ringTail_.store(0, std::memory_order_release);
+    ringHead_.store(0, std::memory_order_release);
+}
+
+bool LibusbUacDriver::isStreamingFormat(int sampleRate, int bitsPerSample, int channels) const {
+    if (!streaming_.load(std::memory_order_acquire)) return false;
+    return format_.sampleRateHz == sampleRate
+        && format_.bitsPerSample == bitsPerSample
+        && format_.channels == channels;
+}
+
 void LibusbUacDriver::stop() {
     bool was = streaming_.exchange(false, std::memory_order_acq_rel);
     if (!was && transfers_.empty()) return;

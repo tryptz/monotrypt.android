@@ -54,6 +54,19 @@ Java_tf_monochrome_android_audio_usb_LibusbUacDriver_nativeStop(
     driver().stop();
 }
 
+JNIEXPORT void JNICALL
+Java_tf_monochrome_android_audio_usb_LibusbUacDriver_nativeFlushRing(
+    JNIEnv*, jobject) {
+    driver().flushRing();
+}
+
+JNIEXPORT jboolean JNICALL
+Java_tf_monochrome_android_audio_usb_LibusbUacDriver_nativeIsStreamingFormat(
+    JNIEnv*, jobject, jint sampleRate, jint bitsPerSample, jint channels) {
+    return driver().isStreamingFormat(sampleRate, bitsPerSample, channels)
+        ? JNI_TRUE : JNI_FALSE;
+}
+
 JNIEXPORT jboolean JNICALL
 Java_tf_monochrome_android_audio_usb_LibusbUacDriver_nativeIsStreaming(
     JNIEnv*, jobject) {
