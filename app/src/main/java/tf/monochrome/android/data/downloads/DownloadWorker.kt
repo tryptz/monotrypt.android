@@ -31,6 +31,7 @@ class DownloadWorker @AssistedInject constructor(
     @Assisted private val context: Context,
     @Assisted params: WorkerParameters,
     private val apiClient: HiFiApiClient,
+    private val lrcLibClient: tf.monochrome.android.data.api.LrcLibClient,
     private val httpClient: HttpClient,
     private val preferences: PreferencesManager,
     private val downloadDao: DownloadDao
@@ -60,8 +61,8 @@ class DownloadWorker @AssistedInject constructor(
             // Get download quality preference
             val quality = preferences.downloadQuality.first()
 
-            // Get streaming URL
-            val streamResponse = apiClient.getTrackStream(trackId, quality)
+            // Get streaming URL from the dedicated TrypT HiFi (Qobuz) download instance
+            val streamResponse = apiClient.getTrackStream(trackId, quality, forDownload = true)
             val streamUrl = streamResponse.streamUrl
                 ?: return Result.failure()
 
@@ -118,11 +119,19 @@ class DownloadWorker @AssistedInject constructor(
                 filePath = saveToInternal(trackId, fileName, audioData)
             }
 
-            // Save lyrics if enabled
+            // Save lyrics if enabled. TIDAL is preferred (best quality
+            // synced LRC); LRCLib fills in for anything TIDAL 404s on,
+            // which is most older / niche / non-Western catalog.
             val downloadLyricsEnabled = preferences.downloadLyrics.first()
             if (downloadLyricsEnabled) {
                 try {
                     val lyrics = apiClient.getLyrics(trackId)
+                        ?: lrcLibClient.lookup(
+                            title = trackTitle,
+                            artist = artistName,
+                            album = albumTitle,
+                            durationSeconds = duration.takeIf { it > 0 },
+                        )
                     if (lyrics != null && lyrics.isSynced) {
                         val lrcContent = StringBuilder()
                         lyrics.lines.forEach { line ->
@@ -156,6 +165,26 @@ class DownloadWorker @AssistedInject constructor(
                 }
             }
 
+            // Save the album art alongside the track. Two reasons:
+            //   1. The system MediaScanner picks up `cover.jpg` /
+            //      `albumart.jpg` in the same folder as audio files and
+            //      attaches them as the album image automatically — that's
+            //      what makes downloaded albums show their cover in the
+            //      Local tab on a fresh install.
+            //   2. Other Android players (and our own DownloadsScreen) can
+            //      load the cover off-line.
+            // Errors here are non-fatal — losing the cover shouldn't fail
+            // the whole download.
+            if (!albumCover.isNullOrBlank()) {
+                runCatching { saveAlbumArt(albumCover, sanitizedTitle, customFolderUri) }
+            }
+
+            // Tell MediaStore about the new audio + cover so the Local tab
+            // sees them without a manual rescan. Only meaningful when the
+            // file is in shared storage (SAF folder); for app-private
+            // downloads MediaStore won't index regardless.
+            notifyMediaScanner(filePath)
+
             // Insert into database
             downloadDao.insertDownloadedTrack(
                 DownloadedTrackEntity(
@@ -175,6 +204,82 @@ class DownloadWorker @AssistedInject constructor(
             Result.success()
         } catch (_: Exception) {
             if (runAttemptCount < 3) Result.retry() else Result.failure()
+        }
+    }
+
+    /**
+     * Fetches the album cover URL and saves it both as `<sanitizedTitle>.jpg`
+     * (per-track sidecar, matched by some MP3-style players) and as
+     * `cover.jpg` in the same folder (the Android MediaScanner convention).
+     * Skipped silently on network or SAF failure.
+     */
+    private suspend fun saveAlbumArt(
+        coverUrl: String,
+        sanitizedTitle: String,
+        customFolderUri: String?,
+    ) {
+        val response = httpClient.get(coverUrl)
+        if (!response.status.isSuccess()) return
+        val bytes = response.readBytes()
+        if (bytes.isEmpty()) return
+
+        if (customFolderUri != null) {
+            val treeUri = customFolderUri.toUri()
+            val docFile = DocumentFile.fromTreeUri(context, treeUri) ?: return
+            if (!docFile.canWrite()) return
+            // Per-track sidecar.
+            val perTrackName = "$sanitizedTitle.jpg"
+            docFile.findFile(perTrackName)?.delete()
+            docFile.createFile("image/jpeg", sanitizedTitle)?.let { file ->
+                context.contentResolver.openOutputStream(file.uri)?.use { it.write(bytes) }
+                notifyMediaScanner(file.uri.toString())
+            }
+            // Folder-level cover.jpg — MediaScanner reads this for the
+            // album thumbnail without needing to embed the picture in
+            // each FLAC's METADATA_BLOCK_PICTURE.
+            if (docFile.findFile("cover.jpg") == null) {
+                docFile.createFile("image/jpeg", "cover")?.let { file ->
+                    context.contentResolver.openOutputStream(file.uri)?.use { it.write(bytes) }
+                    notifyMediaScanner(file.uri.toString())
+                }
+            }
+        } else {
+            val downloadsDir = File(context.getExternalFilesDir(null), "downloads")
+            if (!downloadsDir.exists()) downloadsDir.mkdirs()
+            File(downloadsDir, "$sanitizedTitle.jpg").writeBytes(bytes)
+            // App-private storage isn't MediaStore-visible, so cover.jpg
+            // is purely for the in-app off-line cover lookup.
+            val coverFile = File(downloadsDir, "cover.jpg")
+            if (!coverFile.exists()) coverFile.writeBytes(bytes)
+        }
+    }
+
+    /**
+     * Triggers MediaScannerConnection.scanFile for files in shared storage
+     * so the Local tab picks them up. content:// SAF URIs are mapped back
+     * to their on-disk path via DocumentFile / DocumentsContract; raw file
+     * paths are scanned directly. Failures are silent — the download
+     * succeeded regardless.
+     */
+    private fun notifyMediaScanner(pathOrUri: String) {
+        runCatching {
+            val resolved = when {
+                pathOrUri.startsWith("content://") -> {
+                    // Best effort: we only need the path for MediaScanner,
+                    // and not all SAF backings expose one. If we can't
+                    // resolve, skip — the user's MediaStore cache will
+                    // catch it on the next general scan.
+                    null
+                }
+                pathOrUri.startsWith("file://") -> pathOrUri.removePrefix("file://")
+                else -> pathOrUri
+            } ?: return
+            android.media.MediaScannerConnection.scanFile(
+                context,
+                arrayOf(resolved),
+                null,
+                null,
+            )
         }
     }
 

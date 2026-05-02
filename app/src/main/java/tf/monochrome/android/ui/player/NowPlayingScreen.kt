@@ -1,8 +1,12 @@
 package tf.monochrome.android.ui.player
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -13,6 +17,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -32,6 +37,9 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.DownloadDone
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -44,6 +52,7 @@ import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
@@ -66,9 +75,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
@@ -92,6 +103,7 @@ import coil3.compose.SubcomposeAsyncImage
 import coil3.compose.SubcomposeAsyncImageContent
 import coil3.request.ImageRequest
 import coil3.request.allowHardware
+import coil3.request.crossfade
 import coil3.toBitmap
 import tf.monochrome.android.domain.model.Lyrics
 import tf.monochrome.android.domain.model.NowPlayingViewMode
@@ -166,6 +178,8 @@ fun NowPlayingScreen(
     val shuffleEnabled by playerViewModel.shuffleEnabled.collectAsState()
     val repeatMode by playerViewModel.repeatMode.collectAsState()
     val isLiked by playerViewModel.isCurrentTrackLiked.collectAsState()
+    val downloadState by playerViewModel.currentTrackDownloadState.collectAsState()
+    val isDownloaded by playerViewModel.isCurrentTrackDownloaded.collectAsState()
     val lyrics by playerViewModel.currentLyrics.collectAsState()
     val isLyricsLoading by playerViewModel.isLyricsLoading.collectAsState()
     val viewMode by playerViewModel.nowPlayingViewMode.collectAsState()
@@ -200,12 +214,12 @@ fun NowPlayingScreen(
     var speedText by remember(playbackSpeed) {
         mutableStateOf(String.format(Locale.US, "%.2f", playbackSpeed))
     }
-    var showLyricsSheet by remember { mutableStateOf(false) }
-    var showQueueSheet by remember { mutableStateOf(false) }
-    var showPresetSheet by remember { mutableStateOf(false) }
-    var showSpeedPanel by remember { mutableStateOf(false) }
-    var isSeeking by remember { mutableStateOf(false) }
-    var seekPosition by remember { mutableFloatStateOf(0f) }
+    var showLyricsSheet by rememberSaveable { mutableStateOf(false) }
+    var showQueueSheet by rememberSaveable { mutableStateOf(false) }
+    var showPresetSheet by rememberSaveable { mutableStateOf(false) }
+    var showSpeedPanel by rememberSaveable { mutableStateOf(false) }
+    var isSeeking by rememberSaveable { mutableStateOf(false) }
+    var seekPosition by rememberSaveable { mutableFloatStateOf(0f) }
 
     val progressFraction = if (durationMs > 0) positionMs.toFloat() / durationMs.toFloat() else 0f
     val displayFraction = if (isSeeking) seekPosition else progressFraction
@@ -395,7 +409,10 @@ fun NowPlayingScreen(
                         spectrumBins = spectrumBins,
                         spectrumColor = spectrumColor,
                         showSpectrum = showNpSpectrum,
-                        onToggleShowSpectrum = onToggleShowSpectrum
+                        onToggleShowSpectrum = onToggleShowSpectrum,
+                        albumColors = albumColors,
+                        positionMs = playerViewModel.positionMs,
+                        onSeekTo = playerViewModel::seekTo,
                     )
                 }
 
@@ -459,16 +476,17 @@ fun NowPlayingScreen(
                         IconButton(onClick = { showSpeedPanel = !showSpeedPanel }) {
                             Icon(Icons.Default.GraphicEq, "Audio/Speed", tint = Color.White)
                         }
-                        IconButton(onClick = { currentTrack?.let { playerViewModel.downloadTrack(it) } }) {
-                            Icon(Icons.Default.LibraryMusic, "Download", tint = Color.White)
-                        }
-                        IconButton(onClick = { showLyricsSheet = true }) {
-                            Icon(Icons.AutoMirrored.Filled.FormatAlignLeft, "Lyrics", tint = Color.White)
-                        }
-                        IconButton(onClick = { showQueueSheet = true }) {
-                            Icon(Icons.AutoMirrored.Filled.QueueMusic, "Queue", tint = Color.White)
-                        }
+                        DownloadActionButton(
+                            state = downloadState,
+                            isDownloaded = isDownloaded,
+                            onClick = { currentTrack?.let { playerViewModel.downloadTrack(it) } }
+                        )
                     }
+
+                    DownloadStatusStrip(
+                        state = downloadState,
+                        isDownloaded = isDownloaded,
+                    )
 
                     // Up Next glass strip
                     Column(
@@ -735,7 +753,10 @@ private fun NowPlayingHero(
     spectrumBins: FloatArray = FloatArray(0),
     spectrumColor: Color = Color(0xFF7EB6FF),
     showSpectrum: Boolean = true,
-    onToggleShowSpectrum: () -> Unit = {}
+    onToggleShowSpectrum: () -> Unit = {},
+    albumColors: AlbumColors,
+    positionMs: kotlinx.coroutines.flow.StateFlow<Long>,
+    onSeekTo: (Long) -> Unit,
 ) {
     var showOverlay by androidx.compose.runtime.remember(viewMode) {
         androidx.compose.runtime.mutableStateOf(viewMode == NowPlayingViewMode.VISUALIZER) 
@@ -829,7 +850,11 @@ private fun NowPlayingHero(
                         )
                         NowPlayingViewMode.LYRICS -> LyricsHeroPanel(
                             lyrics = lyrics,
-                            isLoading = isLyricsLoading
+                            isLoading = isLyricsLoading,
+                            coverUrl = track?.coverUrl,
+                            albumColors = albumColors,
+                            positionMs = positionMs,
+                            onSeekTo = onSeekTo,
                         )
                         NowPlayingViewMode.QUEUE -> QueueHeroPanel(queuePreview = queuePreview)
                     }
@@ -1181,238 +1206,6 @@ private fun HeroCoverArt(
     }
 }
 
-@Composable
-private fun LyricsHeroPanel(
-    lyrics: Lyrics?,
-    isLoading: Boolean
-) {
-    val previewLines = lyrics?.lines?.take(5).orEmpty()
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                brush = Brush.linearGradient(
-                    colors = listOf(
-                        Color(0xFF111421),
-                        Color(0xFF0F2430),
-                        Color(0xFF15111D)
-                    )
-                )
-            )
-            .padding(24.dp)
-    ) {
-        Column(
-            modifier = Modifier.align(Alignment.BottomStart),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Text(
-                text = "Lyrics",
-                style = MaterialTheme.typography.labelLarge,
-                color = Color.White.copy(alpha = 0.7f)
-            )
-            when {
-                isLoading -> {
-                    Text(
-                        text = "Loading synced lines...",
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = Color.White
-                    )
-                }
-
-                previewLines.isEmpty() -> {
-                    Text(
-                        text = "No lyrics for this track yet.",
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = Color.White
-                    )
-                }
-
-                else -> {
-                    previewLines.forEachIndexed { index, line ->
-                        Text(
-                            text = line.text.ifBlank { "..." },
-                            style = if (index == 0) {
-                                MaterialTheme.typography.headlineSmall
-                            } else {
-                                MaterialTheme.typography.bodyLarge
-                            },
-                            color = Color.White.copy(alpha = if (index == 0) 1f else 0.72f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun QueueHeroPanel(queuePreview: List<Track>) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                brush = Brush.linearGradient(
-                    colors = listOf(
-                        Color(0xFF11151F),
-                        Color(0xFF171327),
-                        Color(0xFF101A1C)
-                    )
-                )
-            )
-            .padding(24.dp)
-    ) {
-        Column(
-            modifier = Modifier.align(Alignment.BottomStart),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Text(
-                text = "Up Next",
-                style = MaterialTheme.typography.labelLarge,
-                color = Color.White.copy(alpha = 0.7f)
-            )
-            if (queuePreview.isEmpty()) {
-                Text(
-                    text = "Queue is empty.",
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = Color.White
-                )
-            } else {
-                queuePreview.forEachIndexed { index, track ->
-                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(
-                            text = "${index + 1}. ${track.title}",
-                            style = if (index == 0) {
-                                MaterialTheme.typography.titleMedium
-                            } else {
-                                MaterialTheme.typography.bodyLarge
-                            },
-                            color = Color.White
-                        )
-                        Text(
-                            text = track.displayArtist.ifBlank { "Unknown artist" },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.66f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ModeSelector(
-    selectedMode: NowPlayingViewMode,
-    onModeSelected: (NowPlayingViewMode) -> Unit,
-    onDspMixClick: () -> Unit
-) {
-    Row(
-        // 5 pills × weight(1) + 4 × 6dp gap × labelMedium text — tightened
-        // from 10dp gap so "DSP Mix" fits on one line on a 360-dp-wide phone.
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        ModePill(
-            modifier = Modifier.weight(1f),
-            icon = Icons.Default.Album,
-            label = "Art",
-            selected = selectedMode == NowPlayingViewMode.COVER_ART,
-            onClick = { onModeSelected(NowPlayingViewMode.COVER_ART) }
-        )
-        ModePill(
-            modifier = Modifier.weight(1f),
-            icon = Icons.Default.Equalizer,
-            label = "Visual",
-            selected = selectedMode == NowPlayingViewMode.VISUALIZER,
-            onClick = { onModeSelected(NowPlayingViewMode.VISUALIZER) }
-        )
-        ModePill(
-            modifier = Modifier.weight(1f),
-            icon = Icons.AutoMirrored.Filled.FormatAlignLeft,
-            label = "Lyrics",
-            selected = selectedMode == NowPlayingViewMode.LYRICS,
-            onClick = { onModeSelected(NowPlayingViewMode.LYRICS) }
-        )
-        ModePill(
-            modifier = Modifier.weight(1f),
-            icon = Icons.AutoMirrored.Filled.QueueMusic,
-            label = "Queue",
-            selected = selectedMode == NowPlayingViewMode.QUEUE,
-            onClick = { onModeSelected(NowPlayingViewMode.QUEUE) }
-        )
-        ModePill(
-            modifier = Modifier.weight(1f),
-            icon = Icons.Default.Tune,
-            label = "DSP Mix",
-            selected = false,
-            onClick = onDspMixClick
-        )
-    }
-}
-
-@Composable
-private fun ModePill(
-    modifier: Modifier = Modifier,
-    icon: ImageVector,
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.90f else 1f,
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-        label = "modePillScale"
-    )
-
-    Box(
-        modifier = modifier
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-            }
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                onClick = onClick
-            )
-            .liquidGlass(
-                shape = RoundedCornerShape(20.dp),
-                tintAlpha = if (selected) 0.22f else 0.06f,
-                borderAlpha = if (selected) 0.18f else 0.0f
-            )
-            // Horizontal padding reduced from 8 → 4 dp so a 5-pill row on a
-            // 360-dp-wide phone has enough internal width for the widest
-            // label ("DSP Mix") to render on one line.
-            .padding(vertical = 12.dp, horizontal = 4.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = if (selected) Color.White else Color.White.copy(alpha = 0.6f)
-            )
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelMedium,
-                color = if (selected) Color.White else Color.White.copy(alpha = 0.6f),
-                maxLines = 1,
-                softWrap = false,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
-}
 
 @Composable
 private fun TrackSummaryCard(
@@ -1651,6 +1444,148 @@ private fun VisualizerActionPill(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
+        }
+    }
+}
+
+// Download button with state-driven icon, accent tint, and a circular
+// progress arc. The arc is determinate during DOWNLOADING (driven by
+// WorkManager.setProgress) and indeterminate during QUEUED so the user
+// sees motion even before WorkManager picks the job up.
+@Composable
+private fun DownloadActionButton(
+    state: tf.monochrome.android.data.downloads.TrackDownloadState,
+    isDownloaded: Boolean,
+    onClick: () -> Unit,
+) {
+    val status = state.status
+    val showCompleted = isDownloaded ||
+        status == tf.monochrome.android.data.downloads.DownloadStatus.COMPLETED
+    val isDownloading =
+        status == tf.monochrome.android.data.downloads.DownloadStatus.DOWNLOADING
+    val isQueued =
+        status == tf.monochrome.android.data.downloads.DownloadStatus.QUEUED
+    val isFailed =
+        status == tf.monochrome.android.data.downloads.DownloadStatus.FAILED
+
+    val targetTint = when {
+        isFailed -> Color(0xFFFF6B6B)
+        showCompleted -> PlayerGlowMint
+        isDownloading || isQueued -> PlayerGlowPink
+        else -> Color.White
+    }
+    val tint by animateColorAsState(targetTint, label = "downloadTint")
+    val animatedProgress by animateFloatAsState(
+        targetValue = state.progress.coerceIn(0f, 1f),
+        label = "downloadProgress"
+    )
+
+    Box(contentAlignment = Alignment.Center) {
+        when {
+            isDownloading -> CircularProgressIndicator(
+                progress = { animatedProgress.coerceAtLeast(0.02f) },
+                modifier = Modifier.size(38.dp),
+                color = tint,
+                trackColor = Color.White.copy(alpha = 0.18f),
+                strokeWidth = 2.dp,
+            )
+            isQueued -> CircularProgressIndicator(
+                modifier = Modifier.size(38.dp),
+                color = tint.copy(alpha = 0.6f),
+                trackColor = Color.White.copy(alpha = 0.10f),
+                strokeWidth = 2.dp,
+            )
+        }
+        IconButton(onClick = onClick) {
+            val icon = when {
+                isFailed -> Icons.Default.ErrorOutline
+                showCompleted -> Icons.Default.DownloadDone
+                else -> Icons.Default.Download
+            }
+            val description = when {
+                isFailed -> "Download failed — tap to retry"
+                showCompleted -> "Downloaded"
+                isDownloading -> "Downloading"
+                isQueued -> "Queued for download"
+                else -> "Download"
+            }
+            Icon(icon, contentDescription = description, tint = tint)
+        }
+    }
+}
+
+// Status pill underneath the action row. Fades in only while a download
+// is in flight (or just failed) so the player UI stays uncluttered for
+// idle and already-downloaded tracks. The percentage is rendered to the
+// nearest whole number to avoid jittery decimals during fast updates.
+@Composable
+private fun DownloadStatusStrip(
+    state: tf.monochrome.android.data.downloads.TrackDownloadState,
+    isDownloaded: Boolean,
+) {
+    val status = state.status
+    val visible =
+        status == tf.monochrome.android.data.downloads.DownloadStatus.DOWNLOADING ||
+        status == tf.monochrome.android.data.downloads.DownloadStatus.QUEUED ||
+        status == tf.monochrome.android.data.downloads.DownloadStatus.FAILED ||
+        (status == tf.monochrome.android.data.downloads.DownloadStatus.COMPLETED && !isDownloaded)
+
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(),
+        exit = fadeOut(),
+    ) {
+        val accent = when (status) {
+            tf.monochrome.android.data.downloads.DownloadStatus.FAILED -> Color(0xFFFF6B6B)
+            tf.monochrome.android.data.downloads.DownloadStatus.COMPLETED -> PlayerGlowMint
+            else -> PlayerGlowPink
+        }
+        val percent = (state.progress.coerceIn(0f, 1f) * 100f).toInt()
+        val label = when (status) {
+            tf.monochrome.android.data.downloads.DownloadStatus.QUEUED -> "Download queued"
+            tf.monochrome.android.data.downloads.DownloadStatus.DOWNLOADING -> "Downloading $percent%"
+            tf.monochrome.android.data.downloads.DownloadStatus.COMPLETED -> "Download complete"
+            tf.monochrome.android.data.downloads.DownloadStatus.FAILED -> "Download failed — tap the icon to retry"
+            else -> ""
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .liquidGlass(
+                    shape = RoundedCornerShape(14.dp),
+                    tintAlpha = 0.10f,
+                    borderAlpha = 0.08f,
+                )
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = when (status) {
+                    tf.monochrome.android.data.downloads.DownloadStatus.FAILED -> Icons.Default.ErrorOutline
+                    tf.monochrome.android.data.downloads.DownloadStatus.COMPLETED -> Icons.Default.DownloadDone
+                    else -> Icons.Default.Download
+                },
+                contentDescription = null,
+                tint = accent,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = Color.White.copy(alpha = 0.92f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (status == tf.monochrome.android.data.downloads.DownloadStatus.DOWNLOADING) {
+                Text(
+                    text = "$percent%",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = accent,
+                )
+            }
         }
     }
 }

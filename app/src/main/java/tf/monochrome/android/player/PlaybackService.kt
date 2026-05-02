@@ -27,6 +27,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
@@ -61,6 +62,8 @@ class PlaybackService : MediaSessionService() {
     @Inject lateinit var parametricEqProcessor: ParametricEqProcessor
     @Inject lateinit var spectrumAnalyzerTap: SpectrumAnalyzerTap
     @Inject lateinit var unifiedTrackRegistry: UnifiedTrackRegistry
+    @Inject lateinit var usbAudioRouter: tf.monochrome.android.audio.UsbAudioRouter
+    @Inject lateinit var libusbDriver: tf.monochrome.android.audio.usb.LibusbUacDriver
 
     private var mediaSession: MediaSession? = null
     private lateinit var player: ExoPlayer
@@ -159,7 +162,8 @@ class PlaybackService : MediaSessionService() {
                         val track = queueManager.currentQueue.find { it.id == trackId }
                         if (track != null) {
                             serviceScope.launch {
-                                libraryRepository.addToHistory(track)
+                                val unified = unifiedTrackRegistry[trackId]
+                                libraryRepository.addToHistory(track, unified)
                                 scrobblingService.updateNowPlaying(track)
                             }
                         }
@@ -167,6 +171,20 @@ class PlaybackService : MediaSessionService() {
                 }
             }
         })
+
+        // Bit-perfect USB DAC routing — when the user has the toggle on
+        // and a USB Audio Class device is attached, pin ExoPlayer's
+        // output to it via setPreferredAudioDevice. Reverts to system
+        // default whenever the toggle goes off or the DAC is unplugged.
+        serviceScope.launch {
+            preferences.usbBitPerfectEnabled
+                .combine(usbAudioRouter.usbOutputDevice) { enabled, device ->
+                    if (enabled) device else null
+                }
+                .collect { preferred ->
+                    runCatching { player.setPreferredAudioDevice(preferred) }
+                }
+        }
 
         // Wrap the ExoPlayer so Media3's notification + lock-screen surface
         // working next / previous controls. The wrapper routes those commands
@@ -282,7 +300,7 @@ class PlaybackService : MediaSessionService() {
                 enableAudioTrackPlaybackParams: Boolean
             ): AudioSink {
                 return try {
-                    DefaultAudioSink.Builder(context)
+                    val defaultSink = DefaultAudioSink.Builder(context)
                         .setEnableFloatOutput(enableFloatOutput)
                         .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
                         .setAudioProcessors(
@@ -297,17 +315,48 @@ class PlaybackService : MediaSessionService() {
                             )
                         )
                         .build()
+                    // Wrap with LibusbAudioSink: a no-op when the user
+                    // hasn't enabled exclusive mode (forwards everything
+                    // to defaultSink). When the toggle is on AND
+                    // UsbExclusiveController has a libusb device handle
+                    // open, configure() spins up the iso pump and
+                    // handleBuffer() routes PCM to the DAC directly,
+                    // bypassing AudioTrack + the HAL.
+                    //
+                    // Processors are passed in so the libusb path runs
+                    // the SAME DSP / EQ / spectrum / ProjectM-tap chain
+                    // DefaultAudioSink would. The processors are
+                    // singletons but only one of the two paths
+                    // configures + drains them at a time (bypassActive
+                    // gates inside LibusbAudioSink), so there's no
+                    // contention.
+                    tf.monochrome.android.audio.usb.LibusbAudioSink(
+                        delegate = defaultSink,
+                        driver = libusbDriver,
+                        processors = listOf(
+                            mixBusProcessor,
+                            autoEqProcessor,
+                            parametricEqProcessor,
+                            spectrumAnalyzerTap,
+                            // ProjectM tap intentionally omitted from
+                            // the bypass chain — the inline pump runs
+                            // on the renderer thread and the visualizer
+                            // bus sometimes blocks on its consumer.
+                            // Spectrum tap is light-weight and fine.
+                        ),
+                    )
                 } catch (error: Exception) {
                     projectMEngineRepository.reportAudioTapFailure(
                         "projectM audio tap unavailable: ${error.message ?: "unknown error"}"
                     )
-                    checkNotNull(
+                    val fallback = checkNotNull(
                         super.buildAudioSink(
                             context,
                             enableFloatOutput,
                             enableAudioTrackPlaybackParams
                         )
                     )
+                    tf.monochrome.android.audio.usb.LibusbAudioSink(fallback, libusbDriver)
                 }
             }
         }
@@ -340,6 +389,15 @@ class PlaybackService : MediaSessionService() {
                 val (mediaItem, trackStream) = streamResolver.resolveMediaItem(track)
                 currentReplayGain = trackStream?.replayGain
 
+                if (mediaItem == null) {
+                    // Stream URL couldn't be resolved (offline / API error /
+                    // blank URL). Skipping is preferable to feeding ExoPlayer
+                    // a MediaItem with no localConfiguration — that path NPEs
+                    // inside DefaultMediaSourceFactory.
+                    onTrackEnded()
+                    return@launch
+                }
+
                 player.setMediaItem(mediaItem)
                 player.prepare()
                 player.play()
@@ -366,15 +424,24 @@ class PlaybackService : MediaSessionService() {
                 if (unifiedTrack != null) {
                     val resolved = streamResolver.resolveUnifiedTrack(unifiedTrack)
                     currentReplayGain = resolved.trackStream?.replayGain
+                    if (!resolved.isPlayable) {
+                        onTrackEnded()
+                        return@launch
+                    }
                     player.setMediaItem(resolved.mediaItem)
                     player.prepare()
                     player.play()
-                    libraryRepository.addToHistory(currentTrack)
+                    libraryRepository.addToHistory(currentTrack, unifiedTrack)
                     return@launch
                 }
 
                 val (mediaItem, trackStream) = streamResolver.resolveMediaItem(currentTrack)
                 currentReplayGain = trackStream?.replayGain
+
+                if (mediaItem == null) {
+                    onTrackEnded()
+                    return@launch
+                }
 
                 val streamUrl = trackStream?.streamUrl
                 if (streamUrl != null && streamUrl.isNotBlank()) {
@@ -570,20 +637,77 @@ class PlaybackService : MediaSessionService() {
         ): com.google.common.util.concurrent.ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
             val snapshot = queueManager.currentQueue
             val index = queueManager.currentQueueIndex.coerceAtLeast(0)
-            val items = snapshot.map { track ->
-                MediaItem.Builder()
-                    .setMediaId(track.id.toString())
-                    .build()
-            }
+
             // Empty queue on first launch → hand back an empty resumption;
             // Media3 treats that as "nothing to resume" and the user lands
             // on Home instead of the play tap being silently eaten.
-            val resumption = MediaSession.MediaItemsWithStartPosition(
-                items,
-                index,
-                /* startPositionMs = */ 0L,
-            )
-            return com.google.common.util.concurrent.Futures.immediateFuture(resumption)
+            if (snapshot.isEmpty()) {
+                return com.google.common.util.concurrent.Futures.immediateFuture(
+                    MediaSession.MediaItemsWithStartPosition(emptyList(), 0, 0L)
+                )
+            }
+
+            // Media3 1.5.1 hands the returned items straight to
+            // PlayerWrapper.setMediaItems → DefaultMediaSourceFactory, which
+            // NPEs on any item without a localConfiguration. Returning bare
+            // mediaId stubs (as we used to) crashed the session on every
+            // BT-remote / lock-screen play tap. Resolve the queue's URIs on
+            // serviceScope and complete the future when ready.
+            val future = com.google.common.util.concurrent.SettableFuture
+                .create<MediaSession.MediaItemsWithStartPosition>()
+            serviceScope.launch {
+                val resolvedItems = snapshot.mapNotNull { track ->
+                    val unified = unifiedTrackRegistry[track.id]
+                    if (unified != null) {
+                        val r = runCatching { streamResolver.resolveUnifiedTrack(unified) }.getOrNull()
+                        if (r?.isPlayable == true) r.mediaItem else null
+                    } else {
+                        val (mediaItem, _) = runCatching { streamResolver.resolveMediaItem(track) }
+                            .getOrDefault(Pair(null, null))
+                        mediaItem
+                    }
+                }
+                if (resolvedItems.isEmpty()) {
+                    future.set(MediaSession.MediaItemsWithStartPosition(emptyList(), 0, 0L))
+                    return@launch
+                }
+                val safeIndex = index.coerceAtMost(resolvedItems.lastIndex)
+                future.set(
+                    MediaSession.MediaItemsWithStartPosition(
+                        resolvedItems,
+                        safeIndex,
+                        /* startPositionMs = */ 0L,
+                    )
+                )
+            }
+            return future
+        }
+
+        /**
+         * Echo controller-provided MediaItems back unchanged. PlayerViewModel
+         * already resolves URIs (and other LocalConfiguration) before calling
+         * `MediaController.setMediaItem(...)`, so the items the session
+         * receives are play-ready. Without this override, the default impl
+         * throws `UnsupportedOperationException` on every play tap (visible
+         * as a long MediaSessionStub stack trace in logcat) and the
+         * downstream PlayerWrapper.setMediaItems then NPEs in
+         * DefaultMediaSourceFactory because it gets fed empty items.
+         */
+        override fun onAddMediaItems(
+            mediaSession: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            mediaItems: MutableList<MediaItem>,
+        ): com.google.common.util.concurrent.ListenableFuture<MutableList<MediaItem>> {
+            // External controllers (Android Auto, Bluetooth headsets, the
+            // Glance widget) routinely send bare MediaItems carrying only a
+            // mediaId — no URI, no localConfiguration. Forwarding those to
+            // PlayerWrapper.setMediaItems makes DefaultMediaSourceFactory NPE
+            // at line 457 (visible in logcat as MediaSessionStub: Session
+            // operation failed). Drop them here.
+            val playable = mediaItems.filterTo(mutableListOf()) { item ->
+                item.localConfiguration?.uri?.toString()?.isNotBlank() == true
+            }
+            return com.google.common.util.concurrent.Futures.immediateFuture(playable)
         }
     }
 }

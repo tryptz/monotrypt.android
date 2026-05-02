@@ -15,6 +15,18 @@
         android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
 
+    <!-- Bit-perfect / hi-res output. MODIFY_AUDIO_SETTINGS lets us route around
+         the system mixer (request specific sample rates, disable effects on the
+         AudioTrack) so a 24/96 FLAC reaches the DAC without being downsampled
+         to the device's mix rate. Granted at install time on every Android
+         version. -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
+    <!-- USB host mode — required to enumerate and route to USB Audio Class
+         DACs. Marked not-required so the app still installs on tablets / TVs
+         that lack a USB host port; UsbAudioRouter no-ops on those. -->
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
+
     <application
         android:name=".MonochromeApp"
         android:allowBackup="true"
@@ -26,11 +38,27 @@
         android:usesCleartextTraffic="false"
         tools:targetApi="36">
 
+        <!-- Backs the per-track 'Share file' action: a FileProvider grants
+             time-limited content:// URIs for downloaded FLACs and Qobuz
+             stream cache files so other apps (Messages, Drive, etc.)
+             can read them through the share sheet. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+
         <activity
             android:name=".ui.main.MainActivity"
             android:exported="true"
             android:theme="@style/Theme.Monochrome.Splash"
-            android:launchMode="singleTop">
+            android:launchMode="singleTop"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|uiMode|density|navigation">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

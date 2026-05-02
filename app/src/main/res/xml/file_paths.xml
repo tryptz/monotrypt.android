@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- DownloadWorker writes here when no SAF folder is configured. -->
+    <external-files-path
+        name="downloads"
+        path="downloads/" />
+
+    <!-- QobuzStreamCacheManager parks fetched stream files here. -->
+    <cache-path
+        name="qobuz_stream"
+        path="qobuz_stream/" />
+
+    <!-- Local library files scanned by MediaStore. Granting from the root
+         of external storage is the simplest path; FileProvider grants are
+         per-URI and time-limited, so the share sheet only ever exposes the
+         specific track URI we hand out. -->
+    <external-path
+        name="external"
+        path="." />
+</paths>

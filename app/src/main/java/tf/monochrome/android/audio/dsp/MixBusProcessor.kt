@@ -36,6 +36,14 @@ class MixBusProcessor @Inject constructor(
     private var scratchOutL = FloatArray(0)
     private var scratchOutR = FloatArray(0)
 
+    // Chunk-sized scratch — reused per queueInput when the user-selected
+    // DSP block size is smaller than ExoPlayer's incoming buffer. Sized
+    // up on demand and never shrinks, so steady-state has zero allocs.
+    private var chunkScratchInL = FloatArray(0)
+    private var chunkScratchInR = FloatArray(0)
+    private var chunkScratchOutL = FloatArray(0)
+    private var chunkScratchOutR = FloatArray(0)
+
     // TPDF dither state for PCM16 output (triangular probability density function)
     private var ditherState: Long = 1L
 
@@ -74,10 +82,14 @@ class MixBusProcessor @Inject constructor(
     external fun nativeLoadStateJson(enginePtr: Long, stateJson: String)
 
     companion object {
-        init {
-            System.loadLibrary("monochrome_dsp")
-        }
-        const val MAX_BLOCK_SIZE = 4096
+        init { DspNativeLoader.ensureLoaded() }
+        // Upper bound on the native engine's scratch allocation (sumL/R,
+        // busL/R, dryBufL/R) and the chunk-scratch float arrays on the
+        // Kotlin side. Sized to the largest entry in
+        // PreferencesManager.DSP_BLOCK_SIZES so the user can pick 16k
+        // without ever crossing a reconfigure path. ~6 × 16384 × 4B ≈
+        // 384 KB resident; trivial.
+        const val MAX_BLOCK_SIZE = 16384
     }
 
     fun getEnginePtr(): Long = enginePtr
@@ -86,6 +98,47 @@ class MixBusProcessor @Inject constructor(
     fun setMixBypassed(bypassed: Boolean) {
         val ptr = enginePtr
         if (ptr != 0L) nativeSetMixBypassed(ptr, bypassed)
+    }
+
+    // User-selectable block size. Smaller = lower latency + higher CPU /
+    // JNI overhead; larger = lower CPU + slightly higher latency. The native
+    // engine pre-allocates scratch up to MAX_BLOCK_SIZE so we can change
+    // this on the fly via nativeReconfigure without ever needing to grow
+    // the underlying vectors. queueInput() chunks each ExoPlayer buffer
+    // into slices of this size.
+    @Volatile
+    private var blockSize: Int = 1024
+
+    /**
+     * True DSP bypass. When set, queueInput() copies its input straight to
+     * the output ByteBuffer without any deinterleave / nativeProcess /
+     * Oxford / interleave work — same CPU cost as a no-op AudioProcessor.
+     * Driven from DspEngineManager when the user flips the mixer master
+     * toggle off, so "DSP off" really means "no DSP".
+     */
+    @Volatile
+    private var bypassed: Boolean = false
+
+    fun setBypassed(b: Boolean) {
+        bypassed = b
+    }
+
+    /**
+     * Update the per-call DSP block size at runtime. Safe to call from any
+     * thread; takes effect on the next queueInput() chunk. Must be one of
+     * the values in PreferencesManager.DSP_BLOCK_SIZES.
+     */
+    fun setBlockSize(size: Int) {
+        val clamped = size.coerceIn(64, MAX_BLOCK_SIZE)
+        if (clamped == blockSize) return
+        blockSize = clamped
+        val ptr = enginePtr
+        if (ptr != 0L && inputFormat != AudioFormat.NOT_SET) {
+            // nativeReconfigure preserves bus graph + plugin state and only
+            // re-grows scratch buffers if needed (we cap below MAX_BLOCK_SIZE,
+            // so no realloc happens here).
+            nativeReconfigure(ptr, inputFormat.sampleRate, MAX_BLOCK_SIZE)
+        }
     }
 
     // ── AudioProcessor implementation ────────────────────────────────────
@@ -116,8 +169,10 @@ class MixBusProcessor @Inject constructor(
         pendingFormat != AudioFormat.NOT_SET || inputFormat != AudioFormat.NOT_SET
 
     override fun queueInput(inputBuffer: ByteBuffer) {
-        if (enginePtr == 0L) {
-            // No engine — pass through
+        // True bypass — when the user has the DSP mixer off we don't even
+        // touch the audio thread's float scratch arrays. Same as the
+        // no-engine pass-through below.
+        if (bypassed || enginePtr == 0L) {
             val size = inputBuffer.remaining()
             if (outputBuffer.capacity() < size) {
                 outputBuffer = ByteBuffer.allocateDirect(size).order(ByteOrder.nativeOrder())
@@ -185,12 +240,42 @@ class MixBusProcessor @Inject constructor(
         // Always process through native engine — AutoEQ lives on the master bus
         // and must run regardless of the mixer DSP toggle. The toggle controls
         // mix bus bypass in the C++ engine, not a blanket wet/dry switch here.
-        nativeProcess(enginePtr, scratchInL, scratchInR, scratchOutL, scratchOutR, numFrames)
+        //
+        // Chunk the buffer into user-selected DSP block sizes (128 / 256 /
+        // 512 / 1024 / 2048). The native engine processes whatever frame
+        // count we hand it in one shot; chunking lets us bound per-call
+        // worst-case latency, keep FFT-driven plugins inside their tuned
+        // window size, and gives a knob users can move when CPU pressure
+        // shows up as audible PipelineWatcher back-pressure. Chunk scratch
+        // is reused so the audio thread never allocates here.
+        val chunk = blockSize
+        val needChunkScratch = chunk < numFrames
+        if (needChunkScratch && chunkScratchInL.size < chunk) {
+            chunkScratchInL = FloatArray(chunk)
+            chunkScratchInR = FloatArray(chunk)
+            chunkScratchOutL = FloatArray(chunk)
+            chunkScratchOutR = FloatArray(chunk)
+        }
 
-        // Oxford post-chain: runs after the bus+master chain, before interleave.
-        // Each effect handles its own bypass flag internally.
-        inflator.processArrays(scratchOutL, scratchOutR, numFrames)
-        compressor.processArrays(scratchOutL, scratchOutR, numFrames)
+        var processed = 0
+        while (processed < numFrames) {
+            val n = minOf(chunk, numFrames - processed)
+            if (needChunkScratch) {
+                System.arraycopy(scratchInL, processed, chunkScratchInL, 0, n)
+                System.arraycopy(scratchInR, processed, chunkScratchInR, 0, n)
+                nativeProcess(enginePtr, chunkScratchInL, chunkScratchInR, chunkScratchOutL, chunkScratchOutR, n)
+                inflator.processArrays(chunkScratchOutL, chunkScratchOutR, n)
+                compressor.processArrays(chunkScratchOutL, chunkScratchOutR, n)
+                System.arraycopy(chunkScratchOutL, 0, scratchOutL, processed, n)
+                System.arraycopy(chunkScratchOutR, 0, scratchOutR, processed, n)
+            } else {
+                // Single-shot fast path: ExoPlayer's buffer fits in one chunk.
+                nativeProcess(enginePtr, scratchInL, scratchInR, scratchOutL, scratchOutR, n)
+                inflator.processArrays(scratchOutL, scratchOutR, n)
+                compressor.processArrays(scratchOutL, scratchOutR, n)
+            }
+            processed += n
+        }
 
         val useL = scratchOutL
         val useR = scratchOutR

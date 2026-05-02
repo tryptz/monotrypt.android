@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import tf.monochrome.android.data.auth.SupabaseAuthManager
 import tf.monochrome.android.data.device.DeviceRegistry
+import tf.monochrome.android.debug.CrashLogger
 import tf.monochrome.android.debug.DebugLogCollector
 import tf.monochrome.android.performance.DeviceCapabilities
 import tf.monochrome.android.performance.PerformanceProfile
@@ -76,6 +77,12 @@ class MonochromeApp : Application(), Configuration.Provider, SingletonImageLoade
     @Inject
     lateinit var debugLogCollector: DebugLogCollector
 
+    @Inject
+    lateinit var crashLogger: CrashLogger
+
+    @Inject
+    lateinit var usbExclusiveController: tf.monochrome.android.audio.usb.UsbExclusiveController
+
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override val workManagerConfiguration: Configuration
@@ -108,6 +115,11 @@ class MonochromeApp : Application(), Configuration.Provider, SingletonImageLoade
 
     override fun onCreate() {
         super.onCreate()
+        // Catch uncaught exceptions and dump the in-memory log + stack trace
+        // to Downloads/monotrypt-crash-<timestamp>.log before chaining to the
+        // system handler. Installed before anything else so a crash anywhere
+        // in onCreate is captured.
+        crashLogger.install()
         // Pre-create the Now Playing channel so the first foreground-service
         // notification from Media3 has a named channel instead of showing up
         // under "default" in Android Settings → App → Notifications. Media3
@@ -116,6 +128,26 @@ class MonochromeApp : Application(), Configuration.Provider, SingletonImageLoade
         // Start the in-app logcat collector as early as possible so the "View
         // debug log" screen has a buffered history from (almost) app start.
         debugLogCollector.start()
+        // Warm up libmonochrome_dsp on a background thread so the linker work
+        // (a few-MB dlopen + relocations) doesn't land on the UI thread when
+        // Hilt instantiates MixBusProcessor / InflatorEffect / CompressorEffect
+        // singletons. Audio processing happens on its own thread later, which
+        // will block on this load if the warm-up hasn't completed yet — but in
+        // the typical case the linker is done long before the first audio
+        // buffer arrives.
+        appScope.launch {
+            tf.monochrome.android.audio.dsp.DspNativeLoader.ensureLoaded()
+        }
+        // libusb gets the same off-thread warm-up so the dlopen + libusb_init
+        // don't land on the audio thread the first time the user toggles
+        // exclusive USB output.
+        appScope.launch {
+            runCatching { tf.monochrome.android.audio.usb.UsbNativeLoader.ensureLoaded() }
+        }
+        // Wire the Exclusive USB DAC toggle to actual driver lifecycle
+        // and start publishing real status to Settings UI. Without this,
+        // the toggle is a persisted boolean with no observable effect.
+        usbExclusiveController.start()
         // Restore auth on app start, then register this device against whichever
         // user is signed in. The collector re-fires on sign-in / sign-out.
         appScope.launch {

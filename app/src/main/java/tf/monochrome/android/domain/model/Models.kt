@@ -1,5 +1,6 @@
 package tf.monochrome.android.domain.model
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.io.File
 
@@ -190,6 +191,7 @@ data class VisualizerEngineStatus(
         }
 }
 
+@Serializable
 enum class AudioQuality(val apiValue: String, val displayName: String) {
     LOW("LOW", "Low (96 kbps)"),
     HIGH("HIGH", "High (320 kbps)"),
@@ -221,8 +223,10 @@ fun buildCoverUrl(coverId: String, size: Int): String {
 
 // ========== Unified Three-Source Models ==========
 
-enum class SourceType { API, COLLECTION, LOCAL }
+@Serializable
+enum class SourceType { API, COLLECTION, LOCAL, QOBUZ }
 
+@Serializable
 enum class AudioCodec(val displayName: String) {
     FLAC("FLAC"),
     MP3("MP3"),
@@ -237,15 +241,20 @@ enum class AudioCodec(val displayName: String) {
     UNKNOWN("Unknown")
 }
 
+@Serializable
 sealed class PlaybackSource {
 
     /** Stream from Hi-Fi API - requires network */
+    @Serializable
+    @SerialName("HiFiApi")
     data class HiFiApi(
         val tidalId: Long,
         val preferredQuality: AudioQuality = AudioQuality.LOSSLESS
     ) : PlaybackSource()
 
     /** Encrypted direct link from collection manifest */
+    @Serializable
+    @SerialName("CollectionDirect")
     data class CollectionDirect(
         val collectionId: String,
         val directLinks: List<CollectionDirectLink>,
@@ -255,25 +264,44 @@ sealed class PlaybackSource {
     ) : PlaybackSource()
 
     /** Local file on device - zero network, fastest path */
+    @Serializable
+    @SerialName("LocalFile")
     data class LocalFile(
         val filePath: String,
         val codec: AudioCodec,
         val sampleRate: Int,
         val bitDepth: Int? = null
     ) : PlaybackSource()
+
+    /**
+     * Qobuz (trypt-hifi) source — fetches the audio file via /api/download-music
+     * on first play, parks it in the cache directory, and plays subsequent
+     * times from local disk. The HMAC-signed file URL the backend returns
+     * isn't suitable for long-running streams (signature is time-bounded), so
+     * pre-fetching the whole file is more reliable than progressive streaming.
+     */
+    @Serializable
+    @SerialName("QobuzCached")
+    data class QobuzCached(
+        val qobuzId: Long,
+        val preferredQuality: AudioQuality = AudioQuality.LOSSLESS,
+    ) : PlaybackSource()
 }
 
+@Serializable
 data class CollectionDirectLink(
     val url: String,
     val quality: String
 )
 
+@Serializable
 data class TrackLyrics(
     val basic: String? = null,
     val lrc: String? = null,
     val ttml: String? = null
 )
 
+@Serializable
 data class UnifiedTrack(
     val id: String,
     val title: String,
@@ -350,6 +378,7 @@ data class UnifiedTrack(
     fun toLegacyTrack(): Track {
         val tidalId = when (val s = source) {
             is PlaybackSource.HiFiApi -> s.tidalId
+            is PlaybackSource.QobuzCached -> s.qobuzId
             else -> id.hashCode().toLong()
         }
         return Track(

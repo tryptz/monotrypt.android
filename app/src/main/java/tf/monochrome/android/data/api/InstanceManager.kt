@@ -15,7 +15,7 @@ import tf.monochrome.android.data.preferences.PreferencesManager
 import javax.inject.Inject
 import javax.inject.Singleton
 
-enum class InstanceType { API, STREAMING }
+enum class InstanceType { API, STREAMING, DOWNLOAD }
 
 data class Instance(
     val url: String,
@@ -54,6 +54,17 @@ class InstanceManager @Inject constructor(
     private var cacheTimestamp: Long = 0L
 
     suspend fun getInstances(type: InstanceType): List<Instance> {
+        // Downloads pin to the user-configured Qobuz instance (Settings →
+        // Instances → Qobuz URL) when set, regardless of Dev Mode. If unset,
+        // fall through and serve the public streaming pool.
+        if (type == InstanceType.DOWNLOAD) {
+            val qobuz = preferences.qobuzInstanceUrl.first()?.trim()?.takeIf { it.isNotBlank() }
+            if (qobuz != null) {
+                return listOf(Instance(qobuz.trimEnd('/')))
+            }
+        }
+        val effectiveType = if (type == InstanceType.DOWNLOAD) InstanceType.STREAMING else type
+
         // Dev Mode: route all requests through the user-specified custom endpoint.
         // When disabled, ignore any saved URL and fall through to the normal
         // instance resolution so stale overrides don't silently redirect traffic.
@@ -66,9 +77,10 @@ class InstanceManager @Inject constructor(
 
         // Check memory cache
         if (isCacheValid()) {
-            val cached = when (type) {
+            val cached = when (effectiveType) {
                 InstanceType.API -> cachedApiInstances
                 InstanceType.STREAMING -> cachedStreamingInstances
+                InstanceType.DOWNLOAD -> null
             }
             if (!cached.isNullOrEmpty()) return cached.shuffled()
         }
@@ -78,9 +90,10 @@ class InstanceManager @Inject constructor(
         val storedTimestamp = preferences.instancesCacheTimestamp.first()
         if (storedCache != null && System.currentTimeMillis() - storedTimestamp < CACHE_DURATION_MS) {
             parseAndCacheInstances(storedCache)
-            val cached = when (type) {
+            val cached = when (effectiveType) {
                 InstanceType.API -> cachedApiInstances
                 InstanceType.STREAMING -> cachedStreamingInstances
+                InstanceType.DOWNLOAD -> null
             }
             if (!cached.isNullOrEmpty()) return cached.shuffled()
         }
@@ -90,17 +103,19 @@ class InstanceManager @Inject constructor(
         if (fetched != null) {
             parseAndCacheInstances(fetched)
             preferences.saveInstancesCache(fetched)
-            val cached = when (type) {
+            val cached = when (effectiveType) {
                 InstanceType.API -> cachedApiInstances
                 InstanceType.STREAMING -> cachedStreamingInstances
+                InstanceType.DOWNLOAD -> null
             }
             if (!cached.isNullOrEmpty()) return cached.shuffled()
         }
 
         // Fallback to hardcoded instances
-        return when (type) {
+        return when (effectiveType) {
             InstanceType.API -> FALLBACK_API_INSTANCES.shuffled()
             InstanceType.STREAMING -> FALLBACK_STREAMING_INSTANCES.shuffled()
+            InstanceType.DOWNLOAD -> emptyList()
         }
     }
 
@@ -110,6 +125,16 @@ class InstanceManager @Inject constructor(
             parseAndCacheInstances(fetched)
             preferences.saveInstancesCache(fetched)
         }
+    }
+
+    // Strict resolution of the configured Qobuz instance — null when unset.
+    // Unlike getInstances(DOWNLOAD), this never falls back to the TIDAL pool,
+    // so callers like Qobuz-only search don't accidentally duplicate TIDAL
+    // results when the user hasn't configured a Qobuz endpoint.
+    suspend fun qobuzInstanceOrNull(): Instance? {
+        val raw = preferences.qobuzInstanceUrl.first()?.trim()?.takeIf { it.isNotBlank() }
+            ?: return null
+        return Instance(raw.trimEnd('/'))
     }
 
     private fun isCacheValid(): Boolean {

@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -49,6 +50,7 @@ fun TrackContextMenu(
     onToggleLike: () -> Unit,
     onAddToPlaylist: () -> Unit,
     onDownloadTrack: (() -> Unit)? = null,
+    onShareFile: (() -> Unit)? = null,
     onGoToAlbum: (() -> Unit)? = null,
     onGoToArtist: (() -> Unit)? = null,
     onShowTrackInfo: (() -> Unit)? = null
@@ -129,6 +131,18 @@ fun TrackContextMenu(
                     icon = Icons.Default.Download,
                     label = "Download",
                     onClick = { onDownloadTrack(); onDismiss() }
+                )
+            }
+
+            // Share the actual audio file when the caller provides a handler.
+            // The handler resolves to a downloaded copy or a Qobuz cache hit
+            // and dispatches Intent.ACTION_SEND with the file URI; if neither
+            // exists the action is a no-op (logged in TrackShareHelper).
+            if (onShareFile != null) {
+                ContextMenuItem(
+                    icon = Icons.Default.Share,
+                    label = "Share file",
+                    onClick = { onShareFile(); onDismiss() }
                 )
             }
 

@@ -74,6 +74,7 @@ fun AlbumDetailScreen(
             onToggleLike = { playerViewModel.toggleFavorite(track) },
             onAddToPlaylist = { showAddToPlaylistForTrack = track },
             onDownloadTrack = { playerViewModel.downloadTrack(track) },
+            onShareFile = { playerViewModel.shareTrack(track) },
             onGoToAlbum = null, // Already here
             onGoToArtist = track.artist?.id?.let { artistId ->
                 { navController.navigate(Screen.ArtistDetail.createRoute(artistId)) }
@@ -194,19 +195,6 @@ fun AlbumDetailScreen(
                                     Icon(
                                         Icons.Default.Shuffle,
                                         contentDescription = "Shuffle",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                FilledIconButton(
-                                    onClick = { navController.navigate(Screen.Mix.createRoute(detail.album.id.toString())) },
-                                    modifier = Modifier.size(48.dp),
-                                    colors = IconButtonDefaults.filledIconButtonColors(
-                                        containerColor = MaterialTheme.colorScheme.surfaceVariant
-                                    )
-                                ) {
-                                    Icon(
-                                        androidx.compose.material.icons.Icons.Default.PlayArrow,
-                                        contentDescription = "Mix",
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
