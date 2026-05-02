@@ -690,6 +690,34 @@ bool LibusbUacDriver::start(int sampleRateHz, int bitsPerSample, int channels) {
         }
         interfaceClaimed_ = true;
     }
+    // The AudioControl interface needs to be claimed too —
+    // class-specific control transfers (SET_CUR / GET_CUR /
+    // GET_RANGE on the clock entities) target it via wIndex's low
+    // byte, and the kernel's snd-usb-audio driver silently rejects
+    // them with LIBUSB_ERROR_IO if we don't own AC. Without this,
+    // the descriptor walker matches the alt fine but every clock
+    // request fails -> bypass refuses to engage. Discovered with
+    // the Focal Bathys whose topology (2 CLOCK_SOURCEs, 4 terminals)
+    // had clock entities looked correct but every SET_CUR returned
+    // -1 because the kernel never let the transfer reach the device.
+    if (fmt.controlInterfaceNum != 0xFF &&
+        (!controlInterfaceClaimed_ ||
+         claimedControlIface_ != fmt.controlInterfaceNum)) {
+        if (controlInterfaceClaimed_) {
+            libusb_release_interface(device_, claimedControlIface_);
+            controlInterfaceClaimed_ = false;
+        }
+        int rc = libusb_claim_interface(device_, fmt.controlInterfaceNum);
+        if (rc != LIBUSB_SUCCESS) {
+            LOGW("claim AudioControl iface %u -> %d (continuing — "
+                 "control transfers may fail with LIBUSB_ERROR_IO)",
+                 fmt.controlInterfaceNum, rc);
+        } else {
+            controlInterfaceClaimed_ = true;
+            claimedControlIface_ = fmt.controlInterfaceNum;
+            LOGI("claimed AudioControl iface %u", fmt.controlInterfaceNum);
+        }
+    }
     format_ = fmt;
 
     int rc = libusb_set_interface_alt_setting(
@@ -740,7 +768,7 @@ bool LibusbUacDriver::isStreamingFormat(int sampleRate, int bitsPerSample, int c
 
 void LibusbUacDriver::stop() {
     bool was = streaming_.exchange(false, std::memory_order_acq_rel);
-    if (!was && transfers_.empty() && !interfaceClaimed_) return;
+    if (!was && transfers_.empty() && !interfaceClaimed_ && !controlInterfaceClaimed_) return;
 
     std::lock_guard<std::mutex> lock(mutex_);
     stopIsoPump();
@@ -754,6 +782,10 @@ void LibusbUacDriver::stop() {
         }
         libusb_release_interface(device_, format_.interfaceNumber);
         interfaceClaimed_ = false;
+    }
+    if (device_ && controlInterfaceClaimed_) {
+        libusb_release_interface(device_, claimedControlIface_);
+        controlInterfaceClaimed_ = false;
     }
     LOGI("stopped streaming (full teardown)");
 }

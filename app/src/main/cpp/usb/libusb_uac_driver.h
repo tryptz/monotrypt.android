@@ -178,6 +178,14 @@ private:
     // Android kernel can't briefly re-attach snd-usb-audio in the
     // gap and bounce us with LIBUSB_ERROR_BUSY on the next claim.
     bool interfaceClaimed_ = false;
+    // Same idea for the AudioControl interface. We need to own it
+    // for class-specific control transfers (SET_CUR / GET_CUR /
+    // GET_RANGE on clock entities) to reach the device — otherwise
+    // the kernel's snd-usb-audio still has AC claimed and silently
+    // returns LIBUSB_ERROR_IO on every control transfer with
+    // wIndex pointing at the AC interface.
+    bool controlInterfaceClaimed_ = false;
+    uint8_t claimedControlIface_ = 0xFF;
 
     // Iso pump state — touched only from the event thread once
     // streaming_ is true.
