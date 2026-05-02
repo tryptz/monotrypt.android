@@ -41,6 +41,11 @@ class SearchViewModel @Inject constructor(
      */
     companion object {
         private const val SEARCH_DEBOUNCE_MS = 250L
+        // Page size used by the initial query and every loadMore. End-of-results
+        // is detected when fewer than PAGE_SIZE items come back (matching the
+        // existing /album/ paging convention at HiFiApiClient.kt). 50 keeps the
+        // round-trip count low while staying small enough to render smoothly.
+        private const val PAGE_SIZE = 50
         // Hard ceiling on the Qobuz fan-out so the TIDAL flow can never be
         // blocked behind a slow or hung Qobuz instance (coroutineScope waits
         // for all children, so an unbounded child would freeze the whole
@@ -73,6 +78,48 @@ class SearchViewModel @Inject constructor(
         QOBUZ("Qobuz", SourceType.QOBUZ),
         LOCAL("Local", SourceType.LOCAL),
         COLLECTION("Collection", SourceType.COLLECTION)
+    }
+
+    /** What the UI prefetch trigger is asking for more of. */
+    enum class SearchPageType { TRACKS, ALBUMS, ARTISTS, PLAYLISTS }
+
+    // Per-type, per-source paging state. nextOffset advances by PAGE_SIZE on
+    // every successful fetch; the per-source endReached flags stop the
+    // ViewModel from issuing further requests once a backend has run out of
+    // results. inFlight gates against the prefetch trigger firing twice while
+    // a page is in-flight.
+    private class PageState {
+        var nextOffset: Int = 0
+        var tidalEnd: Boolean = false
+        var qobuzEnd: Boolean = false
+        @Volatile var inFlight: Boolean = false
+        fun reset() { nextOffset = 0; tidalEnd = false; qobuzEnd = false; inFlight = false }
+        fun done(): Boolean = tidalEnd && qobuzEnd
+    }
+
+    private val tracksPage = PageState()
+    private val albumsPage = PageState()
+    private val artistsPage = PageState()
+    private val playlistsPage = PageState()
+
+    private fun pageFor(type: SearchPageType): PageState = when (type) {
+        SearchPageType.TRACKS -> tracksPage
+        SearchPageType.ALBUMS -> albumsPage
+        SearchPageType.ARTISTS -> artistsPage
+        SearchPageType.PLAYLISTS -> playlistsPage
+    }
+
+    private val _isLoadingMore = MutableStateFlow(false)
+    val isLoadingMore: StateFlow<Boolean> = _isLoadingMore.asStateFlow()
+
+    private val _endReached = MutableStateFlow(false)
+    val endReached: StateFlow<Boolean> = _endReached.asStateFlow()
+
+    private fun resetPaging() {
+        tracksPage.reset(); albumsPage.reset(); artistsPage.reset(); playlistsPage.reset()
+        _isLoadingMore.value = false
+        _endReached.value = false
+        loadMoreJob?.cancel()
     }
 
     private val _query = MutableStateFlow("")
@@ -128,10 +175,12 @@ class SearchViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     private var searchJob: Job? = null
+    private var loadMoreJob: Job? = null
 
     fun onQueryChange(newQuery: String) {
         _query.value = newQuery
         searchJob?.cancel()
+        resetPaging()
         if (newQuery.isBlank()) {
             clearResults()
             return
@@ -149,6 +198,7 @@ class SearchViewModel @Inject constructor(
             return
         }
         searchJob?.cancel()
+        resetPaging()
         searchJob = viewModelScope.launch {
             performSearch(currentQuery)
         }
@@ -157,6 +207,7 @@ class SearchViewModel @Inject constructor(
     fun selectHistoryQuery(historyQuery: String) {
         _query.value = historyQuery
         searchJob?.cancel()
+        resetPaging()
         searchJob = viewModelScope.launch {
             performSearch(historyQuery)
         }
@@ -255,6 +306,13 @@ class SearchViewModel @Inject constructor(
                 listOfNotNull(it.title, it.creator?.name, it.description)
             }
             preferences.addSearchHistoryQuery(trimmedQuery)
+            // Seed paging state from the initial page sizes. Backends that
+            // ignore &offset=&limit= will return < PAGE_SIZE here and the
+            // ViewModel will refuse further fetches for that type/source.
+            seedPageEnd(tracksPage,    result.tracks.size,    qobuzTracks.size,  qobuzAvailable)
+            seedPageEnd(albumsPage,    result.albums.size,    qobuzAlbums.size,  qobuzAvailable)
+            seedPageEnd(artistsPage,   result.artists.size,   qobuzArtists.size, qobuzAvailable)
+            seedPageEnd(playlistsPage, result.playlists.size, /*qobuz=*/0,       qobuzAvailable)
         } else {
             // TIDAL is down — still surface Qobuz + local results so search
             // doesn't feel broken when the public TIDAL pool is unreachable.
@@ -265,8 +323,97 @@ class SearchViewModel @Inject constructor(
             _allAlbums.value = scoreItems(trimmedQuery, qobuzAlbums) { listOf(it.title, it.displayArtist) }
             _allArtists.value = scoreItems(trimmedQuery, qobuzArtists) { listOf(it.name) }
             _allPlaylists.value = emptyList()
+            // TIDAL failed → mark its end on every type so loadMore won't retry.
+            tracksPage.tidalEnd = true; albumsPage.tidalEnd = true
+            artistsPage.tidalEnd = true; playlistsPage.tidalEnd = true
+            seedPageEnd(tracksPage,    /*tidal=*/0, qobuzTracks.size,  qobuzAvailable)
+            seedPageEnd(albumsPage,    /*tidal=*/0, qobuzAlbums.size,  qobuzAvailable)
+            seedPageEnd(artistsPage,   /*tidal=*/0, qobuzArtists.size, qobuzAvailable)
+            seedPageEnd(playlistsPage, /*tidal=*/0, /*qobuz=*/0,       qobuzAvailable)
         }
+        _endReached.value = tracksPage.done() && albumsPage.done() && artistsPage.done() && playlistsPage.done()
         _isSearching.value = false
+    }
+
+    // Qobuz returns one combined envelope per call; we only paginate the
+    // TIDAL side from loadMore, so always mark Qobuz "end" after the initial
+    // seed. The Qobuz arg is accepted for symmetry with the call sites and
+    // future per-type Qobuz paging.
+    private fun seedPageEnd(state: PageState, tidalCount: Int, @Suppress("unused") qobuzCount: Int, @Suppress("unused") qobuzAvailable: Boolean) {
+        if (tidalCount < PAGE_SIZE) state.tidalEnd = true
+        state.qobuzEnd = true
+        state.nextOffset = PAGE_SIZE
+    }
+
+    /**
+     * Append the next page of results for [type] from TIDAL. Called by the
+     * Compose UI when the user scrolls near the end of a list. No-op if a
+     * page is already in-flight, the query is blank, or the type has
+     * exhausted both backends. Only TIDAL is paginated incrementally —
+     * Qobuz returns a single combined envelope at initial-search time.
+     */
+    fun loadMore(type: SearchPageType) {
+        val q = _query.value.trim()
+        if (q.isBlank()) return
+        val state = pageFor(type)
+        if (state.inFlight || state.done()) return
+        if (state.tidalEnd) return // nothing left to fetch (Qobuz isn't paged here)
+        state.inFlight = true
+        _isLoadingMore.value = true
+        loadMoreJob = viewModelScope.launch {
+            try {
+                val offset = state.nextOffset
+                val newItems: List<Any> = when (type) {
+                    SearchPageType.TRACKS ->
+                        repository.searchTracks(q, offset, PAGE_SIZE).getOrDefault(emptyList())
+                    SearchPageType.ALBUMS ->
+                        repository.searchAlbums(q, offset, PAGE_SIZE).getOrDefault(emptyList())
+                    SearchPageType.ARTISTS ->
+                        repository.searchArtists(q, offset, PAGE_SIZE).getOrDefault(emptyList())
+                    SearchPageType.PLAYLISTS ->
+                        repository.searchPlaylists(q, offset, PAGE_SIZE).getOrDefault(emptyList())
+                }
+                if (newItems.size < PAGE_SIZE) state.tidalEnd = true
+                state.nextOffset = offset + PAGE_SIZE
+
+                if (newItems.isNotEmpty()) {
+                    when (type) {
+                        SearchPageType.TRACKS -> {
+                            @Suppress("UNCHECKED_CAST")
+                            val tracks = (newItems as List<Track>).map { it.toUnifiedTrack() }
+                            _allTracks.value = scoreTracks(q, _allTracks.value + tracks)
+                        }
+                        SearchPageType.ALBUMS -> {
+                            @Suppress("UNCHECKED_CAST")
+                            _allAlbums.value = scoreItems(q, (_allAlbums.value + (newItems as List<Album>)).distinctBy { it.id }) {
+                                listOf(it.title, it.displayArtist)
+                            }
+                        }
+                        SearchPageType.ARTISTS -> {
+                            @Suppress("UNCHECKED_CAST")
+                            _allArtists.value = scoreItems(q, (_allArtists.value + (newItems as List<Artist>)).distinctBy { it.id }) {
+                                listOf(it.name)
+                            }
+                        }
+                        SearchPageType.PLAYLISTS -> {
+                            @Suppress("UNCHECKED_CAST")
+                            _allPlaylists.value = scoreItems(q, (_allPlaylists.value + (newItems as List<Playlist>)).distinctBy { it.id }) {
+                                listOfNotNull(it.title, it.creator?.name, it.description)
+                            }
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+                // Swallow — a failed page just stops paging for this type.
+                state.tidalEnd = true
+            } finally {
+                state.inFlight = false
+                _endReached.value = tracksPage.done() && albumsPage.done() &&
+                    artistsPage.done() && playlistsPage.done()
+                _isLoadingMore.value = tracksPage.inFlight || albumsPage.inFlight ||
+                    artistsPage.inFlight || playlistsPage.inFlight
+            }
+        }
     }
 
     private fun clearResults() {

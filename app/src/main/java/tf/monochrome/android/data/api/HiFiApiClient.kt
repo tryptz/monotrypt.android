@@ -22,7 +22,6 @@ import tf.monochrome.android.data.api.model.ArtistContentResponse
 import tf.monochrome.android.data.api.model.ArtistResponse
 import tf.monochrome.android.data.api.model.LyricsResponse
 import tf.monochrome.android.data.api.model.ManifestJson
-import tf.monochrome.android.data.api.model.MixResponse
 import tf.monochrome.android.data.api.model.PlaylistResponse
 import tf.monochrome.android.data.api.model.QobuzAlbumDetailEnvelope
 import tf.monochrome.android.data.api.model.QobuzAlbumItem
@@ -166,8 +165,15 @@ class HiFiApiClient @Inject constructor(
 
     // --- Search ---
 
-    suspend fun searchTracks(query: String): List<Track> {
-        val cacheKey = "search_tracks_$query"
+    // Page size used for initial search + each loadMore call. Backends that
+    // don't honour &offset=&limit= will respond with the same first-page
+    // payload; the ViewModel detects "end" when fewer than `limit` items come
+    // back, so an unsupported page just stops paging early.
+    private fun pagedQuery(key: String, query: String, offset: Int, limit: Int): String =
+        "/search/?$key=${query.encodeUrl()}&offset=$offset&limit=$limit"
+
+    suspend fun searchTracks(query: String, offset: Int = 0, limit: Int = 50): List<Track> {
+        val cacheKey = "search_tracks_${query}_${offset}_${limit}"
         cache.get(cacheKey)?.let { entry ->
             if (entry.isValid()) {
                 @Suppress("UNCHECKED_CAST")
@@ -175,15 +181,15 @@ class HiFiApiClient @Inject constructor(
             }
         }
 
-        val body = fetchWithRetry("/search/?s=${query.encodeUrl()}")
+        val body = fetchWithRetry(pagedQuery("s", query, offset, limit))
         val response = parseSearchResponse(body)
         val tracks = response.items.map { it.toTrack() }
         cache.put(cacheKey, CacheEntry(tracks))
         return tracks
     }
 
-    suspend fun searchAlbums(query: String): List<Album> {
-        val cacheKey = "search_albums_$query"
+    suspend fun searchAlbums(query: String, offset: Int = 0, limit: Int = 50): List<Album> {
+        val cacheKey = "search_albums_${query}_${offset}_${limit}"
         cache.get(cacheKey)?.let { entry ->
             if (entry.isValid()) {
                 @Suppress("UNCHECKED_CAST")
@@ -191,15 +197,15 @@ class HiFiApiClient @Inject constructor(
             }
         }
 
-        val body = fetchWithRetry("/search/?al=${query.encodeUrl()}")
+        val body = fetchWithRetry(pagedQuery("al", query, offset, limit))
         val response = parseSearchResponse(body)
         val albums = response.items.map { it.toAlbum() }
         cache.put(cacheKey, CacheEntry(albums))
         return albums
     }
 
-    suspend fun searchArtists(query: String): List<Artist> {
-        val cacheKey = "search_artists_$query"
+    suspend fun searchArtists(query: String, offset: Int = 0, limit: Int = 50): List<Artist> {
+        val cacheKey = "search_artists_${query}_${offset}_${limit}"
         cache.get(cacheKey)?.let { entry ->
             if (entry.isValid()) {
                 @Suppress("UNCHECKED_CAST")
@@ -207,25 +213,25 @@ class HiFiApiClient @Inject constructor(
             }
         }
 
-        val body = fetchWithRetry("/search/?a=${query.encodeUrl()}")
+        val body = fetchWithRetry(pagedQuery("a", query, offset, limit))
         val response = parseSearchResponse(body)
         val artists = response.items.map { it.toArtist() }
         cache.put(cacheKey, CacheEntry(artists))
         return artists
     }
 
-    suspend fun searchPlaylists(query: String): List<Playlist> {
-        val body = fetchWithRetry("/search/?p=${query.encodeUrl()}")
+    suspend fun searchPlaylists(query: String, offset: Int = 0, limit: Int = 50): List<Playlist> {
+        val body = fetchWithRetry(pagedQuery("p", query, offset, limit))
         val response = parseSearchResponse(body)
         return response.items.map { it.toPlaylist() }
     }
 
-    suspend fun search(query: String): SearchResult {
+    suspend fun search(query: String, offset: Int = 0, limit: Int = 50): SearchResult {
         return SearchResult(
-            tracks = runCatching { searchTracks(query) }.getOrDefault(emptyList()),
-            albums = runCatching { searchAlbums(query) }.getOrDefault(emptyList()),
-            artists = runCatching { searchArtists(query) }.getOrDefault(emptyList()),
-            playlists = runCatching { searchPlaylists(query) }.getOrDefault(emptyList())
+            tracks = runCatching { searchTracks(query, offset, limit) }.getOrDefault(emptyList()),
+            albums = runCatching { searchAlbums(query, offset, limit) }.getOrDefault(emptyList()),
+            artists = runCatching { searchArtists(query, offset, limit) }.getOrDefault(emptyList()),
+            playlists = runCatching { searchPlaylists(query, offset, limit) }.getOrDefault(emptyList())
         )
     }
 
@@ -238,14 +244,14 @@ class HiFiApiClient @Inject constructor(
     // Returns an empty SearchResult when the instance isn't set, the request
     // times out, or the response can't be parsed, so the TIDAL search flow
     // is never blocked by Qobuz state.
-    suspend fun searchQobuz(query: String): SearchResult {
+    suspend fun searchQobuz(query: String, offset: Int = 0): SearchResult {
         val instance = instanceManager.qobuzInstanceOrNull() ?: return SearchResult()
         val base = instance.url.trimEnd('/')
         val cookie = preferences.qobuzAuthCookie.first()
 
         val envelope = withTimeoutOrNull(QOBUZ_REQUEST_TIMEOUT_MS) {
             runCatching {
-                val res = httpClient.get("$base/api/get-music?q=${query.encodeUrl()}&offset=0") {
+                val res = httpClient.get("$base/api/get-music?q=${query.encodeUrl()}&offset=$offset") {
                     attachQobuzAuth(cookie)
                 }
                 if (!res.status.isSuccess()) return@runCatching null
@@ -648,14 +654,6 @@ class HiFiApiClient @Inject constructor(
                 apiTrack.toDomain()
             }
         }
-    }
-
-    // --- Mix ---
-
-    suspend fun getMix(mixId: String): List<Track> {
-        val body = fetchWithRetry("/mix/?id=$mixId", minVersion = "2.3")
-        val response = json.decodeFromString<MixResponse>(unwrapResponse(body))
-        return response.items.map { it.toDomain() }
     }
 
     // --- Lyrics ---
