@@ -231,18 +231,22 @@ bool LibusbUacDriver::selectAltSetting(int sampleRateHz, int bitsPerSample,
                             altChannels = p[10];
                         }
                     } else if (isClassDescriptor(p, len, CS_INTERFACE, AS_FORMAT_TYPE)
-                               && len >= 7 && p[3] == FORMAT_TYPE_I) {
+                               && len >= 4 && p[3] == FORMAT_TYPE_I) {
                         if (uacVersion >= 0x0200) {
-                            // UAC2 FORMAT_TYPE_I: bSubslotSize @ p[4],
-                            // bBitResolution @ p[5].
-                            altSubslot = p[4];
-                            altBits = p[5];
-                        } else {
-                            // UAC1 FORMAT_TYPE_I: bNrChannels @ p[4],
-                            // bSubframeSize @ p[5], bBitResolution
-                            // @ p[6], bSamFreqType @ p[7], then the
-                            // sample frequency table or [lower,upper]
-                            // continuous range.
+                            // UAC2 FORMAT_TYPE_I is exactly 6 bytes:
+                            //   bLength, bDescType, bSubType,
+                            //   bFormatType @p[3], bSubslotSize @p[4],
+                            //   bBitResolution @p[5].
+                            if (len >= 6) {
+                                altSubslot = p[4];
+                                altBits = p[5];
+                            }
+                        } else if (len >= 7) {
+                            // UAC1 FORMAT_TYPE_I starts at 8 bytes:
+                            //   bNrChannels @p[4], bSubframeSize @p[5],
+                            //   bBitResolution @p[6], bSamFreqType @p[7],
+                            //   then a sample-frequency table (continuous
+                            //   range or discrete list of 24-bit LE rates).
                             altChannels = p[4];
                             altSubslot = p[5];
                             altBits = p[6];
