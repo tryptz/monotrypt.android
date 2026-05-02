@@ -103,17 +103,47 @@ class DownloadsViewModel @Inject constructor(
         }.getOrNull() ?: return emptyList()
         if (!tree.canRead()) return emptyList()
 
-        // Quick lookup of paths Room already tracks so we don't double-list.
+        // First pass — collect everything once. listFiles() is the expensive
+        // call; iterating the local list afterwards is free.
+        val children = tree.listFiles().filter { it.isFile && it.canRead() }
+
+        // Folder-level art (cover.jpg / folder.png / albumart.webp). The
+        // DownloadWorker drops one of these alongside the audio so the system
+        // MediaScanner picks it up. We match by stem so any of the four
+        // common names work.
+        val folderArtUri = children
+            .firstOrNull { f ->
+                val n = f.name?.lowercase() ?: return@firstOrNull false
+                val stem = n.substringBeforeLast('.')
+                val ext = n.substringAfterLast('.', "")
+                stem in COVER_STEMS && ext in IMAGE_EXTENSIONS
+            }
+            ?.uri
+            ?.toString()
+
+        // Per-track sidecar art (e.g. "Artist - Title.jpg" next to
+        // "Artist - Title.flac"). Index by stem so the audio loop is O(n).
+        val sidecarArtByStem: Map<String, String> = children.asSequence()
+            .mapNotNull { f ->
+                val n = f.name ?: return@mapNotNull null
+                val ext = n.substringAfterLast('.', "").lowercase()
+                if (ext !in IMAGE_EXTENSIONS) return@mapNotNull null
+                val stem = n.substringBeforeLast('.')
+                if (stem.lowercase() in COVER_STEMS) return@mapNotNull null
+                stem to f.uri.toString()
+            }
+            .toMap()
+
         val knownPaths = knownRoomRows.mapTo(HashSet()) { it.filePath }
         val out = mutableListOf<DownloadedTrackEntity>()
-        for (file in tree.listFiles()) {
-            if (!file.isFile) continue
-            if (!file.canRead()) continue
+        for (file in children) {
             val name = file.name ?: continue
             if (!isAudioFile(name, file.type)) continue
             val pathString = file.uri.toString()
             if (pathString in knownPaths) continue
-            out += syntheticEntityFor(file, pathString, name)
+            val stem = name.substringBeforeLast('.')
+            val cover = sidecarArtByStem[stem] ?: folderArtUri
+            out += syntheticEntityFor(file, pathString, name, cover)
         }
         return out
     }
@@ -128,6 +158,7 @@ class DownloadsViewModel @Inject constructor(
         file: DocumentFile,
         path: String,
         name: String,
+        coverUri: String?,
     ): DownloadedTrackEntity {
         // Filename convention written by DownloadWorker is
         // "<artist> - <title>.<ext>" — try to recover the split, fall
@@ -145,7 +176,7 @@ class DownloadsViewModel @Inject constructor(
             duration = 0,
             artistName = artist,
             albumTitle = null,
-            albumCover = null,
+            albumCover = coverUri,
             filePath = path,
             quality = AudioQuality.LOSSLESS.name,
             sizeBytes = file.length(),
@@ -180,6 +211,10 @@ class DownloadsViewModel @Inject constructor(
         private val AUDIO_EXTENSIONS = setOf(
             "flac", "alac", "mp3", "m4a", "aac", "ogg", "opus", "wav", "wma",
         )
+        // Common folder-level cover filenames (see also Android's MediaScanner
+        // and most desktop tag editors). The DownloadWorker writes "cover.jpg".
+        private val COVER_STEMS = setOf("cover", "folder", "albumart", "album")
+        private val IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "webp")
     }
 }
 
