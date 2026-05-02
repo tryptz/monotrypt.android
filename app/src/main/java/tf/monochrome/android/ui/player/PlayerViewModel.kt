@@ -517,6 +517,12 @@ class PlayerViewModel @Inject constructor(
                 val unifiedTrack = unifiedTrackRegistry[track.id]
                     ?: synthesizeQobuzUnifiedTrack(track)
                 if (unifiedTrack != null) {
+                    // Make sure the synthesized UnifiedTrack lands in the
+                    // registry so PlaybackService.onMediaItemTransition can
+                    // tag the history row with the right source. Otherwise
+                    // Recently Played would re-resolve via TIDAL after process
+                    // death.
+                    unifiedTrackRegistry.put(track.id, unifiedTrack)
                     val resolved = streamResolver.resolveUnifiedTrack(unifiedTrack)
                     if (!resolved.isPlayable) {
                         skipToNext()

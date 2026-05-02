@@ -21,10 +21,16 @@ import tf.monochrome.android.data.db.entity.PlaylistTrackEntity
 import tf.monochrome.android.data.db.entity.UserPlaylistEntity
 import tf.monochrome.android.data.device.DeviceRegistry
 import tf.monochrome.android.data.sync.SupabaseSyncRepository
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import tf.monochrome.android.data.api.QobuzIdRegistry
 import tf.monochrome.android.domain.model.Album
 import tf.monochrome.android.domain.model.Artist
+import tf.monochrome.android.domain.model.PlaybackSource
 import tf.monochrome.android.domain.model.Track
+import tf.monochrome.android.domain.model.UnifiedTrack
 import tf.monochrome.android.player.PlaySessionManager
+import tf.monochrome.android.player.UnifiedTrackRegistry
 import java.security.MessageDigest
 import java.util.UUID
 import javax.inject.Inject
@@ -40,8 +46,13 @@ class LibraryRepository @Inject constructor(
     private val supabaseSync: SupabaseSyncRepository,
     private val deviceRegistry: DeviceRegistry,
     private val playSessionManager: PlaySessionManager,
+    private val unifiedTrackRegistry: UnifiedTrackRegistry,
+    private val qobuzIdRegistry: QobuzIdRegistry,
 ) {
     private val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // ignoreUnknownKeys lets older serialized rows survive forward-compatible
+    // schema changes to UnifiedTrack / PlaybackSource.
+    private val historyJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     // --- Favorites ---
 
     fun getFavoriteTracks(): Flow<List<Track>> = favoriteDao.getFavoriteTracks().map { entities ->
@@ -87,11 +98,31 @@ class LibraryRepository @Inject constructor(
     // --- History ---
 
     fun getHistory(): Flow<List<Track>> = historyDao.getHistory().map { entities ->
-        entities.map { it.toDomain() }
+        entities.map { row ->
+            // Re-hydrate the in-memory routing registries so a tap on a
+            // Recently-Played row after process death plays the same source it
+            // was added under (Qobuz/local/collection) instead of falling
+            // through to TIDAL with a wrong id.
+            row.unifiedJson?.let { json ->
+                runCatching { historyJson.decodeFromString<UnifiedTrack>(json) }
+                    .getOrNull()
+                    ?.let { unified ->
+                        unifiedTrackRegistry.put(row.id, unified)
+                        if (unified.source is PlaybackSource.QobuzCached) {
+                            qobuzIdRegistry.registerTrack(row.id)
+                        }
+                    }
+            }
+            row.toDomain()
+        }
     }
 
-    suspend fun addToHistory(track: Track) {
-        val historyRow = track.toHistoryEntity()
+    suspend fun addToHistory(track: Track, unified: UnifiedTrack? = null) {
+        val historyRow = track.toHistoryEntity().copy(
+            unifiedJson = unified?.let {
+                runCatching { historyJson.encodeToString(it) }.getOrNull()
+            }
+        )
         val event = track.toPlayEventEntity()
         historyDao.addToHistory(historyRow)
         val localRowId = playEventDao.insert(event)

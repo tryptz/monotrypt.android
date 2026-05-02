@@ -159,7 +159,8 @@ class PlaybackService : MediaSessionService() {
                         val track = queueManager.currentQueue.find { it.id == trackId }
                         if (track != null) {
                             serviceScope.launch {
-                                libraryRepository.addToHistory(track)
+                                val unified = unifiedTrackRegistry[trackId]
+                                libraryRepository.addToHistory(track, unified)
                                 scrobblingService.updateNowPlaying(track)
                             }
                         }
@@ -382,7 +383,7 @@ class PlaybackService : MediaSessionService() {
                     player.setMediaItem(resolved.mediaItem)
                     player.prepare()
                     player.play()
-                    libraryRepository.addToHistory(currentTrack)
+                    libraryRepository.addToHistory(currentTrack, unifiedTrack)
                     return@launch
                 }
 

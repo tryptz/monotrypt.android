@@ -66,7 +66,7 @@ import tf.monochrome.android.data.local.db.ScanStateEntity
         CollectionTrackArtistCrossRef::class,
         CollectionAlbumArtistCrossRef::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 abstract class MusicDatabase : RoomDatabase() {
