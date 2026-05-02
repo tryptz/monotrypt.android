@@ -160,6 +160,7 @@ class PreferencesManager @Inject constructor(
         private val DSP_ENABLED = booleanPreferencesKey("dsp_enabled")
         private val DSP_STATE_JSON = stringPreferencesKey("dsp_state_json")
         private val DSP_BLOCK_SIZE = intPreferencesKey("dsp_block_size")
+        private val USB_BIT_PERFECT_ENABLED = booleanPreferencesKey("usb_bit_perfect_enabled")
         // Powers of two mirroring the user-facing chip row in Settings.
         // Native engine's static MAX_BLOCK_SIZE caps the largest entry; bump
         // both together if you add another step.
@@ -803,6 +804,18 @@ class PreferencesManager @Inject constructor(
     suspend fun setDspBlockSize(value: Int) {
         if (value !in DSP_BLOCK_SIZES) return
         dataStore.edit { it[DSP_BLOCK_SIZE] = value }
+    }
+
+    /**
+     * When on, PlaybackService pins the player's output to the
+     * currently-attached USB Audio Class DAC (if any) via
+     * setPreferredAudioDevice, bypassing the system's mix-rate downsampler
+     * for sample rates the DAC supports natively. No-op when no USB output
+     * is attached.
+     */
+    val usbBitPerfectEnabled: Flow<Boolean> = dataStore.data.map { it[USB_BIT_PERFECT_ENABLED] ?: false }
+    suspend fun setUsbBitPerfectEnabled(enabled: Boolean) {
+        dataStore.edit { it[USB_BIT_PERFECT_ENABLED] = enabled }
     }
 
     // --- Library / Local Media ---

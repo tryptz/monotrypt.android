@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import tf.monochrome.android.audio.eq.SpectrumAnalyzerTap
@@ -45,6 +46,7 @@ class SettingsViewModel @Inject constructor(
     private val supabaseSyncRepository: SupabaseSyncRepository,
     private val supabaseAuthManager: SupabaseAuthManager,
     private val spectrumAnalyzerTap: SpectrumAnalyzerTap,
+    private val usbAudioRouter: tf.monochrome.android.audio.UsbAudioRouter,
     @ApplicationContext private val appContext: Context
 ) : ViewModel() {
 
@@ -100,6 +102,14 @@ class SettingsViewModel @Inject constructor(
     val dspBlockSize: StateFlow<Int> = preferences.dspBlockSize
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 1024)
     val dspBlockSizes: List<Int> = tf.monochrome.android.data.preferences.PreferencesManager.DSP_BLOCK_SIZES
+
+    val usbBitPerfectEnabled: StateFlow<Boolean> = preferences.usbBitPerfectEnabled
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    /** Human-readable name of the attached USB DAC, or null when nothing is plugged in. */
+    val usbOutputDeviceName: StateFlow<String?> =
+        usbAudioRouter.usbOutputDevice
+            .map { it?.let(usbAudioRouter::describe) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
     val crossfadeDuration: StateFlow<Int> = preferences.crossfadeDuration
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
@@ -296,6 +306,7 @@ class SettingsViewModel @Inject constructor(
     fun setNormalizationEnabled(enabled: Boolean) { viewModelScope.launch { preferences.setNormalizationEnabled(enabled) } }
     fun setDspMixerEnabled(enabled: Boolean) { viewModelScope.launch { preferences.setDspEnabled(enabled) } }
     fun setDspBlockSize(value: Int) { viewModelScope.launch { preferences.setDspBlockSize(value) } }
+    fun setUsbBitPerfectEnabled(enabled: Boolean) { viewModelScope.launch { preferences.setUsbBitPerfectEnabled(enabled) } }
     fun setCrossfadeDuration(seconds: Int) { viewModelScope.launch { preferences.setCrossfadeDuration(seconds) } }
 
     // --- Audio speed actions ---

@@ -909,6 +909,9 @@ private fun AudioTab(viewModel: SettingsViewModel, navController: NavController)
         DspBlockSizeSelector(viewModel)
 
         Spacer(modifier = Modifier.height(8.dp))
+        UsbBitPerfectToggle(viewModel)
+
+        Spacer(modifier = Modifier.height(8.dp))
         Text("Crossfade: ${crossfade}s", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
         Text("Blend between tracks", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Slider(
@@ -1006,6 +1009,27 @@ private fun DspBlockSizeSelector(viewModel: SettingsViewModel) {
 private fun formatBlockSize(size: Int): String = when {
     size >= 1024 && size % 1024 == 0 -> "${size / 1024}K"
     else -> size.toString()
+}
+
+/**
+ * Settings switch that pins the player's output to an attached USB Audio
+ * Class DAC via setPreferredAudioDevice. The device-name line below the
+ * switch updates live as the DAC plugs / unplugs.
+ */
+@Composable
+private fun UsbBitPerfectToggle(viewModel: SettingsViewModel) {
+    val enabled by viewModel.usbBitPerfectEnabled.collectAsState()
+    val deviceName by viewModel.usbOutputDeviceName.collectAsState()
+    SettingSwitchItem(
+        title = "USB DAC bit-perfect routing",
+        subtitle = when {
+            !enabled -> "Off — uses system audio output."
+            deviceName != null -> "On → $deviceName"
+            else -> "On — plug in a USB DAC to start routing."
+        },
+        checked = enabled,
+        onCheckedChange = { viewModel.setUsbBitPerfectEnabled(it) },
+    )
 }
 
 // ─── Tab 6: Downloads ──────────────────────────────────────────────────
