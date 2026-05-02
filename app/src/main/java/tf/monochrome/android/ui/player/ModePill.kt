@@ -32,6 +32,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import tf.monochrome.android.domain.model.NowPlayingViewMode
 import tf.monochrome.android.ui.components.liquidGlass
 
 @Composable
