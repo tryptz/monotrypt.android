@@ -329,6 +329,14 @@ bool LibusbUacDriver::selectAltSetting(int sampleRateHz, int bitsPerSample,
             //                bits 5:4 = 00 data, 01 feedback,
             //                          10 implicit-feedback data
             // Direction lives in bEndpointAddress bit 7 (1 = IN).
+            // Also check that the requested rate FITS in the alt's
+            // wMaxPacketSize against its bInterval — devices often
+            // expose multiple alts (e.g. one for telephony at 24
+            // kHz, one for music at 48 kHz+) and naively picking
+            // the first one that matches channels/bits leaves us
+            // shoving 44.1k samples into packets sized for 24k,
+            // which the DAC plays at its own clock rate as
+            // pitch-shifted distortion.
             const libusb_endpoint_descriptor* iso = nullptr;
             const libusb_endpoint_descriptor* feedback = nullptr;
             for (int e = 0; e < alt.bNumEndpoints; ++e) {
@@ -340,6 +348,32 @@ bool LibusbUacDriver::selectAltSetting(int sampleRateHz, int bitsPerSample,
                 else if (isIn && usage == 0x01 && !feedback) feedback = &ep;
             }
             if (!iso) continue;
+
+            // Verify mps can fit the requested rate.
+            bool isHs = libusb_get_device_speed(dev) >= LIBUSB_SPEED_HIGH;
+            int microframesPerInterval = isHs
+                ? (1 << (iso->bInterval > 0 ? iso->bInterval - 1 : 0))
+                : iso->bInterval;     // FS: bInterval is in ms
+            int microframesPerSecond = isHs ? 8000 : 1000;
+            int packetsPerSec = microframesPerInterval > 0
+                ? microframesPerSecond / microframesPerInterval
+                : microframesPerSecond;
+            int frameStride = (altSubslot ? altSubslot : bitsPerSample / 8) * channels;
+            // Required packet bytes = ceil(rate / packetsPerSec) * stride,
+            // plus one frame of headroom for fractional-rate jitter.
+            int reqBytesPerPacket = ((sampleRateHz + packetsPerSec - 1)
+                                     / packetsPerSec + 1) * frameStride;
+            int actualMps = iso->wMaxPacketSize & 0x07FF;
+            int extraTransactions = ((iso->wMaxPacketSize >> 11) & 0x3) + 1;
+            int realMps = actualMps * extraTransactions;
+            if (reqBytesPerPacket > realMps) {
+                LOGW("alt %u (mps=%d, bInterval=%u) can't fit %dHz/%dch/%db "
+                     "(needs %d bytes/packet) — skipping",
+                     alt.bAlternateSetting, realMps, iso->bInterval,
+                     sampleRateHz, channels, bitsPerSample,
+                     reqBytesPerPacket);
+                continue;
+            }
 
             out_fmt->sampleRateHz = sampleRateHz;
             out_fmt->bitsPerSample = bitsPerSample;
@@ -372,6 +406,7 @@ bool LibusbUacDriver::selectAltSetting(int sampleRateHz, int bitsPerSample,
             out_fmt->controlInterfaceNum = controlIface;
             out_fmt->isHighSpeed =
                 libusb_get_device_speed(dev) >= LIBUSB_SPEED_HIGH;
+            out_fmt->bInterval = iso->bInterval;
             out_fmt->uacVersion = uacVersion;
             if (feedback) {
                 out_fmt->feedbackEndpointAddress = feedback->bEndpointAddress;
@@ -379,10 +414,11 @@ bool LibusbUacDriver::selectAltSetting(int sampleRateHz, int bitsPerSample,
                 out_fmt->feedbackInterval = feedback->bInterval;
             }
             found = true;
-            LOGI("matched alt %u on iface %u: %dch %d-bit, data ep 0x%02x mps=%u%s",
+            LOGI("matched alt %u on iface %u: %dch %d-bit, data ep 0x%02x "
+                 "mps=%d (real %d) bInterval=%u clockId=%u%s",
                  alt.bAlternateSetting, alt.bInterfaceNumber,
                  channels, bitsPerSample, iso->bEndpointAddress,
-                 iso->wMaxPacketSize,
+                 iso->wMaxPacketSize, realMps, iso->bInterval, resolvedClock,
                  feedback ? " + feedback" : " (no feedback EP)");
             break;
         }
@@ -598,18 +634,25 @@ void LibusbUacDriver::stop() {
 // --- Iso pump ---------------------------------------------------------
 
 bool LibusbUacDriver::startIsoPump() {
-    // High-speed runs 8 microframes/ms, full-speed 1 frame/ms. We
-    // express the host's "frames per (micro)frame" as a single 16.16
-    // fixed-point value: integer part is the base frame count, frac
-    // part covers 44.1k-family rates (5.5125 fps/uframe → 0x000588CD).
-    // Per-packet framecount = floor(acc + rate); acc keeps the
-    // remainder. When a feedback IN endpoint exists, [framesPerUframe_q16_]
-    // is overwritten by the device on every feedback URB and the
-    // host transparently re-paces; otherwise we run open-loop on the
-    // seed value.
-    microframesPerSec_ = format_.isHighSpeed ? 8000 : 1000;
+    // Compute the actual *packet* rate from bInterval. Naively
+    // assuming 1 packet per microframe was the source of distortion
+    // when a device's alt uses bInterval > 1 (Bathys' alt 1 is
+    // bInterval=4 = 1 packet per ms = 1000 packets/sec, NOT the 8000
+    // microframes/sec we'd been pumping at).
+    //   HS: packet interval = 2^(bInterval-1) microframes
+    //   FS: packet interval = bInterval frames (1ms each)
+    int hostPeriodHz = format_.isHighSpeed ? 8000 : 1000;
+    int packetIntervalUframes = format_.isHighSpeed
+        ? (1 << (format_.bInterval > 0 ? format_.bInterval - 1 : 0))
+        : format_.bInterval;
+    if (packetIntervalUframes < 1) packetIntervalUframes = 1;
+    microframesPerSec_ = hostPeriodHz / packetIntervalUframes;
     int baseFrames = format_.sampleRateHz / microframesPerSec_;
     int rateRemainder = format_.sampleRateHz % microframesPerSec_;
+    LOGI("iso pump: %d packets/sec (HS=%d, bInterval=%u), "
+         "%d frames/packet base + %d/%d frac",
+         microframesPerSec_, format_.isHighSpeed, format_.bInterval,
+         baseFrames, rateRemainder, microframesPerSec_);
     uint32_t seed_q16 =
         (static_cast<uint32_t>(baseFrames) << 16) +
         static_cast<uint32_t>(
