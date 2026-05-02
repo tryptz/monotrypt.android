@@ -68,6 +68,8 @@ class ProjectMEngineRepository @Inject constructor(
     private var meshX: Int = 32
     private var meshY: Int = 24
     private var targetFps: Int = 60
+    @Volatile var vsyncEnabled: Boolean = true
+        private set
     private var preferredPresetId: String? = null
     private var beatSensitivity: Int = 50
     private var brightness: Int = 80
@@ -172,6 +174,11 @@ class ProjectMEngineRepository @Inject constructor(
                 synchronized(engineLock) {
                     if (nativeInitialized) nativeBridge.configureTargetFps(targetFps)
                 }
+            }
+        }
+        scope.launch {
+            preferences.visualizerVsyncEnabled.collectLatest { enabled ->
+                vsyncEnabled = enabled
             }
         }
         scope.launch {

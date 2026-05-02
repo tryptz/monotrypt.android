@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import tf.monochrome.android.data.api.QobuzIdRegistry
 import tf.monochrome.android.data.repository.MusicRepository
 import tf.monochrome.android.domain.model.AlbumDetail
 import javax.inject.Inject
@@ -15,7 +16,8 @@ import javax.inject.Inject
 @HiltViewModel
 class AlbumDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
-    private val repository: MusicRepository
+    private val repository: MusicRepository,
+    private val qobuzIdRegistry: QobuzIdRegistry,
 ) : ViewModel() {
 
     private val albumId: Long = savedStateHandle.get<Long>("albumId") ?: 0L
@@ -33,11 +35,29 @@ class AlbumDetailViewModel @Inject constructor(
         loadAlbum()
     }
 
+    /**
+     * Qobuz-aware load: when the registry has an alphanumeric slug for this
+     * numeric id (i.e. the user navigated from a Qobuz search hit), hit the
+     * trypt-hifi /api/get-album endpoint. Otherwise — and on Qobuz failure
+     * — fall back to the TIDAL pool's /album endpoint. Either branch
+     * surfaces a clean error string instead of crashing on HTML responses,
+     * because both repository methods return Result.
+     */
     private fun loadAlbum() {
         viewModelScope.launch {
             _isLoading.value = true
             _error.value = null
-            repository.getAlbum(albumId)
+
+            val qobuzSlug = qobuzIdRegistry.albumSlugFor(albumId)
+            val qobuzResult = qobuzSlug?.let { repository.getQobuzAlbum(it) }
+
+            val finalResult = if (qobuzResult?.isSuccess == true) {
+                qobuzResult
+            } else {
+                repository.getAlbum(albumId)
+            }
+
+            finalResult
                 .onSuccess { _albumDetail.value = it }
                 .onFailure { _error.value = it.message ?: "Failed to load album" }
             _isLoading.value = false

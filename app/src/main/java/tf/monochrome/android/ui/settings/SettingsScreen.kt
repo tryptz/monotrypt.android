@@ -45,6 +45,9 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -485,6 +488,7 @@ private fun InterfaceTab(viewModel: SettingsViewModel) {
     val meshX by viewModel.visualizerMeshX.collectAsState()
     val meshY by viewModel.visualizerMeshY.collectAsState()
     val targetFps by viewModel.visualizerTargetFps.collectAsState()
+    val vsyncEnabled by viewModel.visualizerVsyncEnabled.collectAsState()
     val showFps by viewModel.visualizerShowFps.collectAsState()
     val fullscreen by viewModel.visualizerFullscreen.collectAsState()
     val touchWaveform by viewModel.visualizerTouchWaveform.collectAsState()
@@ -670,12 +674,23 @@ private fun InterfaceTab(viewModel: SettingsViewModel) {
         )
 
         Spacer(modifier = Modifier.height(8.dp))
-        Text("Target FPS: $targetFps", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+        Text(
+            text = if (vsyncEnabled) "Target FPS: $targetFps" else "Target FPS: $targetFps (vsync off)",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
         Slider(
             value = targetFps.toFloat(),
             onValueChange = { viewModel.setVisualizerTargetFps(it.toInt()) },
             valueRange = 30f..144f,
             modifier = Modifier.fillMaxWidth()
+        )
+
+        SettingSwitchItem(
+            title = "Disable vsync",
+            subtitle = "Let the visualizer exceed display refresh (capped by Target FPS). Increases battery and heat — Adreno honours this; some GPUs ignore it.",
+            checked = !vsyncEnabled,
+            onCheckedChange = { viewModel.setVisualizerVsyncEnabled(!it) }
         )
 
         SettingSwitchItem(
@@ -891,6 +906,12 @@ private fun AudioTab(viewModel: SettingsViewModel, navController: NavController)
         }
 
         Spacer(modifier = Modifier.height(8.dp))
+        DspBlockSizeSelector(viewModel)
+
+        Spacer(modifier = Modifier.height(8.dp))
+        UsbBitPerfectToggle(viewModel)
+
+        Spacer(modifier = Modifier.height(8.dp))
         Text("Crossfade: ${crossfade}s", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
         Text("Blend between tracks", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Slider(
@@ -950,6 +971,116 @@ private fun AudioTab(viewModel: SettingsViewModel, navController: NavController)
 }
 
 
+
+// User-facing DSP buffer (block) size selector. Smaller = lower latency
+// + more JNI / native overhead per second; larger = lower CPU at the
+// cost of slightly later parameter response. Mirrors the buffer-size
+// dropdown most pro-audio apps expose.
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun DspBlockSizeSelector(viewModel: SettingsViewModel) {
+    val current by viewModel.dspBlockSize.collectAsState()
+    Text(
+        text = "DSP Block Size",
+        style = MaterialTheme.typography.bodyLarge,
+        color = MaterialTheme.colorScheme.onSurface,
+    )
+    Text(
+        text = "Smaller = lower latency, more CPU. Default 1024.",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    androidx.compose.foundation.layout.FlowRow(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        viewModel.dspBlockSizes.forEach { size ->
+            FilterChip(
+                selected = size == current,
+                onClick = { viewModel.setDspBlockSize(size) },
+                label = { Text(formatBlockSize(size)) },
+            )
+        }
+    }
+}
+
+/** "8192" → "8K", "16384" → "16K" so the chip row stays readable. */
+private fun formatBlockSize(size: Int): String = when {
+    size >= 1024 && size % 1024 == 0 -> "${size / 1024}K"
+    else -> size.toString()
+}
+
+/**
+ * Settings switch that pins the player's output to an attached USB Audio
+ * Class DAC via setPreferredAudioDevice. The device-name line below the
+ * switch updates live as the DAC plugs / unplugs.
+ */
+@Composable
+private fun UsbBitPerfectToggle(viewModel: SettingsViewModel) {
+    val enabled by viewModel.usbBitPerfectEnabled.collectAsState()
+    val deviceName by viewModel.usbOutputDeviceName.collectAsState()
+    SettingSwitchItem(
+        title = "USB DAC bit-perfect routing",
+        subtitle = when {
+            !enabled -> "Off — uses system audio output."
+            deviceName != null -> "On → $deviceName"
+            else -> "On — plug in a USB DAC to start routing."
+        },
+        checked = enabled,
+        onCheckedChange = { viewModel.setUsbBitPerfectEnabled(it) },
+    )
+
+    val exclusiveEnabled by viewModel.usbExclusiveBitPerfectEnabled.collectAsState()
+    val exclusiveStatus by viewModel.usbExclusiveStatus.collectAsState()
+    SettingSwitchItem(
+        title = "Exclusive USB DAC (bypass Android audio)",
+        subtitle = exclusiveSubtitle(exclusiveEnabled, exclusiveStatus),
+        checked = exclusiveEnabled,
+        onCheckedChange = { viewModel.setUsbExclusiveBitPerfectEnabled(it) },
+    )
+}
+
+/**
+ * Renders the controller's real state instead of just echoing the
+ * toggle. Status flows through:
+ *  Disabled → NoDevice → AwaitingPermission → DeviceOpen
+ *  (→ InterfaceClaimed → Streaming once Stage 2/3 land).
+ *
+ * Honest about the Stage-1 ceiling: even when everything works, the
+ * iso pump isn't running yet so audio is still going through the
+ * standard sink. The DeviceOpen string says so.
+ */
+private fun exclusiveSubtitle(
+    enabled: Boolean,
+    status: tf.monochrome.android.audio.usb.UsbExclusiveController.Status,
+): String {
+    if (!enabled) {
+        return "Off — UAPP-style libusb output. Needs Developer Options " +
+            "→ Disable USB audio routing → ON, otherwise Android's audio " +
+            "HAL will keep grabbing the DAC and fight us for it."
+    }
+    return when (status) {
+        tf.monochrome.android.audio.usb.UsbExclusiveController.Status.Disabled ->
+            "Starting up…"
+        tf.monochrome.android.audio.usb.UsbExclusiveController.Status.NoDevice ->
+            "On, waiting for a USB DAC to be plugged in."
+        tf.monochrome.android.audio.usb.UsbExclusiveController.Status.AwaitingPermission ->
+            "DAC detected — accept the system USB-permission prompt."
+        tf.monochrome.android.audio.usb.UsbExclusiveController.Status.DeviceOpen ->
+            "DAC handle acquired ✓ — bypass engages on the next " +
+            "track (or skip the current track to engage now)."
+        tf.monochrome.android.audio.usb.UsbExclusiveController.Status.InterfaceClaimed ->
+            "Streaming interface claimed ✓"
+        tf.monochrome.android.audio.usb.UsbExclusiveController.Status.Streaming ->
+            "Bit-perfect: bypassing Android audio ✓ (EQ / DSP still active)"
+        tf.monochrome.android.audio.usb.UsbExclusiveController.Status.Error ->
+            "Couldn't claim the DAC's streaming interface — Android's " +
+            "audio HAL still owns it. Turn ON Developer Options → " +
+            "Disable USB audio routing, then re-toggle Exclusive USB DAC. " +
+            "Audio is currently flowing through the standard sink."
+    }
+}
 
 // ─── Tab 6: Downloads ──────────────────────────────────────────────────
 @Composable
@@ -1050,14 +1181,55 @@ private fun InstancesTab(viewModel: SettingsViewModel) {
     val apiInstances by viewModel.apiInstances.collectAsState()
     val streamingInstances by viewModel.streamingInstances.collectAsState()
     val customEndpoint by viewModel.customEndpoint.collectAsState()
+    val qobuzEndpoint by viewModel.qobuzEndpoint.collectAsState()
+    val qobuzCookie by viewModel.qobuzCookie.collectAsState()
     val devModeEnabled by viewModel.devModeEnabled.collectAsState()
+    val sourceMode by viewModel.sourceMode.collectAsState()
     val refreshing by viewModel.instancesRefreshing.collectAsState()
     var customInput by remember(customEndpoint) { mutableStateOf(customEndpoint ?: "") }
+    var qobuzInput by remember(qobuzEndpoint) { mutableStateOf(qobuzEndpoint ?: "") }
+    var qobuzCookieInput by remember(qobuzCookie) { mutableStateOf(qobuzCookie ?: "") }
 
     SettingsTabContent {
+        // Source mode picker — controls which catalogs feed search/discovery.
+        // Plays/downloads still follow the per-track PlaybackSource so a
+        // download you triggered earlier keeps working regardless of this
+        // setting.
+        Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+            Text(
+                text = "Catalog source",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = "Which catalogs power Search and Browse.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            val sourceOptions = listOf(
+                tf.monochrome.android.data.preferences.SourceMode.BOTH to "Both",
+                tf.monochrome.android.data.preferences.SourceMode.TIDAL_ONLY to "TIDAL only",
+                tf.monochrome.android.data.preferences.SourceMode.QOBUZ_ONLY to "Qobuz only",
+            )
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                sourceOptions.forEachIndexed { index, (mode, label) ->
+                    SegmentedButton(
+                        selected = sourceMode == mode,
+                        onClick = { viewModel.setSourceMode(mode) },
+                        shape = SegmentedButtonDefaults.itemShape(index, sourceOptions.size),
+                    ) {
+                        Text(label)
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
         SettingSwitchItem(
             title = "Dev Mode",
-            subtitle = "Route all API requests through a local Tidal HiFi API server. Requires a compatible server running at the specified URL.",
+            subtitle = "Route all Tidal API/streaming requests through your own server. Requires a compatible Tidal HiFi instance at the URL below.",
             checked = devModeEnabled,
             onCheckedChange = { viewModel.setDevModeEnabled(it) }
         )
@@ -1068,12 +1240,12 @@ private fun InstancesTab(viewModel: SettingsViewModel) {
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Dev Mode API URL",
+                    text = "Tidal HiFi URL",
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = "The URL of your local Tidal HiFi API instance",
+                    text = "Used for search, browse, and streaming when Dev Mode is on",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1106,6 +1278,98 @@ private fun InstancesTab(viewModel: SettingsViewModel) {
                             val trimmed = latestInput.value.trim().ifBlank { null }
                             if (trimmed != latestSaved.value) {
                                 viewModel.setCustomEndpoint(trimmed)
+                            }
+                        }
+                    }
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Qobuz URL",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "Used for downloads. Honored whenever set, independent of Dev Mode.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            val latestQobuzInput = rememberUpdatedState(qobuzInput)
+            val latestQobuzSaved = rememberUpdatedState(qobuzEndpoint)
+            OutlinedTextField(
+                value = qobuzInput,
+                onValueChange = { qobuzInput = it },
+                placeholder = {
+                    Text(
+                        "https://your-qobuz-instance",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = {
+                    viewModel.setQobuzEndpoint(latestQobuzInput.value.trim().ifBlank { null })
+                }),
+                modifier = Modifier
+                    .widthIn(max = 240.dp)
+                    .onFocusChanged { focusState ->
+                        if (!focusState.isFocused) {
+                            val trimmed = latestQobuzInput.value.trim().ifBlank { null }
+                            if (trimmed != latestQobuzSaved.value) {
+                                viewModel.setQobuzEndpoint(trimmed)
+                            }
+                        }
+                    }
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Qobuz Auth Cookie",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "Optional. Paste the GAESA=… session cookie from the trypt-hifi web app's DevTools → Application → Cookies if the API requires auth.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            val latestCookieInput = rememberUpdatedState(qobuzCookieInput)
+            val latestCookieSaved = rememberUpdatedState(qobuzCookie)
+            OutlinedTextField(
+                value = qobuzCookieInput,
+                onValueChange = { qobuzCookieInput = it },
+                placeholder = {
+                    Text(
+                        "GAESA=…",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = {
+                    viewModel.setQobuzCookie(latestCookieInput.value.trim().ifBlank { null })
+                }),
+                modifier = Modifier
+                    .widthIn(max = 240.dp)
+                    .onFocusChanged { focusState ->
+                        if (!focusState.isFocused) {
+                            val trimmed = latestCookieInput.value.trim().ifBlank { null }
+                            if (trimmed != latestCookieSaved.value) {
+                                viewModel.setQobuzCookie(trimmed)
                             }
                         }
                     }

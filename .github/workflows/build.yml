@@ -2,7 +2,11 @@ name: Build APK
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - 'claude/**'
+      - 'feat/**'
+      - 'fix/**'
   pull_request:
     branches: [main]
   workflow_dispatch:

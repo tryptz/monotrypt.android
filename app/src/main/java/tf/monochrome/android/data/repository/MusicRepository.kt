@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.first
 import tf.monochrome.android.data.ai.AudioSnippetFetcher
 import tf.monochrome.android.data.ai.GeminiClient
 import tf.monochrome.android.data.api.HiFiApiClient
+import tf.monochrome.android.data.api.LrcLibClient
 import tf.monochrome.android.data.preferences.PreferencesManager
 import tf.monochrome.android.domain.model.AiFilter
 import tf.monochrome.android.domain.model.Album
@@ -29,6 +30,7 @@ import javax.inject.Singleton
 @Singleton
 class MusicRepository @Inject constructor(
     private val apiClient: HiFiApiClient,
+    private val lrcLibClient: LrcLibClient,
     private val preferences: PreferencesManager,
     private val geminiClient: GeminiClient,
     private val audioSnippetFetcher: AudioSnippetFetcher,
@@ -36,24 +38,43 @@ class MusicRepository @Inject constructor(
 ) {
     // --- Search ---
 
-    suspend fun search(query: String): Result<SearchResult> = runCatching {
-        apiClient.search(query)
+    suspend fun search(query: String, offset: Int = 0, limit: Int = 50): Result<SearchResult> = runCatching {
+        apiClient.search(query, offset, limit)
     }
 
-    suspend fun searchTracks(query: String): Result<List<Track>> = runCatching {
-        apiClient.searchTracks(query)
+    suspend fun searchQobuz(query: String, offset: Int = 0): Result<SearchResult> = runCatching {
+        apiClient.searchQobuz(query, offset)
     }
 
-    suspend fun searchAlbums(query: String): Result<List<Album>> = runCatching {
-        apiClient.searchAlbums(query)
+    /**
+     * Qobuz album-detail fetch. Returns Result.failure when the Qobuz instance
+     * isn't configured or the lookup fails so the detail VM can fall back to
+     * the TIDAL path cleanly.
+     */
+    suspend fun getQobuzAlbum(albumSlug: String): Result<AlbumDetail> = runCatching {
+        apiClient.getQobuzAlbum(albumSlug)
+            ?: throw IllegalStateException("Qobuz album not available: $albumSlug")
     }
 
-    suspend fun searchArtists(query: String): Result<List<Artist>> = runCatching {
-        apiClient.searchArtists(query)
+    suspend fun getQobuzArtist(artistId: Long): Result<ArtistDetail> = runCatching {
+        apiClient.getQobuzArtist(artistId)
+            ?: throw IllegalStateException("Qobuz artist not available: $artistId")
     }
 
-    suspend fun searchPlaylists(query: String): Result<List<Playlist>> = runCatching {
-        apiClient.searchPlaylists(query)
+    suspend fun searchTracks(query: String, offset: Int = 0, limit: Int = 50): Result<List<Track>> = runCatching {
+        apiClient.searchTracks(query, offset, limit)
+    }
+
+    suspend fun searchAlbums(query: String, offset: Int = 0, limit: Int = 50): Result<List<Album>> = runCatching {
+        apiClient.searchAlbums(query, offset, limit)
+    }
+
+    suspend fun searchArtists(query: String, offset: Int = 0, limit: Int = 50): Result<List<Artist>> = runCatching {
+        apiClient.searchArtists(query, offset, limit)
+    }
+
+    suspend fun searchPlaylists(query: String, offset: Int = 0, limit: Int = 50): Result<List<Playlist>> = runCatching {
+        apiClient.searchPlaylists(query, offset, limit)
     }
 
     // --- Detail ---
@@ -85,10 +106,6 @@ class MusicRepository @Inject constructor(
 
     suspend fun getRecommendations(trackId: Long): Result<List<Track>> = runCatching {
         apiClient.getRecommendations(trackId)
-    }
-
-    suspend fun getMix(mixId: String): Result<List<Track>> = runCatching {
-        apiClient.getMix(mixId)
     }
 
     // --- AI Recommendations ---
@@ -141,9 +158,25 @@ class MusicRepository @Inject constructor(
 
     // --- Lyrics ---
 
-    suspend fun getLyrics(trackId: Long): Result<Lyrics?> = runCatching {
+    suspend fun getLyrics(trackId: Long, track: Track? = null): Result<Lyrics?> = runCatching {
         val romajiEnabled = preferences.romajiLyrics.first()
-        apiClient.getLyrics(trackId, romajiEnabled)
+        // TIDAL first — when it has the lyrics this is the highest-quality
+        // path (LRC + word-level timing on Tidal Hi-Fi).
+        val tidalLyrics = apiClient.getLyrics(trackId, romajiEnabled)
+        if (tidalLyrics != null) return@runCatching tidalLyrics
+        // Tidal returned 404 / empty — fall back to LRCLib (open API,
+        // no auth) using the track's metadata. Skip when we don't have
+        // enough info to make any reasonable query.
+        val title = track?.title?.takeIf { it.isNotBlank() } ?: return@runCatching null
+        val artistName = (track.artist?.name ?: track.artists.firstOrNull()?.name)
+            ?.takeIf { it.isNotBlank() } ?: return@runCatching null
+        lrcLibClient.lookup(
+            title = title,
+            artist = artistName,
+            album = track.album?.title,
+            durationSeconds = track.duration.takeIf { it > 0 },
+            convertToRomaji = romajiEnabled,
+        )
     }
 
     // --- Quality ---

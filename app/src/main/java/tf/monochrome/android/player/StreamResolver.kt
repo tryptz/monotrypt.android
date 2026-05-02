@@ -6,6 +6,7 @@ import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.util.UnstableApi
+import tf.monochrome.android.data.cache.QobuzStreamCacheManager
 import tf.monochrome.android.data.repository.MusicRepository
 import tf.monochrome.android.domain.model.CollectionDirectLink
 import tf.monochrome.android.domain.model.PlaybackSource
@@ -23,12 +24,18 @@ data class ResolvedMedia(
     val isLocalFile: Boolean = false,
     val isEncrypted: Boolean = false,
     val encryptionKey: String? = null,
-    val isDash: Boolean = false
+    val isDash: Boolean = false,
+    // False when stream resolution failed and the item has no playable URI.
+    // Callers must skip rather than feed it to ExoPlayer; otherwise
+    // FileDataSource opens an empty path → ENOENT, or
+    // DefaultMediaSourceFactory NPEs on a null localConfiguration.
+    val isPlayable: Boolean = true,
 )
 
 @Singleton
 class StreamResolver @Inject constructor(
-    private val repository: MusicRepository
+    private val repository: MusicRepository,
+    private val qobuzCache: QobuzStreamCacheManager,
 ) {
     private fun normalizeArtworkUri(raw: String?): Uri? {
         if (raw.isNullOrBlank()) return null
@@ -36,18 +43,23 @@ class StreamResolver @Inject constructor(
         return if (parsed.scheme.isNullOrBlank()) Uri.fromFile(File(raw)) else parsed
     }
 
-    // Legacy method for existing Track model
-    suspend fun resolveMediaItem(track: Track): Pair<MediaItem, TrackStream?> {
+    // Legacy method for existing Track model. Returns (null, null) when the
+    // stream couldn't be resolved — callers must skip instead of feeding an
+    // empty MediaItem to ExoPlayer.
+    suspend fun resolveMediaItem(track: Track): Pair<MediaItem?, TrackStream?> {
         val streamResult = repository.getTrackStream(track.id)
         val trackStream = streamResult.getOrNull()
+            ?: return Pair(null, null)
 
-        val mediaItem = if (trackStream != null) {
-            buildMediaItem(track, trackStream.streamUrl, trackStream.isDash)
-        } else {
-            buildMediaItem(track, "", false)
+        // For non-DASH streams the URL must be non-blank — DASH carries its
+        // payload inline via base64-encoded MPD and the URL is therefore
+        // intentionally empty at this stage; PlaybackService rebuilds the
+        // DashMediaSource separately.
+        if (!trackStream.isDash && trackStream.streamUrl.isBlank()) {
+            return Pair(null, trackStream)
         }
 
-        return Pair(mediaItem, trackStream)
+        return Pair(buildMediaItem(track, trackStream.streamUrl, trackStream.isDash), trackStream)
     }
 
     // New method for UnifiedTrack
@@ -57,15 +69,61 @@ class StreamResolver @Inject constructor(
             is PlaybackSource.LocalFile -> resolveLocalFile(track, source)
             is PlaybackSource.CollectionDirect -> resolveCollectionDirect(track, source)
             is PlaybackSource.HiFiApi -> resolveHiFiApi(track, source)
+            is PlaybackSource.QobuzCached -> resolveQobuzCached(track, source)
         }
+    }
+
+    // Qobuz resolution = "fetch via /api/download-music, park in app cache,
+    // play from local file". The cache manager dedupes concurrent plays of
+    // the same track and evicts oldest entries when over the size cap. If
+    // Qobuz isn't configured or the fetch fails, mark the result not playable
+    // so PlaybackService can skip it instead of handing ExoPlayer a
+    // FileDataSource with an empty path (ENOENT spam).
+    private suspend fun resolveQobuzCached(
+        track: UnifiedTrack,
+        source: PlaybackSource.QobuzCached,
+    ): ResolvedMedia {
+        val cachedFile = qobuzCache.getOrFetch(source.qobuzId, source.preferredQuality)
+
+        val metadata = MediaMetadata.Builder()
+            .setTitle(track.title)
+            .setArtist(track.artistName)
+            .setAlbumTitle(track.albumTitle)
+            .setArtworkUri(normalizeArtworkUri(track.artworkUri))
+            .setTrackNumber(track.trackNumber)
+            .setDiscNumber(track.discNumber)
+            .build()
+
+        val mediaItem = MediaItem.Builder()
+            .setMediaId(track.id)
+            .apply { cachedFile?.let { setUri(Uri.fromFile(it)) } }
+            .setMediaMetadata(metadata)
+            .build()
+
+        return ResolvedMedia(
+            mediaItem = mediaItem,
+            isLocalFile = cachedFile != null,
+            isPlayable = cachedFile != null,
+        )
     }
 
     private fun resolveLocalFile(
         track: UnifiedTrack,
         source: PlaybackSource.LocalFile
     ): ResolvedMedia {
-        val file = File(source.filePath)
-        val uri = Uri.fromFile(file)
+        // DownloadWorker stores filePath either as an absolute filesystem path
+        // (internal storage) or as a content:// URI string (when the user
+        // picked a SAF folder). Wrapping a content:// path with File(...) +
+        // Uri.fromFile produces a malformed file:// URI that ExoPlayer can't
+        // open and DefaultMediaSourceFactory NPEs on. Detect the scheme and
+        // route accordingly.
+        val uri = if (source.filePath.startsWith("content://") ||
+            source.filePath.startsWith("file://")
+        ) {
+            source.filePath.toUri()
+        } else {
+            Uri.fromFile(File(source.filePath))
+        }
 
         val metadata = MediaMetadata.Builder()
             .setTitle(track.title)
@@ -105,14 +163,15 @@ class StreamResolver @Inject constructor(
 
         val mediaItem = MediaItem.Builder()
             .setMediaId(track.id)
-            .setUri(bestLink?.url?.toUri() ?: Uri.EMPTY)
+            .apply { bestLink?.url?.takeIf { it.isNotBlank() }?.let { setUri(it.toUri()) } }
             .setMediaMetadata(metadata)
             .build()
 
         return ResolvedMedia(
             mediaItem = mediaItem,
             isEncrypted = true,
-            encryptionKey = source.encryptionKey
+            encryptionKey = source.encryptionKey,
+            isPlayable = bestLink?.url?.isNotBlank() == true,
         )
     }
 
@@ -136,21 +195,23 @@ class StreamResolver @Inject constructor(
             .setMediaId(track.id)
             .setMediaMetadata(metadata)
             .apply {
-                if (trackStream != null && trackStream.streamUrl.isNotBlank()) {
-                    if (trackStream.isDash) {
-                        setUri(Uri.EMPTY)
-                        setMimeType("application/dash+xml")
-                    } else {
-                        setUri(trackStream.streamUrl.toUri())
-                    }
+                if (trackStream != null && trackStream.streamUrl.isNotBlank() && !trackStream.isDash) {
+                    setUri(trackStream.streamUrl.toUri())
                 }
             }
             .build()
 
+        // DASH carries its MPD inline (PlaybackService rebuilds the source),
+        // so an unset URI is fine in that case. Otherwise we need a real URL.
+        val isDash = trackStream?.isDash == true
+        val isPlayable = trackStream != null &&
+            (isDash || trackStream.streamUrl.isNotBlank())
+
         return ResolvedMedia(
             mediaItem = mediaItem,
             trackStream = trackStream,
-            isDash = trackStream?.isDash ?: false
+            isDash = isDash,
+            isPlayable = isPlayable,
         )
     }
 
@@ -188,13 +249,10 @@ class StreamResolver @Inject constructor(
             .setMediaId(track.id.toString())
             .setMediaMetadata(metadata)
 
-        if (streamUrl.isNotBlank()) {
-            if (isDash) {
-                builder.setUri(Uri.EMPTY)
-                    .setMimeType("application/dash+xml")
-            } else {
-                builder.setUri(streamUrl.toUri())
-            }
+        // DASH has no progressive URL — PlaybackService synthesises a
+        // data: URI at play time. For everything else, attach the URL.
+        if (!isDash && streamUrl.isNotBlank()) {
+            builder.setUri(streamUrl.toUri())
         }
 
         return builder.build()

@@ -84,9 +84,7 @@ fun HomeScreen(
     searchViewModel: SearchViewModel = hiltViewModel()
 ) {
     val recentTracks by viewModel.recentTracks.collectAsState()
-    val recommendedTracks by viewModel.recommendedTracks.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
-    val isRadioLoading by viewModel.isRadioLoading.collectAsState()
     val favoriteTrackIds by playerViewModel.favoriteTrackIds.collectAsState()
     val libraryPlaylists by playerViewModel.playlists.collectAsState()
 
@@ -100,6 +98,8 @@ fun HomeScreen(
     val selectedType by searchViewModel.selectedType.collectAsState()
     val selectedSource by searchViewModel.selectedSource.collectAsState()
     val showSourceFilter by searchViewModel.showSourceFilter.collectAsState()
+    val isLoadingMore by searchViewModel.isLoadingMore.collectAsState()
+    val endReached by searchViewModel.endReached.collectAsState()
     val hasSearchResults = searchQuery.isNotBlank()
 
     var showContextMenuForTrack by androidx.compose.runtime.remember {
@@ -122,6 +122,7 @@ fun HomeScreen(
             onToggleLike = { playerViewModel.toggleFavorite(track) },
             onAddToPlaylist = { showAddToPlaylistForTrack = track },
             onDownloadTrack = { playerViewModel.downloadTrack(track) },
+            onShareFile = { playerViewModel.shareTrack(track) },
             onGoToAlbum = track.album?.id?.let { albumId ->
                 { navController.navigate(Screen.AlbumDetail.createRoute(albumId)) }
             },
@@ -211,7 +212,10 @@ fun HomeScreen(
                 onSourceSelected = searchViewModel::setSelectedSource,
                 showSourceFilter = showSourceFilter,
                 favoriteTrackIds = favoriteTrackIds,
-                libraryPlaylists = libraryPlaylists
+                libraryPlaylists = libraryPlaylists,
+                onLoadMore = searchViewModel::loadMore,
+                isLoadingMore = isLoadingMore,
+                endReached = endReached,
             )
         } else if (isLoading) {
             LoadingScreen()
@@ -221,32 +225,16 @@ fun HomeScreen(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 160.dp)
             ) {
-                // ── Personalized Mix ──────────────────────────────
-                item {
-                    SectionHeader(
-                        title = "Your Personalized Mix"
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    InfiniteRadioButton(
-                        isLoading = isRadioLoading,
-                        onStartRadio = {
-                            val tracks = viewModel.startHistoryMix()
-                            if (tracks.isNotEmpty()) {
-                                playerViewModel.playTrack(tracks.first(), tracks)
-                            }
-                        },
-                        onRefresh = { viewModel.loadRecommendations() }
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                }
-
-                if (recommendedTracks.isNotEmpty()) {
-                    items(recommendedTracks) { track ->
+                if (recentTracks.isNotEmpty()) {
+                    item {
+                        SectionHeader(title = "Recently Played")
+                    }
+                    items(recentTracks) { track ->
                         TrackItem(
                             track = track,
                             isLiked = favoriteTrackIds.contains(track.id),
                             onLikeClick = { playerViewModel.toggleFavorite(track) },
-                            onClick = { playerViewModel.playTrack(track, recommendedTracks) },
+                            onClick = { playerViewModel.playTrack(track, recentTracks) },
                             onLongClick = { showContextMenuForTrack = track },
                             onMoreClick = { showContextMenuForTrack = track },
                             onAlbumClick = track.album?.id?.let { albumId ->
@@ -257,91 +245,15 @@ fun HomeScreen(
                 } else {
                     item {
                         Text(
-                            text = "Play some music to get personalized recommendations",
+                            text = "Play some music — your history will show up here.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
                         )
                     }
                 }
-
-                // ── Recently Played ────────────────────────────────────
-                if (recentTracks.isNotEmpty()) {
-                    item {
-                        Spacer(modifier = Modifier.height(20.dp))
-                        SectionHeader(title = "Jump Back In")
-                    }
-                    items(recentTracks) { track ->
-                        TrackItem(
-                            track = track,
-                            isLiked = favoriteTrackIds.contains(track.id),
-                            onLikeClick = { playerViewModel.toggleFavorite(track) },
-                            onClick = { playerViewModel.playTrack(track, recentTracks) },
-                            onLongClick = { showContextMenuForTrack = track },
-                            onMoreClick = { showContextMenuForTrack = track }
-                        )
-                    }
-                }
             }
         }
     }
 }
 
-@Composable
-private fun InfiniteRadioButton(
-    isLoading: Boolean,
-    onStartRadio: () -> Unit,
-    onRefresh: () -> Unit
-) {
-    val rotation by animateFloatAsState(
-        targetValue = if (isLoading) 360f else 0f,
-        animationSpec = tween(durationMillis = 800),
-        label = "refresh_rotation"
-    )
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        ElevatedButton(
-            onClick = onStartRadio,
-            shape = RoundedCornerShape(24.dp),
-            colors = ButtonDefaults.elevatedButtonColors(
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-            ),
-            elevation = ButtonDefaults.elevatedButtonElevation(defaultElevation = 2.dp)
-        ) {
-            Icon(
-                Icons.Default.GraphicEq,
-                contentDescription = null,
-                modifier = Modifier.size(20.dp)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                "Play My Mix",
-                style = MaterialTheme.typography.labelLarge
-            )
-        }
-
-        IconButton(onClick = onRefresh, enabled = !isLoading) {
-            if (isLoading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(22.dp),
-                    strokeWidth = 2.dp,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            } else {
-                Icon(
-                    Icons.Default.Refresh,
-                    contentDescription = "Refresh recommendations",
-                    modifier = Modifier.rotate(rotation),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-    }
-}

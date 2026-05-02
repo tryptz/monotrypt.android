@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import tf.monochrome.android.audio.eq.SpectrumAnalyzerTap
@@ -45,8 +46,14 @@ class SettingsViewModel @Inject constructor(
     private val supabaseSyncRepository: SupabaseSyncRepository,
     private val supabaseAuthManager: SupabaseAuthManager,
     private val spectrumAnalyzerTap: SpectrumAnalyzerTap,
+    private val usbAudioRouter: tf.monochrome.android.audio.UsbAudioRouter,
+    private val usbExclusiveController: tf.monochrome.android.audio.usb.UsbExclusiveController,
     @ApplicationContext private val appContext: Context
 ) : ViewModel() {
+
+    /** Honest live status of the libusb exclusive-output path. */
+    val usbExclusiveStatus: StateFlow<tf.monochrome.android.audio.usb.UsbExclusiveController.Status> =
+        usbExclusiveController.status
 
     /** Shared live FFT bins from the audio pipeline — same source the NowPlaying overlay uses. */
     val spectrumBins: StateFlow<FloatArray> = spectrumAnalyzerTap.spectrumBins
@@ -97,6 +104,19 @@ class SettingsViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
     val dspMixerEnabled: StateFlow<Boolean> = preferences.dspEnabled
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    val dspBlockSize: StateFlow<Int> = preferences.dspBlockSize
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 1024)
+    val dspBlockSizes: List<Int> = tf.monochrome.android.data.preferences.PreferencesManager.DSP_BLOCK_SIZES
+
+    val usbBitPerfectEnabled: StateFlow<Boolean> = preferences.usbBitPerfectEnabled
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    val usbExclusiveBitPerfectEnabled: StateFlow<Boolean> = preferences.usbExclusiveBitPerfectEnabled
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    /** Human-readable name of the attached USB DAC, or null when nothing is plugged in. */
+    val usbOutputDeviceName: StateFlow<String?> =
+        usbAudioRouter.usbOutputDevice
+            .map { it?.let(usbAudioRouter::describe) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
     val crossfadeDuration: StateFlow<Int> = preferences.crossfadeDuration
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
@@ -139,6 +159,8 @@ class SettingsViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 24)
     val visualizerTargetFps: StateFlow<Int> = preferences.visualizerTargetFps
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 60)
+    val visualizerVsyncEnabled: StateFlow<Boolean> = preferences.visualizerVsyncEnabled
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
     val visualizerShowFps: StateFlow<Boolean> = preferences.visualizerShowFps
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
     val visualizerFullscreen: StateFlow<Boolean> = preferences.visualizerFullscreen
@@ -170,8 +192,18 @@ class SettingsViewModel @Inject constructor(
     val streamingInstances: StateFlow<List<Instance>> = _streamingInstances.asStateFlow()
     val customEndpoint: StateFlow<String?> = preferences.customApiEndpoint
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    val qobuzEndpoint: StateFlow<String?> = preferences.qobuzInstanceUrl
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    val qobuzCookie: StateFlow<String?> = preferences.qobuzAuthCookie
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
     val devModeEnabled: StateFlow<Boolean> = preferences.devModeEnabled
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    val sourceMode: StateFlow<tf.monochrome.android.data.preferences.SourceMode> =
+        preferences.sourceMode.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            tf.monochrome.android.data.preferences.SourceMode.BOTH,
+        )
     private val _instancesRefreshing = MutableStateFlow(false)
     val instancesRefreshing: StateFlow<Boolean> = _instancesRefreshing.asStateFlow()
 
@@ -280,6 +312,20 @@ class SettingsViewModel @Inject constructor(
     fun setCellularQuality(quality: AudioQuality) { viewModelScope.launch { preferences.setCellularQuality(quality) } }
     fun setNormalizationEnabled(enabled: Boolean) { viewModelScope.launch { preferences.setNormalizationEnabled(enabled) } }
     fun setDspMixerEnabled(enabled: Boolean) { viewModelScope.launch { preferences.setDspEnabled(enabled) } }
+    fun setDspBlockSize(value: Int) { viewModelScope.launch { preferences.setDspBlockSize(value) } }
+    // The two USB toggles are mutually exclusive — they fight for
+    // the device. The framework router (usbBitPerfectEnabled) pins
+    // Android's audio HAL to the USB device; libusb (exclusive) needs
+    // libusb_claim_interface to win. Turning either on auto-flips
+    // the other off so the user never accidentally has both.
+    fun setUsbBitPerfectEnabled(enabled: Boolean) { viewModelScope.launch {
+        preferences.setUsbBitPerfectEnabled(enabled)
+        if (enabled) preferences.setUsbExclusiveBitPerfectEnabled(false)
+    } }
+    fun setUsbExclusiveBitPerfectEnabled(enabled: Boolean) { viewModelScope.launch {
+        preferences.setUsbExclusiveBitPerfectEnabled(enabled)
+        if (enabled) preferences.setUsbBitPerfectEnabled(false)
+    } }
     fun setCrossfadeDuration(seconds: Int) { viewModelScope.launch { preferences.setCrossfadeDuration(seconds) } }
 
     // --- Audio speed actions ---
@@ -304,6 +350,7 @@ class SettingsViewModel @Inject constructor(
     fun setVisualizerMeshX(value: Int) { viewModelScope.launch { preferences.setVisualizerMeshX(value) } }
     fun setVisualizerMeshY(value: Int) { viewModelScope.launch { preferences.setVisualizerMeshY(value) } }
     fun setVisualizerTargetFps(value: Int) { viewModelScope.launch { preferences.setVisualizerTargetFps(value) } }
+    fun setVisualizerVsyncEnabled(value: Boolean) { viewModelScope.launch { preferences.setVisualizerVsyncEnabled(value) } }
     fun setVisualizerShowFps(enabled: Boolean) { viewModelScope.launch { preferences.setVisualizerShowFps(enabled) } }
     fun setVisualizerFullscreen(enabled: Boolean) { viewModelScope.launch { preferences.setVisualizerFullscreen(enabled) } }
     fun setVisualizerTouchWaveform(enabled: Boolean) { viewModelScope.launch { preferences.setVisualizerTouchWaveform(enabled) } }
@@ -428,6 +475,25 @@ class SettingsViewModel @Inject constructor(
     fun setCustomEndpoint(endpoint: String?) {
         viewModelScope.launch {
             preferences.setCustomApiEndpoint(endpoint)
+            loadInstances()
+        }
+    }
+
+    fun setQobuzEndpoint(endpoint: String?) {
+        viewModelScope.launch {
+            preferences.setQobuzInstanceUrl(endpoint)
+        }
+    }
+
+    fun setQobuzCookie(cookie: String?) {
+        viewModelScope.launch {
+            preferences.setQobuzAuthCookie(cookie)
+        }
+    }
+
+    fun setSourceMode(mode: tf.monochrome.android.data.preferences.SourceMode) {
+        viewModelScope.launch {
+            preferences.setSourceMode(mode)
             loadInstances()
         }
     }

@@ -61,7 +61,12 @@ data class HistoryTrackEntity(
     val albumTitle: String? = null,
     val albumCover: String? = null,
     val audioQuality: String? = null,
-    val playedAt: Long = System.currentTimeMillis()
+    val playedAt: Long = System.currentTimeMillis(),
+    // Source-routing hint: when present, on read we register the original
+    // UnifiedTrack back into the in-memory registries so re-resolution after
+    // process death doesn't fall back to TIDAL with a Qobuz id / file-path
+    // hash and fetch the wrong song. Null for legacy rows + plain TIDAL.
+    val unifiedJson: String? = null,
 )
 
 /**

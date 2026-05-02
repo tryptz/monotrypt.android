@@ -27,6 +27,9 @@ import javax.inject.Singleton
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "monochrome_prefs")
 
+/** Which catalog(s) drive search and discovery surfaces. */
+enum class SourceMode { BOTH, TIDAL_ONLY, QOBUZ_ONLY }
+
 @Singleton
 class PreferencesManager @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -67,7 +70,10 @@ class PreferencesManager @Inject constructor(
 
         // Custom API endpoint
         private val CUSTOM_API_ENDPOINT = stringPreferencesKey("custom_api_endpoint")
+        private val QOBUZ_INSTANCE_URL = stringPreferencesKey("qobuz_instance_url")
+        private val QOBUZ_AUTH_COOKIE = stringPreferencesKey("qobuz_auth_cookie")
         private val DEV_MODE_ENABLED = booleanPreferencesKey("dev_mode_enabled")
+        private val SOURCE_MODE = stringPreferencesKey("source_mode")
 
         // Interface
         private val GAPLESS_PLAYBACK = booleanPreferencesKey("gapless_playback")
@@ -110,6 +116,7 @@ class PreferencesManager @Inject constructor(
         private val VISUALIZER_MESH_X = intPreferencesKey("visualizer_mesh_x")
         private val VISUALIZER_MESH_Y = intPreferencesKey("visualizer_mesh_y")
         private val VISUALIZER_TARGET_FPS = intPreferencesKey("visualizer_target_fps")
+        private val VISUALIZER_VSYNC_ENABLED = booleanPreferencesKey("visualizer_vsync_enabled")
         private val VISUALIZER_SHOW_FPS = booleanPreferencesKey("visualizer_show_fps")
         private val VISUALIZER_FULLSCREEN = booleanPreferencesKey("visualizer_fullscreen")
         private val VISUALIZER_TOUCH_WAVEFORM = booleanPreferencesKey("visualizer_touch_waveform")
@@ -124,7 +131,6 @@ class PreferencesManager @Inject constructor(
         private val POCKETBASE_USER_ID = stringPreferencesKey("pocketbase_user_id")
         private val POCKETBASE_EMAIL = stringPreferencesKey("pocketbase_email")
         // Home screen cache
-        private val HOME_RECOMMENDATIONS_CACHE = stringPreferencesKey("home_recommendations_cache")
 
         // EQ / AutoEQ
         private val EQ_TUTORIAL_SEEN = booleanPreferencesKey("eq_tutorial_seen")
@@ -153,6 +159,14 @@ class PreferencesManager @Inject constructor(
         // DSP Mixer
         private val DSP_ENABLED = booleanPreferencesKey("dsp_enabled")
         private val DSP_STATE_JSON = stringPreferencesKey("dsp_state_json")
+        private val DSP_BLOCK_SIZE = intPreferencesKey("dsp_block_size")
+        private val USB_BIT_PERFECT_ENABLED = booleanPreferencesKey("usb_bit_perfect_enabled")
+        private val USB_EXCLUSIVE_BIT_PERFECT_ENABLED =
+            booleanPreferencesKey("usb_exclusive_bit_perfect_enabled")
+        // Powers of two mirroring the user-facing chip row in Settings.
+        // Native engine's static MAX_BLOCK_SIZE caps the largest entry; bump
+        // both together if you add another step.
+        val DSP_BLOCK_SIZES = listOf(128, 256, 512, 1024, 2048, 4096, 8192, 16384)
 
         // Library tab order
         private val LIBRARY_TAB_ORDER = stringPreferencesKey("library_tab_order")
@@ -334,6 +348,56 @@ class PreferencesManager @Inject constructor(
         }
     }
 
+    // Qobuz instance — used for downloads. Independent of Dev Mode: any
+    // value set here is honored whenever the download path is invoked.
+    val qobuzInstanceUrl: Flow<String?> = dataStore.data.map { prefs ->
+        prefs[QOBUZ_INSTANCE_URL]
+    }
+
+    suspend fun setQobuzInstanceUrl(endpoint: String?) {
+        dataStore.edit {
+            if (endpoint != null) {
+                it[QOBUZ_INSTANCE_URL] = endpoint
+            } else {
+                it.remove(QOBUZ_INSTANCE_URL)
+            }
+        }
+    }
+
+    // Optional session cookie pinned by the user from their browser. The
+    // trypt-hifi backend issues a session cookie on login and expects it on
+    // every /api/ request; without it the backend returns 401. Stored as the
+    // raw header value (one or more "name=value" pairs separated by "; ").
+    val qobuzAuthCookie: Flow<String?> = dataStore.data.map { prefs ->
+        prefs[QOBUZ_AUTH_COOKIE]
+    }
+
+    suspend fun setQobuzAuthCookie(cookie: String?) {
+        dataStore.edit {
+            if (cookie != null) {
+                it[QOBUZ_AUTH_COOKIE] = cookie
+            } else {
+                it.remove(QOBUZ_AUTH_COOKIE)
+            }
+        }
+    }
+
+    /**
+     * Which catalog(s) drive search/discovery. BOTH (default) is the
+     * existing fan-out behavior; TIDAL_ONLY skips the Qobuz call so search
+     * doesn't surface Qobuz hits; QOBUZ_ONLY skips the TIDAL pool. Stream
+     * playback and downloads still follow the per-track PlaybackSource —
+     * the setting only governs which catalogs feed search results.
+     */
+    val sourceMode: Flow<SourceMode> = dataStore.data.map { prefs ->
+        prefs[SOURCE_MODE]?.let { runCatching { SourceMode.valueOf(it) }.getOrNull() }
+            ?: SourceMode.BOTH
+    }
+
+    suspend fun setSourceMode(mode: SourceMode) {
+        dataStore.edit { it[SOURCE_MODE] = mode.name }
+    }
+
     val devModeEnabled: Flow<Boolean> = dataStore.data.map { prefs ->
         prefs[DEV_MODE_ENABLED] ?: false
     }
@@ -497,6 +561,11 @@ class PreferencesManager @Inject constructor(
         // DataStore keeps their override across device-tier changes.
         it[VISUALIZER_TARGET_FPS] ?: performanceProfile.visualizerFps
     }
+    // When false, the visualizer GL surface calls eglSwapInterval(0) and the
+    // native renderer is allowed to exceed display refresh, capped only by
+    // visualizerTargetFps. Default true (display-synced) — turning it off
+    // increases battery / heat.
+    val visualizerVsyncEnabled: Flow<Boolean> = dataStore.data.map { it[VISUALIZER_VSYNC_ENABLED] ?: true }
     val visualizerShowFps: Flow<Boolean> = dataStore.data.map { it[VISUALIZER_SHOW_FPS] ?: false }
     val visualizerFullscreen: Flow<Boolean> = dataStore.data.map { it[VISUALIZER_FULLSCREEN] ?: false }
     val visualizerTouchWaveform: Flow<Boolean> = dataStore.data.map { it[VISUALIZER_TOUCH_WAVEFORM] ?: true }
@@ -539,6 +608,9 @@ class PreferencesManager @Inject constructor(
     }
     suspend fun setVisualizerTargetFps(value: Int) {
         dataStore.edit { it[VISUALIZER_TARGET_FPS] = value }
+    }
+    suspend fun setVisualizerVsyncEnabled(value: Boolean) {
+        dataStore.edit { it[VISUALIZER_VSYNC_ENABLED] = value }
     }
     suspend fun setVisualizerShowFps(enabled: Boolean) {
         dataStore.edit { it[VISUALIZER_SHOW_FPS] = enabled }
@@ -586,15 +658,6 @@ class PreferencesManager @Inject constructor(
         dataStore.edit { it[AI_RADIO_ENABLED] = enabled }
     }
 
-    // --- Home Screen Cache ---
-    val homeRecommendationsCache: Flow<String?> = dataStore.data.map { it[HOME_RECOMMENDATIONS_CACHE] }
-
-    suspend fun setHomeRecommendationsCache(json: String?) {
-        dataStore.edit {
-            if (json.isNullOrBlank()) it.remove(HOME_RECOMMENDATIONS_CACHE)
-            else it[HOME_RECOMMENDATIONS_CACHE] = json
-        }
-    }
 
     // --- PocketBase ---
     val pocketBaseToken: Flow<String?> = dataStore.data.map { it[POCKETBASE_TOKEN] }
@@ -727,6 +790,48 @@ class PreferencesManager @Inject constructor(
             if (json.isNullOrBlank()) it.remove(DSP_STATE_JSON)
             else it[DSP_STATE_JSON] = json
         }
+    }
+
+    /**
+     * Per-block frame count the MixBusProcessor passes into nativeProcess.
+     * Smaller = lower latency + higher CPU; larger = lower CPU + slightly
+     * higher latency. Restricted to powers of two between 128 and 2048;
+     * unknown values fall back to 1024 (the sane default that matches
+     * Android's typical AudioTrack period).
+     */
+    val dspBlockSize: Flow<Int> = dataStore.data.map { prefs ->
+        val v = prefs[DSP_BLOCK_SIZE] ?: 1024
+        if (v in DSP_BLOCK_SIZES) v else 1024
+    }
+    suspend fun setDspBlockSize(value: Int) {
+        if (value !in DSP_BLOCK_SIZES) return
+        dataStore.edit { it[DSP_BLOCK_SIZE] = value }
+    }
+
+    /**
+     * When on, PlaybackService pins the player's output to the
+     * currently-attached USB Audio Class DAC (if any) via
+     * setPreferredAudioDevice, bypassing the system's mix-rate downsampler
+     * for sample rates the DAC supports natively. No-op when no USB output
+     * is attached.
+     */
+    val usbBitPerfectEnabled: Flow<Boolean> = dataStore.data.map { it[USB_BIT_PERFECT_ENABLED] ?: false }
+    suspend fun setUsbBitPerfectEnabled(enabled: Boolean) {
+        dataStore.edit { it[USB_BIT_PERFECT_ENABLED] = enabled }
+    }
+
+    /**
+     * Exclusive UAC2 path — libusb-backed, bypasses Android's audio
+     * framework entirely (UAPP-style). Distinct from
+     * [usbBitPerfectEnabled] which only pins routing inside the
+     * framework. Default false; requires the user to also have
+     * "Disable USB audio routing" on in Developer Options for the
+     * libusb claim to succeed on most non-rooted devices.
+     */
+    val usbExclusiveBitPerfectEnabled: Flow<Boolean> =
+        dataStore.data.map { it[USB_EXCLUSIVE_BIT_PERFECT_ENABLED] ?: false }
+    suspend fun setUsbExclusiveBitPerfectEnabled(enabled: Boolean) {
+        dataStore.edit { it[USB_EXCLUSIVE_BIT_PERFECT_ENABLED] = enabled }
     }
 
     // --- Library / Local Media ---

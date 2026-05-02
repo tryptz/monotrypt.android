@@ -62,7 +62,6 @@ import tf.monochrome.android.ui.detail.ArtistDetailScreen
 import tf.monochrome.android.ui.detail.LocalAlbumDetailScreen
 import tf.monochrome.android.ui.detail.LocalArtistDetailScreen
 import tf.monochrome.android.ui.detail.LocalGenreDetailScreen
-import tf.monochrome.android.ui.detail.MixScreen
 import tf.monochrome.android.ui.eq.EqualizerScreen
 import tf.monochrome.android.ui.eq.ParametricEqEditScreen
 import tf.monochrome.android.ui.eq.ParametricEqScreen
@@ -96,9 +95,6 @@ sealed class Screen(val route: String) {
     }
     data object PlaylistDetail : Screen("playlist/{playlistId}") {
         fun createRoute(playlistId: String) = "playlist/$playlistId"
-    }
-    data object Mix : Screen("mix/{mixId}") {
-        fun createRoute(mixId: String) = "mix/$mixId"
     }
     data object Downloads : Screen("downloads")
     data object NowPlaying : Screen("now_playing")
@@ -332,12 +328,6 @@ fun MonochromeNavHost() {
                 }
                 composable(Screen.Downloads.route) {
                     DownloadsScreen(navController = navController)
-                }
-                composable(
-                    route = Screen.Mix.route,
-                    arguments = listOf(navArgument("mixId") { type = NavType.StringType })
-                ) {
-                    MixScreen(navController = navController, playerViewModel = playerViewModel)
                 }
                 composable(Screen.Profile.route) {
                     ProfileScreen(navController = navController)

@@ -12,11 +12,14 @@ import com.google.common.util.concurrent.MoreExecutors
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
@@ -50,6 +53,8 @@ class PlayerViewModel @Inject constructor(
     private val preferences: PreferencesManager,
     private val projectMEngineRepository: ProjectMEngineRepository,
     private val unifiedTrackRegistry: tf.monochrome.android.player.UnifiedTrackRegistry,
+    private val qobuzIdRegistry: tf.monochrome.android.data.api.QobuzIdRegistry,
+    private val trackShareHelper: tf.monochrome.android.share.TrackShareHelper,
     val spectrumAnalyzer: SpectrumAnalyzerTap
 ) : ViewModel() {
 
@@ -195,7 +200,10 @@ class PlayerViewModel @Inject constructor(
                         _currentLyrics.value = null
                         
                         launch {
-                            _currentLyrics.value = repository.getLyrics(track.id).getOrNull()
+                            // Pass the full Track so the repository can fall
+                            // back to LRCLib (track + artist + album +
+                            // duration) when TIDAL returns no lyrics.
+                            _currentLyrics.value = repository.getLyrics(track.id, track).getOrNull()
                             _isLyricsLoading.value = false
                         }
 
@@ -495,10 +503,31 @@ class PlayerViewModel @Inject constructor(
         val track = queueManager.currentTrack.value ?: return
         viewModelScope.launch {
             try {
-                // Check if this track has a unified source (local file, collection, etc.)
+                // Resolution priority:
+                //   1. unifiedTrackRegistry — local files / collections / Qobuz
+                //      tracks already promoted to UnifiedTrack at queue time.
+                //   2. qobuzIdRegistry — synthesize a QobuzCached UnifiedTrack
+                //      for tracks whose ids came in via getQobuzAlbum /
+                //      getQobuzArtist / searchQobuz but were enqueued as
+                //      legacy Track (e.g. an album-detail screen tap). Without
+                //      this step the legacy path below would call TIDAL
+                //      /track/?id=<qobuzId> which either 404s or returns the
+                //      wrong track because the numeric id doesn't match.
+                //   3. Legacy TIDAL path.
                 val unifiedTrack = unifiedTrackRegistry[track.id]
+                    ?: synthesizeQobuzUnifiedTrack(track)
                 if (unifiedTrack != null) {
+                    // Make sure the synthesized UnifiedTrack lands in the
+                    // registry so PlaybackService.onMediaItemTransition can
+                    // tag the history row with the right source. Otherwise
+                    // Recently Played would re-resolve via TIDAL after process
+                    // death.
+                    unifiedTrackRegistry.put(track.id, unifiedTrack)
                     val resolved = streamResolver.resolveUnifiedTrack(unifiedTrack)
+                    if (!resolved.isPlayable) {
+                        skipToNext()
+                        return@launch
+                    }
                     mediaController?.let { mc ->
                         mc.setMediaItem(resolved.mediaItem)
                         mc.prepare()
@@ -506,7 +535,11 @@ class PlayerViewModel @Inject constructor(
                     }
                 } else {
                     // Legacy API path
-                    val (mediaItem, trackStream) = streamResolver.resolveMediaItem(track)
+                    val (mediaItem, _) = streamResolver.resolveMediaItem(track)
+                    if (mediaItem == null) {
+                        skipToNext()
+                        return@launch
+                    }
                     mediaController?.let { mc ->
                         mc.setMediaItem(mediaItem)
                         mc.prepare()
@@ -520,10 +553,62 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Build a transient UnifiedTrack with PlaybackSource.QobuzCached for a
+     * legacy Track whose id was previously registered as Qobuz. Used by
+     * resolveAndPlay so a tap on a Qobuz-album track row routes through the
+     * cache-on-demand path rather than TIDAL streaming.
+     */
+    private fun synthesizeQobuzUnifiedTrack(track: Track): UnifiedTrack? {
+        if (!qobuzIdRegistry.isQobuzTrack(track.id)) return null
+        return UnifiedTrack(
+            id = "qobuz_${track.id}",
+            title = track.title,
+            durationSeconds = track.duration,
+            trackNumber = track.trackNumber,
+            discNumber = track.volumeNumber,
+            explicit = track.explicit,
+            artistName = track.displayArtist.ifBlank { "Unknown Artist" },
+            artistNames = track.artists.map { it.name }
+                .ifEmpty { listOfNotNull(track.artist?.name) },
+            albumArtistName = track.artist?.name,
+            albumTitle = track.album?.title,
+            albumId = track.album?.id?.toString(),
+            artworkUri = track.coverUrl,
+            source = tf.monochrome.android.domain.model.PlaybackSource.QobuzCached(qobuzId = track.id),
+            sourceType = tf.monochrome.android.domain.model.SourceType.QOBUZ,
+        )
+    }
+
     // --- Downloads ---
 
     private val _activeDownloads = MutableStateFlow<Map<Long, tf.monochrome.android.data.downloads.TrackDownloadState>>(emptyMap())
     val activeDownloads: StateFlow<Map<Long, tf.monochrome.android.data.downloads.TrackDownloadState>> = _activeDownloads.asStateFlow()
+
+    // Live download state for whichever track is currently playing — drives
+    // the player's download button visual feedback (queued/downloading arc,
+    // completed checkmark, failed indicator).
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val currentTrackDownloadState: StateFlow<tf.monochrome.android.data.downloads.TrackDownloadState> =
+        currentTrack
+            .flatMapLatest { track ->
+                if (track == null) flowOf(tf.monochrome.android.data.downloads.TrackDownloadState())
+                else downloadManager.observeDownloadState(track.id)
+            }
+            .stateIn(
+                viewModelScope,
+                SharingStarted.WhileSubscribed(5000),
+                tf.monochrome.android.data.downloads.TrackDownloadState()
+            )
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val isCurrentTrackDownloaded: StateFlow<Boolean> =
+        currentTrack
+            .flatMapLatest { track ->
+                if (track == null) flowOf(false)
+                else libraryRepository.isDownloadedFlow(track.id)
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     fun downloadTrack(track: Track) {
         downloadManager.downloadTrack(track)
@@ -533,6 +618,21 @@ class PlayerViewModel @Inject constructor(
     fun downloadAllTracks(tracks: List<Track>) {
         downloadManager.downloadTracks(tracks)
         tracks.forEach { observeTrackDownload(it.id) }
+    }
+
+    /**
+     * Hand the track's local audio file to Android's share sheet. Resolves
+     * a downloaded copy first, then a Qobuz cache hit; if neither exists
+     * the call is a no-op (logged in TrackShareHelper).
+     */
+    fun shareTrack(track: Track) {
+        viewModelScope.launch {
+            trackShareHelper.shareTrack(track)
+        }
+    }
+
+    fun shareDownloadedTrack(entity: tf.monochrome.android.data.db.entity.DownloadedTrackEntity) {
+        trackShareHelper.shareDownloadedTrack(entity)
     }
 
     private fun observeTrackDownload(trackId: Long) {
