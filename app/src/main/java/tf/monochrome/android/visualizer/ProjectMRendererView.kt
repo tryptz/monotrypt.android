@@ -52,19 +52,32 @@ class ProjectMRendererView @JvmOverloads constructor(
     ) : Renderer {
         @Volatile
         private var attached = false
+        // Last applied swap interval, so we only re-issue eglSwapInterval
+        // when the user toggles the setting. Initialised to a sentinel that
+        // doesn't match either real value so the first frame always applies.
+        private var lastSwapInterval: Int = -1
 
         override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
             GLES20.glClearColor(0f, 0f, 0f, 1f)
-            // Disable vsync on the visualizer's GL surface so renderFrame can
-            // run as fast as the GPU allows instead of being clamped to the
-            // display refresh. Adreno honours eglSwapInterval(0); other
-            // drivers may silently cap at vblank — there is no portable way
-            // to force-uncap. Effect is local to this GLSurfaceView; the
-            // Compose UI thread keeps its own vsync.
-            EGL14.eglSwapInterval(EGL14.eglGetCurrentDisplay(), 0)
+            // Force re-apply on the next draw, since the EGL surface is new.
+            lastSwapInterval = -1
             // Don't do heavy I/O here; the engine prepares assets asynchronously
             // in its init block. We just signal readiness on the GL thread.
             attached = false
+        }
+
+        private fun applyVsyncIfChanged() {
+            // Setting controlled from Settings → Visualizer → "Disable vsync".
+            // eglSwapInterval(0) lets the visualizer exceed display refresh
+            // (capped only by Target FPS); (1) holds the standard vblank-locked
+            // present. Adreno honours both; some drivers ignore (0) silently.
+            // Effect is local to the visualizer GLSurfaceView — the Compose UI
+            // thread keeps its own vsync.
+            val want = if (repository.vsyncEnabled) 1 else 0
+            if (want != lastSwapInterval) {
+                EGL14.eglSwapInterval(EGL14.eglGetCurrentDisplay(), want)
+                lastSwapInterval = want
+            }
         }
 
         override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
@@ -77,6 +90,7 @@ class ProjectMRendererView @JvmOverloads constructor(
         }
 
         override fun onDrawFrame(gl: GL10?) {
+            applyVsyncIfChanged()
             if (attached) {
                 repository.renderFrame(System.nanoTime())
             } else {

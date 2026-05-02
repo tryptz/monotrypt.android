@@ -139,6 +139,8 @@ class SettingsViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 24)
     val visualizerTargetFps: StateFlow<Int> = preferences.visualizerTargetFps
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 60)
+    val visualizerVsyncEnabled: StateFlow<Boolean> = preferences.visualizerVsyncEnabled
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
     val visualizerShowFps: StateFlow<Boolean> = preferences.visualizerShowFps
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
     val visualizerFullscreen: StateFlow<Boolean> = preferences.visualizerFullscreen
@@ -314,6 +316,7 @@ class SettingsViewModel @Inject constructor(
     fun setVisualizerMeshX(value: Int) { viewModelScope.launch { preferences.setVisualizerMeshX(value) } }
     fun setVisualizerMeshY(value: Int) { viewModelScope.launch { preferences.setVisualizerMeshY(value) } }
     fun setVisualizerTargetFps(value: Int) { viewModelScope.launch { preferences.setVisualizerTargetFps(value) } }
+    fun setVisualizerVsyncEnabled(value: Boolean) { viewModelScope.launch { preferences.setVisualizerVsyncEnabled(value) } }
     fun setVisualizerShowFps(enabled: Boolean) { viewModelScope.launch { preferences.setVisualizerShowFps(enabled) } }
     fun setVisualizerFullscreen(enabled: Boolean) { viewModelScope.launch { preferences.setVisualizerFullscreen(enabled) } }
     fun setVisualizerTouchWaveform(enabled: Boolean) { viewModelScope.launch { preferences.setVisualizerTouchWaveform(enabled) } }

@@ -488,6 +488,7 @@ private fun InterfaceTab(viewModel: SettingsViewModel) {
     val meshX by viewModel.visualizerMeshX.collectAsState()
     val meshY by viewModel.visualizerMeshY.collectAsState()
     val targetFps by viewModel.visualizerTargetFps.collectAsState()
+    val vsyncEnabled by viewModel.visualizerVsyncEnabled.collectAsState()
     val showFps by viewModel.visualizerShowFps.collectAsState()
     val fullscreen by viewModel.visualizerFullscreen.collectAsState()
     val touchWaveform by viewModel.visualizerTouchWaveform.collectAsState()
@@ -673,12 +674,23 @@ private fun InterfaceTab(viewModel: SettingsViewModel) {
         )
 
         Spacer(modifier = Modifier.height(8.dp))
-        Text("Target FPS: $targetFps", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+        Text(
+            text = if (vsyncEnabled) "Target FPS: $targetFps" else "Target FPS: $targetFps (vsync off)",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
         Slider(
             value = targetFps.toFloat(),
             onValueChange = { viewModel.setVisualizerTargetFps(it.toInt()) },
             valueRange = 30f..144f,
             modifier = Modifier.fillMaxWidth()
+        )
+
+        SettingSwitchItem(
+            title = "Disable vsync",
+            subtitle = "Let the visualizer exceed display refresh (capped by Target FPS). Increases battery and heat — Adreno honours this; some GPUs ignore it.",
+            checked = !vsyncEnabled,
+            onCheckedChange = { viewModel.setVisualizerVsyncEnabled(!it) }
         )
 
         SettingSwitchItem(

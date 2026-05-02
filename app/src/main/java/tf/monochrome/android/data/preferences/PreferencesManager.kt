@@ -116,6 +116,7 @@ class PreferencesManager @Inject constructor(
         private val VISUALIZER_MESH_X = intPreferencesKey("visualizer_mesh_x")
         private val VISUALIZER_MESH_Y = intPreferencesKey("visualizer_mesh_y")
         private val VISUALIZER_TARGET_FPS = intPreferencesKey("visualizer_target_fps")
+        private val VISUALIZER_VSYNC_ENABLED = booleanPreferencesKey("visualizer_vsync_enabled")
         private val VISUALIZER_SHOW_FPS = booleanPreferencesKey("visualizer_show_fps")
         private val VISUALIZER_FULLSCREEN = booleanPreferencesKey("visualizer_fullscreen")
         private val VISUALIZER_TOUCH_WAVEFORM = booleanPreferencesKey("visualizer_touch_waveform")
@@ -553,6 +554,11 @@ class PreferencesManager @Inject constructor(
         // DataStore keeps their override across device-tier changes.
         it[VISUALIZER_TARGET_FPS] ?: performanceProfile.visualizerFps
     }
+    // When false, the visualizer GL surface calls eglSwapInterval(0) and the
+    // native renderer is allowed to exceed display refresh, capped only by
+    // visualizerTargetFps. Default true (display-synced) — turning it off
+    // increases battery / heat.
+    val visualizerVsyncEnabled: Flow<Boolean> = dataStore.data.map { it[VISUALIZER_VSYNC_ENABLED] ?: true }
     val visualizerShowFps: Flow<Boolean> = dataStore.data.map { it[VISUALIZER_SHOW_FPS] ?: false }
     val visualizerFullscreen: Flow<Boolean> = dataStore.data.map { it[VISUALIZER_FULLSCREEN] ?: false }
     val visualizerTouchWaveform: Flow<Boolean> = dataStore.data.map { it[VISUALIZER_TOUCH_WAVEFORM] ?: true }
@@ -595,6 +601,9 @@ class PreferencesManager @Inject constructor(
     }
     suspend fun setVisualizerTargetFps(value: Int) {
         dataStore.edit { it[VISUALIZER_TARGET_FPS] = value }
+    }
+    suspend fun setVisualizerVsyncEnabled(value: Boolean) {
+        dataStore.edit { it[VISUALIZER_VSYNC_ENABLED] = value }
     }
     suspend fun setVisualizerShowFps(enabled: Boolean) {
         dataStore.edit { it[VISUALIZER_SHOW_FPS] = enabled }
