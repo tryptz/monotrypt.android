@@ -82,16 +82,29 @@ class LibusbAudioSink(
         }
         pcmBytesPerFrame = (outBits / 8) * outChans
 
-        bypassActive = if (driver.isOpen.value) {
-            driver.start(outRate, outBits, outChans)
-        } else {
-            false
+        // Track-to-track configure with the same format: skip the
+        // stop/start cycle so we don't release the streaming
+        // interface (releasing causes the Android kernel to briefly
+        // re-grab it, after which the next claim returns BUSY and
+        // playback dies until the user re-plugs the DAC).
+        bypassActive = when {
+            !driver.isOpen.value -> false
+            driver.isStreamingFormat(outRate, outBits, outChans) -> {
+                Log.i(TAG, "configured: reused active stream "
+                    + "($outRate/${outBits}b/${outChans}ch)")
+                true
+            }
+            else -> {
+                if (driver.isStreaming.value) driver.stop()
+                driver.start(outRate, outBits, outChans).also { ok ->
+                    if (ok) Log.i(TAG, "configured: bypass active " +
+                        "(in $rate/${bits}b/${channels}ch → out $outRate/${outBits}b/${outChans}ch)")
+                }
+            }
         }
         if (bypassActive) {
             framesWritten = 0L
             startTimeUs = C.TIME_UNSET
-            Log.i(TAG, "configured: bypass active " +
-                "(in $rate/${bits}b/${channels}ch → out $outRate/${outBits}b/${outChans}ch)")
         }
     }
 
@@ -172,11 +185,13 @@ class LibusbAudioSink(
         super.flush()
         chain.flush()
         if (bypassActive) {
-            driver.stop()
+            // Drop queued PCM but keep the iso pump running on
+            // silence — see LibusbUacDriver.flushRing for why we
+            // can't release the interface here without breaking
+            // track-to-track playback.
+            driver.flushRing()
             framesWritten = 0L
             startTimeUs = C.TIME_UNSET
-            // configure() will re-start the pump on the next play.
-            bypassActive = false
         }
     }
 

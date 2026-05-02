@@ -173,6 +173,23 @@ class LibusbUacDriver @Inject constructor(
         _isStreaming.value = false
     }
 
+    /**
+     * Discards any PCM still queued without releasing the streaming
+     * interface. Use between tracks — releasing the interface lets
+     * the Android kernel briefly re-grab it, after which the next
+     * [start] gets `LIBUSB_ERROR_BUSY` and the user has to re-plug.
+     */
+    fun flushRing() = nativeFlushRing()
+
+    /**
+     * True when the iso pump is already running a stream matching
+     * the requested format. Lets [LibusbAudioSink.configure] skip a
+     * stop/start cycle on track-to-track transitions when the format
+     * is unchanged (the common case for an album).
+     */
+    fun isStreamingFormat(sampleRate: Int, bitsPerSample: Int, channels: Int): Boolean =
+        nativeIsStreamingFormat(sampleRate, bitsPerSample, channels)
+
     fun nativeStreaming(): Boolean = nativeIsStreaming()
 
     /** Number of PCM frames the driver can accept right now. */
@@ -187,7 +204,9 @@ class LibusbUacDriver @Inject constructor(
     private external fun nativeIsOpen(): Boolean
     private external fun nativeStart(sampleRate: Int, bitsPerSample: Int, channels: Int): Boolean
     private external fun nativeStop()
+    private external fun nativeFlushRing()
     private external fun nativeIsStreaming(): Boolean
+    private external fun nativeIsStreamingFormat(sampleRate: Int, bitsPerSample: Int, channels: Int): Boolean
     private external fun nativeWrite(buffer: ByteBuffer, frames: Int): Int
     private external fun nativeWritableFrames(): Int
 
