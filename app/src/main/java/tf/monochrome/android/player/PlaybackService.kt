@@ -588,20 +588,50 @@ class PlaybackService : MediaSessionService() {
         ): com.google.common.util.concurrent.ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
             val snapshot = queueManager.currentQueue
             val index = queueManager.currentQueueIndex.coerceAtLeast(0)
-            val items = snapshot.map { track ->
-                MediaItem.Builder()
-                    .setMediaId(track.id.toString())
-                    .build()
-            }
+
             // Empty queue on first launch → hand back an empty resumption;
             // Media3 treats that as "nothing to resume" and the user lands
             // on Home instead of the play tap being silently eaten.
-            val resumption = MediaSession.MediaItemsWithStartPosition(
-                items,
-                index,
-                /* startPositionMs = */ 0L,
-            )
-            return com.google.common.util.concurrent.Futures.immediateFuture(resumption)
+            if (snapshot.isEmpty()) {
+                return com.google.common.util.concurrent.Futures.immediateFuture(
+                    MediaSession.MediaItemsWithStartPosition(emptyList(), 0, 0L)
+                )
+            }
+
+            // Media3 1.5.1 hands the returned items straight to
+            // PlayerWrapper.setMediaItems → DefaultMediaSourceFactory, which
+            // NPEs on any item without a localConfiguration. Returning bare
+            // mediaId stubs (as we used to) crashed the session on every
+            // BT-remote / lock-screen play tap. Resolve the queue's URIs on
+            // serviceScope and complete the future when ready.
+            val future = com.google.common.util.concurrent.SettableFuture
+                .create<MediaSession.MediaItemsWithStartPosition>()
+            serviceScope.launch {
+                val resolvedItems = snapshot.mapNotNull { track ->
+                    val unified = unifiedTrackRegistry[track.id]
+                    if (unified != null) {
+                        val r = runCatching { streamResolver.resolveUnifiedTrack(unified) }.getOrNull()
+                        if (r?.isPlayable == true) r.mediaItem else null
+                    } else {
+                        val (mediaItem, _) = runCatching { streamResolver.resolveMediaItem(track) }
+                            .getOrDefault(Pair(null, null))
+                        mediaItem
+                    }
+                }
+                if (resolvedItems.isEmpty()) {
+                    future.set(MediaSession.MediaItemsWithStartPosition(emptyList(), 0, 0L))
+                    return@launch
+                }
+                val safeIndex = index.coerceAtMost(resolvedItems.lastIndex)
+                future.set(
+                    MediaSession.MediaItemsWithStartPosition(
+                        resolvedItems,
+                        safeIndex,
+                        /* startPositionMs = */ 0L,
+                    )
+                )
+            }
+            return future
         }
 
         /**
