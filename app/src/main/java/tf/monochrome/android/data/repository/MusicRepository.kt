@@ -38,12 +38,12 @@ class MusicRepository @Inject constructor(
 ) {
     // --- Search ---
 
-    suspend fun search(query: String): Result<SearchResult> = runCatching {
-        apiClient.search(query)
+    suspend fun search(query: String, offset: Int = 0, limit: Int = 50): Result<SearchResult> = runCatching {
+        apiClient.search(query, offset, limit)
     }
 
-    suspend fun searchQobuz(query: String): Result<SearchResult> = runCatching {
-        apiClient.searchQobuz(query)
+    suspend fun searchQobuz(query: String, offset: Int = 0): Result<SearchResult> = runCatching {
+        apiClient.searchQobuz(query, offset)
     }
 
     /**
@@ -61,20 +61,20 @@ class MusicRepository @Inject constructor(
             ?: throw IllegalStateException("Qobuz artist not available: $artistId")
     }
 
-    suspend fun searchTracks(query: String): Result<List<Track>> = runCatching {
-        apiClient.searchTracks(query)
+    suspend fun searchTracks(query: String, offset: Int = 0, limit: Int = 50): Result<List<Track>> = runCatching {
+        apiClient.searchTracks(query, offset, limit)
     }
 
-    suspend fun searchAlbums(query: String): Result<List<Album>> = runCatching {
-        apiClient.searchAlbums(query)
+    suspend fun searchAlbums(query: String, offset: Int = 0, limit: Int = 50): Result<List<Album>> = runCatching {
+        apiClient.searchAlbums(query, offset, limit)
     }
 
-    suspend fun searchArtists(query: String): Result<List<Artist>> = runCatching {
-        apiClient.searchArtists(query)
+    suspend fun searchArtists(query: String, offset: Int = 0, limit: Int = 50): Result<List<Artist>> = runCatching {
+        apiClient.searchArtists(query, offset, limit)
     }
 
-    suspend fun searchPlaylists(query: String): Result<List<Playlist>> = runCatching {
-        apiClient.searchPlaylists(query)
+    suspend fun searchPlaylists(query: String, offset: Int = 0, limit: Int = 50): Result<List<Playlist>> = runCatching {
+        apiClient.searchPlaylists(query, offset, limit)
     }
 
     // --- Detail ---
@@ -106,10 +106,6 @@ class MusicRepository @Inject constructor(
 
     suspend fun getRecommendations(trackId: Long): Result<List<Track>> = runCatching {
         apiClient.getRecommendations(trackId)
-    }
-
-    suspend fun getMix(mixId: String): Result<List<Track>> = runCatching {
-        apiClient.getMix(mixId)
     }
 
     // --- AI Recommendations ---

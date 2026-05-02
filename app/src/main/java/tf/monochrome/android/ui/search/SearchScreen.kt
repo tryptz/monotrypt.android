@@ -29,6 +29,8 @@ fun SearchScreen(
     val selectedType by viewModel.selectedType.collectAsState()
     val selectedSource by viewModel.selectedSource.collectAsState()
     val showSourceFilter by viewModel.showSourceFilter.collectAsState()
+    val isLoadingMore by viewModel.isLoadingMore.collectAsState()
+    val endReached by viewModel.endReached.collectAsState()
     val searchHistory by viewModel.searchHistory.collectAsState()
     val favoriteTrackIds by playerViewModel.favoriteTrackIds.collectAsState()
     val libraryPlaylists by playerViewModel.playlists.collectAsState()
@@ -60,6 +62,9 @@ fun SearchScreen(
             showSourceFilter = showSourceFilter,
             favoriteTrackIds = favoriteTrackIds,
             libraryPlaylists = libraryPlaylists,
+            onLoadMore = viewModel::loadMore,
+            isLoadingMore = isLoadingMore,
+            endReached = endReached,
             emptyContent = {
                 SearchHistoryContent(
                     history = searchHistory,

@@ -198,19 +198,6 @@ fun AlbumDetailScreen(
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
-                                FilledIconButton(
-                                    onClick = { navController.navigate(Screen.Mix.createRoute(detail.album.id.toString())) },
-                                    modifier = Modifier.size(48.dp),
-                                    colors = IconButtonDefaults.filledIconButtonColors(
-                                        containerColor = MaterialTheme.colorScheme.surfaceVariant
-                                    )
-                                ) {
-                                    Icon(
-                                        androidx.compose.material.icons.Icons.Default.PlayArrow,
-                                        contentDescription = "Mix",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
                             }
                             Spacer(modifier = Modifier.height(16.dp))
                         }

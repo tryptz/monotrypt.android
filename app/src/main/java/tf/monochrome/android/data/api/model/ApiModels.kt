@@ -240,11 +240,6 @@ data class SimilarResponse(
 )
 
 @Serializable
-data class MixResponse(
-    val items: List<ApiTrack> = emptyList()
-)
-
-@Serializable
 data class LyricsResponse(
     val subtitles: String? = null,
     val lyrics: String? = null,

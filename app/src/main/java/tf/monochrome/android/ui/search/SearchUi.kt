@@ -12,8 +12,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
@@ -202,7 +207,10 @@ fun SearchResultsContent(
     favoriteTrackIds: Set<Long>,
     libraryPlaylists: List<UserPlaylistEntity>,
     modifier: Modifier = Modifier,
-    emptyContent: @Composable (() -> Unit)? = null
+    emptyContent: @Composable (() -> Unit)? = null,
+    onLoadMore: (SearchViewModel.SearchPageType) -> Unit = {},
+    isLoadingMore: Boolean = false,
+    endReached: Boolean = false,
 ) {
     var showContextMenuForTrack by remember { mutableStateOf<Track?>(null) }
     var showAddToPlaylistForTrack by remember { mutableStateOf<Track?>(null) }
@@ -258,7 +266,30 @@ fun SearchResultsContent(
         query.isBlank() && emptyContent != null -> emptyContent()
         isSearching -> LoadingScreen()
         else -> {
+            // One LazyListState per scrollable axis. Each gets its own
+            // prefetch trigger so artists / albums / tracks page
+            // independently as the user scrolls past their respective
+            // last visible item.
+            val columnState = rememberLazyListState()
+            val artistsRowState = rememberLazyListState()
+            val albumsRowState = rememberLazyListState()
+
+            // derivedStateOf only emits when the boolean flips, so the
+            // LaunchedEffect re-runs once per page boundary, not once per
+            // scroll pixel. PREFETCH thresholds picked to keep the list
+            // looking continuous while not over-fetching.
+            PrefetchTrigger(columnState, threshold = TRACK_COL_PREFETCH) {
+                onLoadMore(SearchViewModel.SearchPageType.TRACKS)
+            }
+            PrefetchTrigger(artistsRowState, threshold = ROW_PREFETCH) {
+                onLoadMore(SearchViewModel.SearchPageType.ARTISTS)
+            }
+            PrefetchTrigger(albumsRowState, threshold = ROW_PREFETCH) {
+                onLoadMore(SearchViewModel.SearchPageType.ALBUMS)
+            }
+
             LazyColumn(
+                state = columnState,
                 modifier = modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 80.dp)
             ) {
@@ -276,6 +307,7 @@ fun SearchResultsContent(
                     item { SectionHeader(title = "Artists") }
                     item {
                         LazyRow(
+                            state = artistsRowState,
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
@@ -297,6 +329,7 @@ fun SearchResultsContent(
                     item { SectionHeader(title = "Albums") }
                     item {
                         LazyRow(
+                            state = albumsRowState,
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
@@ -344,6 +377,25 @@ fun SearchResultsContent(
                     }
                 }
 
+                // Footer spinner while another page is in-flight.
+                // Disappears once every type has hit endReached so the
+                // list terminates cleanly.
+                if (isLoadingMore && !endReached) {
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 16.dp),
+                            horizontalArrangement = Arrangement.Center,
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 2.dp,
+                            )
+                        }
+                    }
+                }
+
                 if (tracks.isEmpty() && albums.isEmpty() && artists.isEmpty() && playlistResults.isEmpty()) {
                     item {
                         Text(
@@ -356,6 +408,35 @@ fun SearchResultsContent(
                 }
             }
         }
+    }
+}
+
+/** Compose-private threshold constants for the prefetch triggers. */
+private const val TRACK_COL_PREFETCH = 15
+private const val ROW_PREFETCH = 6
+
+/**
+ * Fires [onTrigger] when the given list state's last visible item index
+ * approaches [threshold] of the tail. Uses derivedStateOf so the
+ * LaunchedEffect only re-runs when the boolean transitions, not on every
+ * scroll pixel.
+ */
+@Composable
+private fun PrefetchTrigger(
+    state: LazyListState,
+    threshold: Int,
+    onTrigger: () -> Unit,
+) {
+    val shouldLoad by remember(state) {
+        derivedStateOf {
+            val info = state.layoutInfo
+            val total = info.totalItemsCount
+            val last = info.visibleItemsInfo.lastOrNull()?.index ?: -1
+            total > 0 && last >= total - threshold
+        }
+    }
+    LaunchedEffect(shouldLoad) {
+        if (shouldLoad) onTrigger()
     }
 }
 

@@ -131,7 +131,6 @@ class PreferencesManager @Inject constructor(
         private val POCKETBASE_USER_ID = stringPreferencesKey("pocketbase_user_id")
         private val POCKETBASE_EMAIL = stringPreferencesKey("pocketbase_email")
         // Home screen cache
-        private val HOME_RECOMMENDATIONS_CACHE = stringPreferencesKey("home_recommendations_cache")
 
         // EQ / AutoEQ
         private val EQ_TUTORIAL_SEEN = booleanPreferencesKey("eq_tutorial_seen")
@@ -651,15 +650,6 @@ class PreferencesManager @Inject constructor(
         dataStore.edit { it[AI_RADIO_ENABLED] = enabled }
     }
 
-    // --- Home Screen Cache ---
-    val homeRecommendationsCache: Flow<String?> = dataStore.data.map { it[HOME_RECOMMENDATIONS_CACHE] }
-
-    suspend fun setHomeRecommendationsCache(json: String?) {
-        dataStore.edit {
-            if (json.isNullOrBlank()) it.remove(HOME_RECOMMENDATIONS_CACHE)
-            else it[HOME_RECOMMENDATIONS_CACHE] = json
-        }
-    }
 
     // --- PocketBase ---
     val pocketBaseToken: Flow<String?> = dataStore.data.map { it[POCKETBASE_TOKEN] }
