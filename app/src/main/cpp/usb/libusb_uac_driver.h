@@ -62,6 +62,12 @@ struct StreamFormat {
     uint8_t feedbackEndpointAddress = 0;
     uint16_t feedbackMaxPacketSize = 0;
     uint8_t feedbackInterval = 0;
+    // Every clock entity ID we found in the AudioControl topology,
+    // in walk order. Used as a fall-through search list when SET_CUR
+    // / GET_CUR on the topology-resolved clockSourceId fails — some
+    // devices' Selector / Multiplier resolution is non-obvious and
+    // it's cheaper to just try them all than misparse the graph.
+    std::vector<uint8_t> candidateClockIds;
 };
 
 class LibusbUacDriver {

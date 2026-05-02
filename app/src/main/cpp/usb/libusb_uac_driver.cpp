@@ -238,6 +238,16 @@ bool LibusbUacDriver::selectAltSetting(int sampleRateHz, int bitsPerSample,
          controlIface, uacVersion,
          (uacVersion < 0x0200) ? " (UAC1)" : " (UAC2)",
          clockEntities.size(), terminals.size());
+    for (const auto& ce : clockEntities) {
+        const char* kind =
+            ce.subtype == AC_CLOCK_SOURCE ? "SOURCE" :
+            ce.subtype == AC_CLOCK_SELECTOR ? "SELECTOR" :
+            ce.subtype == AC_CLOCK_MULTIPLIER ? "MULTIPLIER" : "?";
+        LOGI("  clock id=%u %s baseId=%u", ce.id, kind, ce.baseId);
+    }
+    for (const auto& tc : terminals) {
+        LOGI("  terminal id=%u → clock id=%u", tc.termId, tc.clockId);
+    }
 
     // Second pass: walk AudioStreaming alt settings and find one
     // matching the requested rate/depth/channels. UAC2 doesn't list
@@ -439,6 +449,17 @@ bool LibusbUacDriver::selectAltSetting(int sampleRateHz, int bitsPerSample,
             }
             out_fmt->clockSourceId = resolvedClock;
             out_fmt->controlInterfaceNum = controlIface;
+            // Persist every candidate so setSampleRate can fall
+            // through them in priority order: SOURCE first (most
+            // likely to accept SET_CUR), then SELECTOR/MULTIPLIER,
+            // then anything else.
+            out_fmt->candidateClockIds.clear();
+            for (const auto& ce : clockEntities)
+                if (ce.subtype == AC_CLOCK_SOURCE)
+                    out_fmt->candidateClockIds.push_back(ce.id);
+            for (const auto& ce : clockEntities)
+                if (ce.subtype != AC_CLOCK_SOURCE)
+                    out_fmt->candidateClockIds.push_back(ce.id);
             out_fmt->isHighSpeed =
                 libusb_get_device_speed(dev) >= LIBUSB_SPEED_HIGH;
             out_fmt->bInterval = iso->bInterval;
@@ -469,29 +490,54 @@ bool LibusbUacDriver::selectAltSetting(int sampleRateHz, int bitsPerSample,
 
 bool LibusbUacDriver::setSampleRate(uint32_t hz) {
     if (format_.uacVersion >= 0x0200) {
-        // UAC2 §5.2.5.1.1 — SET_CUR on a clock entity, 32-bit LE.
+        // UAC2 §5.2.5.1.1 — SET_CUR(SAM_FREQ_CONTROL) on a clock
+        // entity, 32-bit LE.
         //   bmRequestType = 0x21 (Class | Interface | Host-to-Device)
         //   wValue        = CS_SAM_FREQ_CONTROL << 8
         //   wIndex        = (clockId << 8) | controlInterfaceNum
         //   wLength       = 4
-        if (format_.clockSourceId == 0) {
-            LOGW("UAC2: no clock entity resolved for terminal — skipping "
-                 "SET_CUR (assuming fixed-rate clock at %u Hz)", hz);
+        // Topology resolution can be non-obvious on some devices
+        // (Bathys + 2 clock entities + 4 terminals seen in logs);
+        // try the resolved clockSourceId first, then fall through to
+        // every other candidate. Same for the GET_CUR readback.
+        std::vector<uint8_t> tryIds;
+        if (format_.clockSourceId != 0) tryIds.push_back(format_.clockSourceId);
+        for (uint8_t id : format_.candidateClockIds) {
+            if (id != 0 && id != format_.clockSourceId) tryIds.push_back(id);
+        }
+        if (tryIds.empty()) {
+            LOGW("UAC2: no clock entities at all — skipping SET_CUR "
+                 "(assuming fixed-rate clock at %u Hz)", hz);
             return true;
         }
+
         uint8_t data[4] = {
             static_cast<uint8_t>(hz & 0xFF),
             static_cast<uint8_t>((hz >> 8) & 0xFF),
             static_cast<uint8_t>((hz >> 16) & 0xFF),
             static_cast<uint8_t>((hz >> 24) & 0xFF),
         };
-        int rc = libusb_control_transfer(
-            device_, 0x21, REQ_SET_CUR,
-            static_cast<uint16_t>(CS_SAM_FREQ_CONTROL_SEL << 8),
-            static_cast<uint16_t>(
-                (format_.clockSourceId << 8) | format_.controlInterfaceNum),
-            data, 4, 1000);
-        if (rc == 4) return true;
+        int rc = -1;
+        uint8_t winningId = 0;
+        for (uint8_t id : tryIds) {
+            int r = libusb_control_transfer(
+                device_, 0x21, REQ_SET_CUR,
+                static_cast<uint16_t>(CS_SAM_FREQ_CONTROL_SEL << 8),
+                static_cast<uint16_t>(
+                    (id << 8) | format_.controlInterfaceNum),
+                data, 4, 1000);
+            if (r == 4) { rc = r; winningId = id; break; }
+            LOGW("UAC2 SET_CUR clockId=%u -> %d (will try next)", id, r);
+        }
+        if (rc == 4) {
+            if (winningId != format_.clockSourceId) {
+                LOGI("UAC2: clock entity id=%u accepted SET_CUR (topology "
+                     "resolution had picked id=%u — promoting)",
+                     winningId, format_.clockSourceId);
+                format_.clockSourceId = winningId;
+            }
+            return true;
+        }
         // STALL or I/O error: many UAC2 DACs (Focal Bathys included)
         // run a fixed-rate hardware clock that doesn't accept
         // programmatic rate changes — the rate is whatever the
@@ -500,38 +546,70 @@ bool LibusbUacDriver::setSampleRate(uint32_t hz) {
         // want; if so, proceed without SET_CUR. If GET_CUR is also
         // a different rate, log a warning but still proceed (audio
         // may pitch-shift, but at least it'll play).
-        // UAC2 §5.2.1: bRequest is 0x01 (CUR) for both SET and GET —
-        // direction is in bmRequestType (0x21 = SET, 0xA1 = GET).
-        // Earlier code passed 0x81 here which the device correctly
-        // ignored, returning all-zero data and reporting "0 Hz" — at
-        // which point we'd "proceed anyway" and stream 44.1k frames
-        // at whatever rate the device's clock was actually locked to.
-        uint8_t cur[4] = {0, 0, 0, 0};
-        int gc = libusb_control_transfer(
-            device_, /*bmRequestType=*/0xA1, /*bRequest=*/REQ_SET_CUR,
-            static_cast<uint16_t>(CS_SAM_FREQ_CONTROL_SEL << 8),
-            static_cast<uint16_t>(
-                (format_.clockSourceId << 8) | format_.controlInterfaceNum),
-            cur, 4, 1000);
-        uint32_t devHz = (gc == 4)
-            ? (uint32_t(cur[0]) | (uint32_t(cur[1]) << 8) |
-               (uint32_t(cur[2]) << 16) | (uint32_t(cur[3]) << 24))
-            : 0;
-        if (gc == 4 && devHz == hz) {
-            LOGI("UAC2 SET_CUR stalled but GET_CUR confirms %u Hz already — fixed-rate clock", hz);
-            return true;
+        // UAC2 §5.2.1: bRequest is 0x01 (CUR) for SET and GET both —
+        // direction is in bmRequestType (0x21 SET, 0xA1 GET). For
+        // each candidate, try GET_CUR; if any reports a non-zero
+        // rate that matches our request, proceed (fixed-rate clock
+        // case). Also try GET_RANGE so the log shows what rates the
+        // device actually claims to support — invaluable diagnostic.
+        uint32_t devHz = 0;
+        for (uint8_t id : tryIds) {
+            uint8_t cur[4] = {0, 0, 0, 0};
+            int gc = libusb_control_transfer(
+                device_, /*bmRequestType=*/0xA1, /*bRequest=*/REQ_SET_CUR,
+                static_cast<uint16_t>(CS_SAM_FREQ_CONTROL_SEL << 8),
+                static_cast<uint16_t>(
+                    (id << 8) | format_.controlInterfaceNum),
+                cur, 4, 1000);
+            uint32_t hzGot = (gc == 4)
+                ? (uint32_t(cur[0]) | (uint32_t(cur[1]) << 8) |
+                   (uint32_t(cur[2]) << 16) | (uint32_t(cur[3]) << 24))
+                : 0;
+            // GET_RANGE diagnostic — UAC2 §5.2.1 RANGE attribute.
+            //   bRequest=0x02 (RANGE), bmRequestType=0xA1.
+            //   Returns wNumSubRanges (LE uint16), then N triples
+            //   of (dMIN, dMAX, dRES) each 4-byte LE uint32.
+            uint8_t rng[256] = {0};
+            int gr = libusb_control_transfer(
+                device_, 0xA1, /*RANGE=*/0x02,
+                static_cast<uint16_t>(CS_SAM_FREQ_CONTROL_SEL << 8),
+                static_cast<uint16_t>(
+                    (id << 8) | format_.controlInterfaceNum),
+                rng, sizeof(rng), 1000);
+            if (gc == 4 || gr >= 2) {
+                LOGI("UAC2 clockId=%u: GET_CUR=%u Hz, GET_RANGE bytes=%d",
+                     id, hzGot, gr);
+                if (gr >= 2) {
+                    int n = rng[0] | (rng[1] << 8);
+                    for (int i = 0; i < n && (2 + (i + 1) * 12) <= gr; ++i) {
+                        const uint8_t* t = rng + 2 + i * 12;
+                        uint32_t mn = uint32_t(t[0]) | (uint32_t(t[1]) << 8) |
+                                      (uint32_t(t[2]) << 16) | (uint32_t(t[3]) << 24);
+                        uint32_t mx = uint32_t(t[4]) | (uint32_t(t[5]) << 8) |
+                                      (uint32_t(t[6]) << 16) | (uint32_t(t[7]) << 24);
+                        LOGI("    range[%d]: %u..%u Hz", i, mn, mx);
+                    }
+                }
+            }
+            if (gc == 4 && hzGot == hz) {
+                LOGI("UAC2 clockId=%u is fixed at %u Hz already — accepting", id, hz);
+                format_.clockSourceId = id;
+                return true;
+            }
+            if (gc == 4 && devHz == 0) devHz = hzGot;  // remember for error msg
         }
-        // Device's clock is at a different rate than requested AND
-        // it didn't accept the change. Pushing audio at a different
-        // rate to a fixed-rate clock is the chipmunk-distortion bug
-        // we used to ship. Fail bypass cleanly so LibusbAudioSink
-        // falls back to the delegate (Android's HAL) which will
-        // resample to the device's rate properly.
-        LOGE("UAC2 SET_CUR %u Hz -> %d, device reports %u Hz — refusing "
-             "bypass to avoid pitch-shifted distortion. Falling back to "
-             "the delegate sink. Try selecting a track at the device's "
-             "native rate (%u Hz) for true bit-perfect output.",
-             hz, rc, devHz, devHz);
+
+        // No candidate accepted SET_CUR and none reports our rate via
+        // GET_CUR. Pushing audio at the wrong rate to a fixed-rate
+        // clock is the chipmunk-distortion bug we used to ship.
+        // Fail bypass cleanly so LibusbAudioSink falls back to the
+        // delegate (Android's HAL) which resamples to the device's
+        // rate properly.
+        LOGE("UAC2: no clock entity accepted %u Hz (best GET_CUR=%u Hz). "
+             "Refusing bypass to avoid distortion. Try a track at the "
+             "device's native rate; the GET_RANGE log lines above show "
+             "what rates each clock supports.",
+             hz, devHz);
         return false;
     }
     // UAC1 §5.2.3.2.3.1 — set on the iso DATA endpoint, 24-bit LE.
