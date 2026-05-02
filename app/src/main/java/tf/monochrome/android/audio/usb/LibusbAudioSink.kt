@@ -33,6 +33,7 @@ import java.nio.ByteOrder
 class LibusbAudioSink(
     delegate: AudioSink,
     private val driver: LibusbUacDriver,
+    private val volumeController: BypassVolumeController,
     processors: List<AudioProcessor> = emptyList(),
 ) : ForwardingAudioSink(delegate) {
 
@@ -69,6 +70,16 @@ class LibusbAudioSink(
     private var lastPlayedFrames: Long = 0L
     private var lastPlayedAdvanceNs: Long = 0L
     private var watchdogTripped: Boolean = false
+
+    // Reusable scratch for the software-gain path. Only allocated /
+    // grown when the user actually attenuates (volume < 1.0f); at
+    // unity the bypass stays bit-perfect — direct buffer goes
+    // straight to libusb with no copy, no allocation, no rounding.
+    private var gainScratch: ByteBuffer = AudioProcessor.EMPTY_BUFFER
+
+    // Bit depth is per-stream; cache so the gain path doesn't have
+    // to recompute pcmBitsFromEncoding on every handleBuffer.
+    private var outBitsPerSample: Int = 0
 
     override fun configure(
         inputFormat: Format,
@@ -109,6 +120,7 @@ class LibusbAudioSink(
             return
         }
         pcmBytesPerFrame = (outBits / 8) * outChans
+        outBitsPerSample = outBits
 
         // Track-to-track configure with the same format: skip the
         // stop/start cycle so we don't release the streaming
@@ -209,7 +221,26 @@ class LibusbAudioSink(
         val framesAvailable = direct.remaining() / pcmBytesPerFrame
         if (framesAvailable <= 0) return !buffer.hasRemaining()
 
-        val written = driver.write(direct, framesAvailable)
+        // Software volume on the bypass path. AudioFlinger's
+        // master-volume / hardware-volume-key apparatus doesn't reach
+        // the DAC here, so without this attenuation the user has no
+        // way to lower the level short of yanking the cable.
+        // BypassVolumeController is fed by the UI slider
+        // (PlayerViewModel.setVolume), ReplayGain
+        // (PlaybackService.applyReplayGain), and the hardware key
+        // dispatcher (MainActivity.dispatchKeyEvent). At unity gain
+        // OR on a bit depth we don't have a fast path for (24/32),
+        // we skip the scaling entirely and feed `direct` straight to
+        // libusb — preserves bit-perfect output for users who keep
+        // the slider maxed, and matches the prior behavior at
+        // depths the integer-multiply path doesn't yet cover.
+        val gain = volumeController.getVolume()
+        val toWrite = if (gain >= 0.9999f || outBitsPerSample != 16) {
+            direct
+        } else {
+            applyGainPcm16(direct, gain)
+        }
+        val written = driver.write(toWrite, framesAvailable)
         if (written <= 0) {
             // Ring full. If we owned the input buffer (no DSP),
             // back-pressure to the renderer; otherwise the chain
@@ -341,6 +372,47 @@ class LibusbAudioSink(
     override fun release() {
         super.release()
         if (driver.isStreaming.value) driver.stop()
+    }
+
+    // PCM16 software gain. Reads signed 16-bit samples from `src`
+    // (native byte order — set on every direct buffer we touch), does
+    // one float multiply per sample, clamps at ±0x7FFF to match the
+    // PCM16 range exactly, and writes the result to a reusable direct
+    // scratch buffer that's safe to hand to libusb. Returned buffer
+    // is positioned at 0 / limited to the byte count actually written
+    // so driver.write sees the whole payload. Source position is
+    // intentionally NOT advanced — handleBuffer's existing accounting
+    // advances `processed` (or `buffer`) by `written * pcmBytesPerFrame`
+    // after the write returns.
+    //
+    // No dither: attenuation is monotonic, so the LSB error is
+    // deterministic and quieter than a pre-existing dither floor on
+    // the upstream MixBusProcessor. Adding TPDF here would just
+    // double-dither.
+    private fun applyGainPcm16(src: ByteBuffer, gain: Float): ByteBuffer {
+        val srcPos = src.position()
+        val srcLimit = src.limit()
+        val totalBytes = srcLimit - srcPos
+        val scratch = ensureGainScratch(totalBytes)
+        val numSamples = totalBytes / 2
+        for (i in 0 until numSamples) {
+            val s = src.getShort(srcPos + i * 2).toInt()
+            val scaled = (s * gain).toInt().coerceIn(-32768, 32767)
+            scratch.putShort(i * 2, scaled.toShort())
+        }
+        scratch.position(0)
+        scratch.limit(numSamples * 2)
+        return scratch
+    }
+
+    private fun ensureGainScratch(needBytes: Int): ByteBuffer {
+        if (gainScratch.capacity() < needBytes) {
+            gainScratch = ByteBuffer.allocateDirect(needBytes)
+                .order(ByteOrder.nativeOrder())
+        } else {
+            gainScratch.clear()
+        }
+        return gainScratch
     }
 
     private fun copyIntoScratch(buffer: ByteBuffer): ByteBuffer {
