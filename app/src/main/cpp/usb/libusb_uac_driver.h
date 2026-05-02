@@ -38,6 +38,15 @@ struct StreamFormat {
     uint8_t clockSourceId = 0;
     uint8_t controlInterfaceNum = 0;
     bool isHighSpeed = true;   // affects packet timing (125us vs 1ms)
+    // Iso transfer interval. For HS: 2^(bInterval-1) microframes
+    // between packets — 1 = every 125us, 4 = every 1ms. For FS:
+    // bInterval value in milliseconds. Without honoring this, our
+    // pump computes frames/packet against the wrong clock and
+    // either underflows the device's FIFO (silence) or — worse —
+    // crams too many frames into too-small packets, which the
+    // device interprets at its own clock rate and renders as a
+    // pitch-shifted distorted stream.
+    uint8_t bInterval = 1;
     // UAC version, decoded from bcdADC in the AudioControl Header
     // class-specific descriptor (UAC1 = 0x0100, UAC2 = 0x0200).
     // Different rate-set wire format and different AS_FORMAT_TYPE
