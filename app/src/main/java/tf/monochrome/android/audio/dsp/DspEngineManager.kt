@@ -59,6 +59,20 @@ class DspEngineManager @Inject constructor(
                 if (json != "{}") preferences.setDspStateJson(json)
             }
         }
+        // Push the user-selected DSP block size into the processor whenever
+        // it changes. The processor honours it on the next queueInput call.
+        scope.launch {
+            preferences.dspBlockSize.collect { processor.setBlockSize(it) }
+        }
+        // Master "DSP mixer off" toggle becomes a true bypass on the audio
+        // thread — no deinterleave, no nativeProcess, no Oxford, no
+        // interleave — so flipping it off should leave audio identical to
+        // a build with no DSP wired in at all.
+        scope.launch {
+            preferences.dspEnabled.collect { enabled ->
+                processor.setBypassed(!enabled)
+            }
+        }
     }
 
     private fun requestSave() { saveSignal.tryEmit(Unit) }

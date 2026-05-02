@@ -159,6 +159,9 @@ class PreferencesManager @Inject constructor(
         // DSP Mixer
         private val DSP_ENABLED = booleanPreferencesKey("dsp_enabled")
         private val DSP_STATE_JSON = stringPreferencesKey("dsp_state_json")
+        private val DSP_BLOCK_SIZE = intPreferencesKey("dsp_block_size")
+        // Powers of two mirroring the user-facing dropdown in Settings.
+        val DSP_BLOCK_SIZES = listOf(128, 256, 512, 1024, 2048)
 
         // Library tab order
         private val LIBRARY_TAB_ORDER = stringPreferencesKey("library_tab_order")
@@ -782,6 +785,22 @@ class PreferencesManager @Inject constructor(
             if (json.isNullOrBlank()) it.remove(DSP_STATE_JSON)
             else it[DSP_STATE_JSON] = json
         }
+    }
+
+    /**
+     * Per-block frame count the MixBusProcessor passes into nativeProcess.
+     * Smaller = lower latency + higher CPU; larger = lower CPU + slightly
+     * higher latency. Restricted to powers of two between 128 and 2048;
+     * unknown values fall back to 1024 (the sane default that matches
+     * Android's typical AudioTrack period).
+     */
+    val dspBlockSize: Flow<Int> = dataStore.data.map { prefs ->
+        val v = prefs[DSP_BLOCK_SIZE] ?: 1024
+        if (v in DSP_BLOCK_SIZES) v else 1024
+    }
+    suspend fun setDspBlockSize(value: Int) {
+        if (value !in DSP_BLOCK_SIZES) return
+        dataStore.edit { it[DSP_BLOCK_SIZE] = value }
     }
 
     // --- Library / Local Media ---

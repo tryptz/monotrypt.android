@@ -906,6 +906,9 @@ private fun AudioTab(viewModel: SettingsViewModel, navController: NavController)
         }
 
         Spacer(modifier = Modifier.height(8.dp))
+        DspBlockSizeSelector(viewModel)
+
+        Spacer(modifier = Modifier.height(8.dp))
         Text("Crossfade: ${crossfade}s", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
         Text("Blend between tracks", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Slider(
@@ -965,6 +968,38 @@ private fun AudioTab(viewModel: SettingsViewModel, navController: NavController)
 }
 
 
+
+// User-facing DSP buffer (block) size selector. Smaller = lower latency
+// + more JNI / native overhead per second; larger = lower CPU at the
+// cost of slightly later parameter response. Mirrors the buffer-size
+// dropdown most pro-audio apps expose.
+@Composable
+private fun DspBlockSizeSelector(viewModel: SettingsViewModel) {
+    val current by viewModel.dspBlockSize.collectAsState()
+    Text(
+        text = "DSP Block Size",
+        style = MaterialTheme.typography.bodyLarge,
+        color = MaterialTheme.colorScheme.onSurface,
+    )
+    Text(
+        text = "Smaller = lower latency, more CPU. Default 1024.",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        viewModel.dspBlockSizes.forEach { size ->
+            FilterChip(
+                selected = size == current,
+                onClick = { viewModel.setDspBlockSize(size) },
+                label = { Text(size.toString()) },
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
 
 // ─── Tab 6: Downloads ──────────────────────────────────────────────────
 @Composable

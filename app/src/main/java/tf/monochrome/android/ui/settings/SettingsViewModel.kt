@@ -97,6 +97,9 @@ class SettingsViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
     val dspMixerEnabled: StateFlow<Boolean> = preferences.dspEnabled
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    val dspBlockSize: StateFlow<Int> = preferences.dspBlockSize
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 1024)
+    val dspBlockSizes: List<Int> = tf.monochrome.android.data.preferences.PreferencesManager.DSP_BLOCK_SIZES
     val crossfadeDuration: StateFlow<Int> = preferences.crossfadeDuration
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
@@ -292,6 +295,7 @@ class SettingsViewModel @Inject constructor(
     fun setCellularQuality(quality: AudioQuality) { viewModelScope.launch { preferences.setCellularQuality(quality) } }
     fun setNormalizationEnabled(enabled: Boolean) { viewModelScope.launch { preferences.setNormalizationEnabled(enabled) } }
     fun setDspMixerEnabled(enabled: Boolean) { viewModelScope.launch { preferences.setDspEnabled(enabled) } }
+    fun setDspBlockSize(value: Int) { viewModelScope.launch { preferences.setDspBlockSize(value) } }
     fun setCrossfadeDuration(seconds: Int) { viewModelScope.launch { preferences.setCrossfadeDuration(seconds) } }
 
     // --- Audio speed actions ---
