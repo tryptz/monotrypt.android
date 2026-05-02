@@ -25,7 +25,11 @@ constexpr uint8_t SUBCLASS_AUDIOSTREAM  = 0x02;
 
 constexpr uint8_t CS_INTERFACE          = 0x24;
 constexpr uint8_t AC_HEADER             = 0x01;
+constexpr uint8_t AC_INPUT_TERMINAL     = 0x02;
+constexpr uint8_t AC_OUTPUT_TERMINAL    = 0x03;
 constexpr uint8_t AC_CLOCK_SOURCE       = 0x0A;
+constexpr uint8_t AC_CLOCK_SELECTOR     = 0x0B;
+constexpr uint8_t AC_CLOCK_MULTIPLIER   = 0x0C;
 constexpr uint8_t AS_GENERAL            = 0x01;
 constexpr uint8_t AS_FORMAT_TYPE        = 0x02;
 constexpr uint8_t FORMAT_TYPE_I         = 0x01;
@@ -165,13 +169,24 @@ bool LibusbUacDriver::selectAltSetting(int sampleRateHz, int bitsPerSample,
 
     // First pass: locate AudioControl interface, decode bcdADC
     // (UAC version) from its Header class-specific descriptor, and
-    // for UAC2 harvest the clock-source entity ID. UAC1 has no
-    // clock entities — sample-rate control lives on the data
-    // endpoint instead.
+    // for UAC2 inventory every clock-bearing entity (CLOCK_SOURCE /
+    // CLOCK_SELECTOR / CLOCK_MULTIPLIER) and every terminal so we
+    // can resolve which clock the streaming path actually uses.
+    // Bathys (and many other UAC2 DACs) don't expose a standalone
+    // CLOCK_SOURCE — the clock is referenced via the Input or
+    // Output Terminal's bCSourceID, so naively grabbing the first
+    // CLOCK_SOURCE we find leaves clockId=0 → SET_CUR fails with
+    // wIndex=0x0001.
     uint8_t controlIface = 0xFF;
-    uint8_t clockId = 0;
-    uint16_t uacVersion = 0x0200;   // assume UAC2 unless header says otherwise
+    uint16_t uacVersion = 0x0200;
     bool foundControl = false;
+
+    // Per-terminal: (terminalID -> bCSourceID).
+    struct TermClock { uint8_t termId; uint8_t clockId; };
+    std::vector<TermClock> terminals;
+    // Set of all clock-entity IDs (any of source/selector/multiplier).
+    std::vector<uint8_t> clockEntities;
+
     for (uint8_t i = 0; i < config->bNumInterfaces; ++i) {
         const libusb_interface& iface = config->interface[i];
         for (int a = 0; a < iface.num_altsetting; ++a) {
@@ -182,11 +197,20 @@ bool LibusbUacDriver::selectAltSetting(int sampleRateHz, int bitsPerSample,
             walkExtra(alt.extra, alt.extra_length,
                 [&](const uint8_t* p, int len) {
                     if (isClassDescriptor(p, len, CS_INTERFACE, AC_HEADER) && len >= 5) {
-                        // bcdADC is little-endian at offset 3..4.
                         uacVersion = static_cast<uint16_t>(p[3]) |
                                      (static_cast<uint16_t>(p[4]) << 8);
                     } else if (isClassDescriptor(p, len, CS_INTERFACE, AC_CLOCK_SOURCE) && len >= 4) {
-                        clockId = p[3];   // bClockID
+                        clockEntities.push_back(p[3]);
+                    } else if (isClassDescriptor(p, len, CS_INTERFACE, AC_CLOCK_SELECTOR) && len >= 4) {
+                        clockEntities.push_back(p[3]);
+                    } else if (isClassDescriptor(p, len, CS_INTERFACE, AC_CLOCK_MULTIPLIER) && len >= 4) {
+                        clockEntities.push_back(p[3]);
+                    } else if (isClassDescriptor(p, len, CS_INTERFACE, AC_INPUT_TERMINAL) && len >= 8) {
+                        // UAC2 IT: bTerminalID @p[3], bCSourceID @p[7].
+                        terminals.push_back({p[3], p[7]});
+                    } else if (isClassDescriptor(p, len, CS_INTERFACE, AC_OUTPUT_TERMINAL) && len >= 9) {
+                        // UAC2 OT: bTerminalID @p[3], bCSourceID @p[8].
+                        terminals.push_back({p[3], p[8]});
                     }
                     return false;
                 });
@@ -200,9 +224,10 @@ bool LibusbUacDriver::selectAltSetting(int sampleRateHz, int bitsPerSample,
         libusb_free_config_descriptor(config);
         return false;
     }
-    LOGI("AudioControl iface %u, UAC version 0x%04x%s",
+    LOGI("AudioControl iface %u, UAC version 0x%04x%s — %zu clock entities, %zu terminals",
          controlIface, uacVersion,
-         (uacVersion < 0x0200) ? " (UAC1)" : " (UAC2)");
+         (uacVersion < 0x0200) ? " (UAC1)" : " (UAC2)",
+         clockEntities.size(), terminals.size());
 
     // Second pass: walk AudioStreaming alt settings and find one
     // matching the requested rate/depth/channels. UAC2 doesn't list
@@ -219,15 +244,16 @@ bool LibusbUacDriver::selectAltSetting(int sampleRateHz, int bitsPerSample,
             if (alt.bAlternateSetting == 0) continue;   // alt 0 = idle
 
             int altChannels = 0, altBits = 0, altSubslot = 0;
+            uint8_t altTerminalLink = 0;
             bool rateSupportedByDescriptor = (uacVersion >= 0x0200);
             walkExtra(alt.extra, alt.extra_length,
                 [&](const uint8_t* p, int len) {
                     if (isClassDescriptor(p, len, CS_INTERFACE, AS_GENERAL)) {
                         // UAC2 AS_GENERAL is 16 bytes and carries
-                        // bNrChannels at p[10]. UAC1 AS_GENERAL is
-                        // 7 bytes and has no channel field — channels
-                        // come from AS_FORMAT_TYPE there.
+                        // bTerminalLink @p[3] (which terminal this AS
+                        // is paired with) and bNrChannels @p[10].
                         if (uacVersion >= 0x0200 && len >= 16) {
+                            altTerminalLink = p[3];
                             altChannels = p[10];
                         }
                     } else if (isClassDescriptor(p, len, CS_INTERFACE, AS_FORMAT_TYPE)
@@ -323,7 +349,26 @@ bool LibusbUacDriver::selectAltSetting(int sampleRateHz, int bitsPerSample,
             out_fmt->altSetting = alt.bAlternateSetting;
             out_fmt->endpointAddress = iso->bEndpointAddress;
             out_fmt->maxPacketSize = iso->wMaxPacketSize;
-            out_fmt->clockSourceId = clockId;
+            // Resolve which clock entity this AS interface uses:
+            //  1. AS_GENERAL.bTerminalLink → look up terminal,
+            //     take its bCSourceID. This is the spec-correct
+            //     path and what Bathys uses (it has no standalone
+            //     CLOCK_SOURCE descriptor).
+            //  2. Fallback: first clock entity we found (any of
+            //     CLOCK_SOURCE / SELECTOR / MULTIPLIER).
+            //  3. Last resort: 0 (caller will skip SET_CUR — many
+            //     fixed-clock devices accept that gracefully).
+            uint8_t resolvedClock = 0;
+            for (const auto& tc : terminals) {
+                if (tc.termId == altTerminalLink) {
+                    resolvedClock = tc.clockId;
+                    break;
+                }
+            }
+            if (resolvedClock == 0 && !clockEntities.empty()) {
+                resolvedClock = clockEntities.front();
+            }
+            out_fmt->clockSourceId = resolvedClock;
             out_fmt->controlInterfaceNum = controlIface;
             out_fmt->isHighSpeed =
                 libusb_get_device_speed(dev) >= LIBUSB_SPEED_HIGH;
@@ -353,12 +398,16 @@ bool LibusbUacDriver::selectAltSetting(int sampleRateHz, int bitsPerSample,
 
 bool LibusbUacDriver::setSampleRate(uint32_t hz) {
     if (format_.uacVersion >= 0x0200) {
-        // UAC2 §5.2.5.1.1 — set on a clock-source entity, 32-bit LE.
+        // UAC2 §5.2.5.1.1 — SET_CUR on a clock entity, 32-bit LE.
         //   bmRequestType = 0x21 (Class | Interface | Host-to-Device)
-        //   bRequest      = SET_CUR (0x01)
-        //   wValue        = (CS_SAM_FREQ_CONTROL << 8) | 0
-        //   wIndex        = (clockSourceId << 8) | controlInterfaceNum
+        //   wValue        = CS_SAM_FREQ_CONTROL << 8
+        //   wIndex        = (clockId << 8) | controlInterfaceNum
         //   wLength       = 4
+        if (format_.clockSourceId == 0) {
+            LOGW("UAC2: no clock entity resolved for terminal — skipping "
+                 "SET_CUR (assuming fixed-rate clock at %u Hz)", hz);
+            return true;
+        }
         uint8_t data[4] = {
             static_cast<uint8_t>(hz & 0xFF),
             static_cast<uint8_t>((hz >> 8) & 0xFF),
@@ -366,18 +415,38 @@ bool LibusbUacDriver::setSampleRate(uint32_t hz) {
             static_cast<uint8_t>((hz >> 24) & 0xFF),
         };
         int rc = libusb_control_transfer(
-            device_,
-            /*bmRequestType=*/0x21,
-            /*bRequest=*/REQ_SET_CUR,
-            /*wValue=*/static_cast<uint16_t>(CS_SAM_FREQ_CONTROL_SEL << 8),
-            /*wIndex=*/static_cast<uint16_t>(
+            device_, 0x21, REQ_SET_CUR,
+            static_cast<uint16_t>(CS_SAM_FREQ_CONTROL_SEL << 8),
+            static_cast<uint16_t>(
                 (format_.clockSourceId << 8) | format_.controlInterfaceNum),
-            data, 4,
-            /*timeout=*/1000);
-        if (rc != 4) {
-            LOGE("UAC2 SET_CUR sample rate %u Hz -> %d", hz, rc);
-            return false;
+            data, 4, 1000);
+        if (rc == 4) return true;
+        // STALL or I/O error: many UAC2 DACs (Focal Bathys included)
+        // run a fixed-rate hardware clock that doesn't accept
+        // programmatic rate changes — the rate is whatever the
+        // hardware was wired for, and the host just sends data at
+        // that rate. Verify the device's GET_CUR matches what we
+        // want; if so, proceed without SET_CUR. If GET_CUR is also
+        // a different rate, log a warning but still proceed (audio
+        // may pitch-shift, but at least it'll play).
+        uint8_t cur[4] = {0, 0, 0, 0};
+        int gc = libusb_control_transfer(
+            device_, /*bmRequestType=*/0xA1, /*bRequest=*/0x81 /*GET_CUR*/,
+            static_cast<uint16_t>(CS_SAM_FREQ_CONTROL_SEL << 8),
+            static_cast<uint16_t>(
+                (format_.clockSourceId << 8) | format_.controlInterfaceNum),
+            cur, 4, 1000);
+        uint32_t devHz = (gc == 4)
+            ? (uint32_t(cur[0]) | (uint32_t(cur[1]) << 8) |
+               (uint32_t(cur[2]) << 16) | (uint32_t(cur[3]) << 24))
+            : 0;
+        if (gc == 4 && devHz == hz) {
+            LOGI("UAC2 SET_CUR stalled but GET_CUR confirms %u Hz already — fixed-rate clock", hz);
+            return true;
         }
+        LOGW("UAC2 SET_CUR %u Hz -> %d, GET_CUR -> %u Hz; "
+             "proceeding anyway (device may pitch-shift)",
+             hz, rc, devHz);
         return true;
     }
     // UAC1 §5.2.3.2.3.1 — set on the iso DATA endpoint, 24-bit LE.
