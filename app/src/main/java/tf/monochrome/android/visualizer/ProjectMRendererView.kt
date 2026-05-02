@@ -1,6 +1,7 @@
 package tf.monochrome.android.visualizer
 
 import android.content.Context
+import android.opengl.EGL14
 import android.opengl.GLES20
 import android.opengl.GLSurfaceView
 import android.util.AttributeSet
@@ -54,6 +55,13 @@ class ProjectMRendererView @JvmOverloads constructor(
 
         override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
             GLES20.glClearColor(0f, 0f, 0f, 1f)
+            // Disable vsync on the visualizer's GL surface so renderFrame can
+            // run as fast as the GPU allows instead of being clamped to the
+            // display refresh. Adreno honours eglSwapInterval(0); other
+            // drivers may silently cap at vblank — there is no portable way
+            // to force-uncap. Effect is local to this GLSurfaceView; the
+            // Compose UI thread keeps its own vsync.
+            EGL14.eglSwapInterval(EGL14.eglGetCurrentDisplay(), 0)
             // Don't do heavy I/O here; the engine prepares assets asynchronously
             // in its init block. We just signal readiness on the GL thread.
             attached = false
