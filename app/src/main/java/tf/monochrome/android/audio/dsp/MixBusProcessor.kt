@@ -74,9 +74,7 @@ class MixBusProcessor @Inject constructor(
     external fun nativeLoadStateJson(enginePtr: Long, stateJson: String)
 
     companion object {
-        init {
-            System.loadLibrary("monochrome_dsp")
-        }
+        init { DspNativeLoader.ensureLoaded() }
         const val MAX_BLOCK_SIZE = 4096
     }
 

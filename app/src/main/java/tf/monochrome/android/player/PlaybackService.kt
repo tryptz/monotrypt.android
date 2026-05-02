@@ -340,6 +340,15 @@ class PlaybackService : MediaSessionService() {
                 val (mediaItem, trackStream) = streamResolver.resolveMediaItem(track)
                 currentReplayGain = trackStream?.replayGain
 
+                if (mediaItem == null) {
+                    // Stream URL couldn't be resolved (offline / API error /
+                    // blank URL). Skipping is preferable to feeding ExoPlayer
+                    // a MediaItem with no localConfiguration — that path NPEs
+                    // inside DefaultMediaSourceFactory.
+                    onTrackEnded()
+                    return@launch
+                }
+
                 player.setMediaItem(mediaItem)
                 player.prepare()
                 player.play()
@@ -366,6 +375,10 @@ class PlaybackService : MediaSessionService() {
                 if (unifiedTrack != null) {
                     val resolved = streamResolver.resolveUnifiedTrack(unifiedTrack)
                     currentReplayGain = resolved.trackStream?.replayGain
+                    if (!resolved.isPlayable) {
+                        onTrackEnded()
+                        return@launch
+                    }
                     player.setMediaItem(resolved.mediaItem)
                     player.prepare()
                     player.play()
@@ -375,6 +388,11 @@ class PlaybackService : MediaSessionService() {
 
                 val (mediaItem, trackStream) = streamResolver.resolveMediaItem(currentTrack)
                 currentReplayGain = trackStream?.replayGain
+
+                if (mediaItem == null) {
+                    onTrackEnded()
+                    return@launch
+                }
 
                 val streamUrl = trackStream?.streamUrl
                 if (streamUrl != null && streamUrl.isNotBlank()) {
@@ -601,7 +619,16 @@ class PlaybackService : MediaSessionService() {
             controller: MediaSession.ControllerInfo,
             mediaItems: MutableList<MediaItem>,
         ): com.google.common.util.concurrent.ListenableFuture<MutableList<MediaItem>> {
-            return com.google.common.util.concurrent.Futures.immediateFuture(mediaItems)
+            // External controllers (Android Auto, Bluetooth headsets, the
+            // Glance widget) routinely send bare MediaItems carrying only a
+            // mediaId — no URI, no localConfiguration. Forwarding those to
+            // PlayerWrapper.setMediaItems makes DefaultMediaSourceFactory NPE
+            // at line 457 (visible in logcat as MediaSessionStub: Session
+            // operation failed). Drop them here.
+            val playable = mediaItems.filterTo(mutableListOf()) { item ->
+                item.localConfiguration?.uri?.toString()?.isNotBlank() == true
+            }
+            return com.google.common.util.concurrent.Futures.immediateFuture(playable)
         }
     }
 }

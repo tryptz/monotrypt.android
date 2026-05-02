@@ -125,6 +125,16 @@ class MonochromeApp : Application(), Configuration.Provider, SingletonImageLoade
         // Start the in-app logcat collector as early as possible so the "View
         // debug log" screen has a buffered history from (almost) app start.
         debugLogCollector.start()
+        // Warm up libmonochrome_dsp on a background thread so the linker work
+        // (a few-MB dlopen + relocations) doesn't land on the UI thread when
+        // Hilt instantiates MixBusProcessor / InflatorEffect / CompressorEffect
+        // singletons. Audio processing happens on its own thread later, which
+        // will block on this load if the warm-up hasn't completed yet — but in
+        // the typical case the linker is done long before the first audio
+        // buffer arrives.
+        appScope.launch {
+            tf.monochrome.android.audio.dsp.DspNativeLoader.ensureLoaded()
+        }
         // Restore auth on app start, then register this device against whichever
         // user is signed in. The collector re-fires on sign-in / sign-out.
         appScope.launch {

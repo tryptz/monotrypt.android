@@ -45,7 +45,8 @@
             android:name=".ui.main.MainActivity"
             android:exported="true"
             android:theme="@style/Theme.Monochrome.Splash"
-            android:launchMode="singleTop">
+            android:launchMode="singleTop"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|uiMode|density|navigation">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

@@ -518,6 +518,10 @@ class PlayerViewModel @Inject constructor(
                     ?: synthesizeQobuzUnifiedTrack(track)
                 if (unifiedTrack != null) {
                     val resolved = streamResolver.resolveUnifiedTrack(unifiedTrack)
+                    if (!resolved.isPlayable) {
+                        skipToNext()
+                        return@launch
+                    }
                     mediaController?.let { mc ->
                         mc.setMediaItem(resolved.mediaItem)
                         mc.prepare()
@@ -525,7 +529,11 @@ class PlayerViewModel @Inject constructor(
                     }
                 } else {
                     // Legacy API path
-                    val (mediaItem, trackStream) = streamResolver.resolveMediaItem(track)
+                    val (mediaItem, _) = streamResolver.resolveMediaItem(track)
+                    if (mediaItem == null) {
+                        skipToNext()
+                        return@launch
+                    }
                     mediaController?.let { mc ->
                         mc.setMediaItem(mediaItem)
                         mc.prepare()

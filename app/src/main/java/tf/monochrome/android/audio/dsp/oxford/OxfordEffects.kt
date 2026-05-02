@@ -10,6 +10,7 @@
 
 package tf.monochrome.android.audio.dsp.oxford
 
+import tf.monochrome.android.audio.dsp.DspNativeLoader
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -22,7 +23,7 @@ import javax.inject.Singleton
 // ---- Native entry points -------------------------------------------------
 
 internal object InflatorNative {
-    init { System.loadLibrary("monochrome_dsp") }
+    init { DspNativeLoader.ensureLoaded() }
     external fun nativeCreate(): Long
     external fun nativeDestroy(handle: Long)
     external fun nativePrepare(handle: Long, sampleRate: Double, channels: Int)
@@ -37,7 +38,7 @@ internal object InflatorNative {
 }
 
 internal object CompressorNative {
-    init { System.loadLibrary("monochrome_dsp") }
+    init { DspNativeLoader.ensureLoaded() }
     external fun nativeCreate(): Long
     external fun nativeDestroy(handle: Long)
     external fun nativePrepare(handle: Long, sampleRate: Double, channels: Int)
