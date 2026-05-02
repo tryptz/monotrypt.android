@@ -15,6 +15,13 @@
         android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
 
+    <!-- Bit-perfect / hi-res output. MODIFY_AUDIO_SETTINGS lets us route around
+         the system mixer (request specific sample rates, disable effects on the
+         AudioTrack) so a 24/96 FLAC reaches the DAC without being downsampled
+         to the device's mix rate. Granted at install time on every Android
+         version. -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
     <application
         android:name=".MonochromeApp"
         android:allowBackup="true"
