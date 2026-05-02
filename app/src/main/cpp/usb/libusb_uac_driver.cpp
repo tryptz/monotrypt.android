@@ -225,15 +225,22 @@ bool LibusbUacDriver::selectAltSetting(int sampleRateHz, int bitsPerSample,
 
             if (altChannels != channels || altBits != bitsPerSample) continue;
 
-            // Find an OUT iso endpoint.
+            // Find the OUT iso data EP and (optionally) the IN iso
+            // feedback EP. Async UAC2 endpoints have:
+            //   bmAttributes bits 1:0 = 01 (iso)
+            //                bits 3:2 = 01 (async)
+            //                bits 5:4 = 00 data, 01 feedback,
+            //                          10 implicit-feedback data
+            // Direction lives in bEndpointAddress bit 7 (1 = IN).
             const libusb_endpoint_descriptor* iso = nullptr;
+            const libusb_endpoint_descriptor* feedback = nullptr;
             for (int e = 0; e < alt.bNumEndpoints; ++e) {
                 const libusb_endpoint_descriptor& ep = alt.endpoint[e];
-                if ((ep.bmAttributes & 0x03) == LIBUSB_TRANSFER_TYPE_ISOCHRONOUS &&
-                    (ep.bEndpointAddress & 0x80) == 0) {
-                    iso = &ep;
-                    break;
-                }
+                if ((ep.bmAttributes & 0x03) != LIBUSB_TRANSFER_TYPE_ISOCHRONOUS) continue;
+                bool isIn = (ep.bEndpointAddress & 0x80) != 0;
+                uint8_t usage = (ep.bmAttributes >> 4) & 0x03;
+                if (!isIn && usage == 0x00 && !iso) iso = &ep;
+                else if (isIn && usage == 0x01 && !feedback) feedback = &ep;
             }
             if (!iso) continue;
 
@@ -249,11 +256,17 @@ bool LibusbUacDriver::selectAltSetting(int sampleRateHz, int bitsPerSample,
             out_fmt->controlInterfaceNum = controlIface;
             out_fmt->isHighSpeed =
                 libusb_get_device_speed(dev) >= LIBUSB_SPEED_HIGH;
+            if (feedback) {
+                out_fmt->feedbackEndpointAddress = feedback->bEndpointAddress;
+                out_fmt->feedbackMaxPacketSize = feedback->wMaxPacketSize;
+                out_fmt->feedbackInterval = feedback->bInterval;
+            }
             found = true;
-            LOGI("matched alt %u on iface %u: %dch %d-bit, ep 0x%02x mps=%u",
+            LOGI("matched alt %u on iface %u: %dch %d-bit, data ep 0x%02x mps=%u%s",
                  alt.bAlternateSetting, alt.bInterfaceNumber,
                  channels, bitsPerSample, iso->bEndpointAddress,
-                 iso->wMaxPacketSize);
+                 iso->wMaxPacketSize,
+                 feedback ? " + feedback" : " (no feedback EP)");
             break;
         }
     }
@@ -368,18 +381,28 @@ void LibusbUacDriver::stop() {
 // --- Iso pump ---------------------------------------------------------
 
 bool LibusbUacDriver::startIsoPump() {
-    // High-speed runs 8 microframes/ms, full-speed 1 frame/ms. UAC2
-    // packetization is one slot per (micro)frame. For rates that
-    // don't divide evenly (44.1 / 88.2 / 176.4 kHz) we send a
-    // variable number of frames per packet, controlled by a
-    // Bresenham-style accumulator in onIso(). For the Focal Bathys
-    // this is the path 44.1 kHz takes — base 5 frames/uframe with
-    // a +1 every ~2nd packet, averaging 5.5125 fps/uframe.
+    // High-speed runs 8 microframes/ms, full-speed 1 frame/ms. We
+    // express the host's "frames per (micro)frame" as a single 16.16
+    // fixed-point value: integer part is the base frame count, frac
+    // part covers 44.1k-family rates (5.5125 fps/uframe → 0x000588CD).
+    // Per-packet framecount = floor(acc + rate); acc keeps the
+    // remainder. When a feedback IN endpoint exists, [framesPerUframe_q16_]
+    // is overwritten by the device on every feedback URB and the
+    // host transparently re-paces; otherwise we run open-loop on the
+    // seed value.
     microframesPerSec_ = format_.isHighSpeed ? 8000 : 1000;
-    baseFrames_ = format_.sampleRateHz / microframesPerSec_;
-    rateRemainder_ = format_.sampleRateHz % microframesPerSec_;
-    rateAccumulator_ = 0;
-    maxFramesPerPacket_ = baseFrames_ + (rateRemainder_ > 0 ? 1 : 0);
+    int baseFrames = format_.sampleRateHz / microframesPerSec_;
+    int rateRemainder = format_.sampleRateHz % microframesPerSec_;
+    uint32_t seed_q16 =
+        (static_cast<uint32_t>(baseFrames) << 16) +
+        static_cast<uint32_t>(
+            (static_cast<uint64_t>(rateRemainder) << 16) /
+            static_cast<uint32_t>(microframesPerSec_));
+    framesPerUframe_q16_.store(seed_q16, std::memory_order_relaxed);
+    fracAccumulator_q16_ = 0;
+    maxFramesPerPacket_ = baseFrames + (rateRemainder > 0 ? 1 : 0)
+                          // +1 headroom for feedback over-asks.
+                          + 1;
 
     int frameStride = format_.channels * format_.bytesPerSample;
     int maxBytesPerPacket = maxFramesPerPacket_ * frameStride;
@@ -411,13 +434,42 @@ bool LibusbUacDriver::startIsoPump() {
             buf.data(), buf.size(), kPacketsPerTransfer,
             &LibusbUacDriver::onIsoTrampoline, this, /*timeout=*/0);
         // Initial packet lengths use the integer base frames so the
-        // first transmission is silence at the exact average rate.
-        // onIso refines using the accumulator from the second URB on.
-        libusb_set_iso_packet_lengths(
-            xfr, baseFrames_ * frameStride);
+        // first transmission is silence at roughly the average rate.
+        // onIso refines per-packet from the fractional accumulator
+        // and (when present) the latest feedback value.
+        libusb_set_iso_packet_lengths(xfr, baseFrames * frameStride);
 
         transferBuffers_.emplace_back(std::move(buf));
         transfers_.push_back(xfr);
+    }
+
+    // Optional feedback EP. UAC2 §5.2.2.4.1: feedback IN, 4 bytes
+    // (16.16 fixed) on high-speed, 3 bytes (10.10 fixed shifted left
+    // by 4) on full-speed. We allocate one 1-packet transfer per
+    // feedback URB and keep two in flight so completions overlap
+    // with each other; the event thread already drives all iso
+    // completions on a single thread so no locking needed for the
+    // atomic store.
+    constexpr int kFeedbackTransfers = 2;
+    if (format_.feedbackEndpointAddress != 0) {
+        for (int t = 0; t < kFeedbackTransfers; ++t) {
+            libusb_transfer* fxfr = libusb_alloc_transfer(/*iso pkts=*/1);
+            if (!fxfr) {
+                LOGE("alloc feedback transfer %d failed", t);
+                stopIsoPump();
+                return false;
+            }
+            int fbBufSize = format_.feedbackMaxPacketSize > 0
+                ? format_.feedbackMaxPacketSize : 4;
+            std::vector<uint8_t> fbBuf(fbBufSize, 0);
+            libusb_fill_iso_transfer(
+                fxfr, device_, format_.feedbackEndpointAddress,
+                fbBuf.data(), fbBuf.size(), /*num_iso_packets=*/1,
+                &LibusbUacDriver::onFeedbackTrampoline, this, /*timeout=*/0);
+            libusb_set_iso_packet_lengths(fxfr, fbBufSize);
+            feedbackBuffers_.emplace_back(std::move(fbBuf));
+            feedbackTransfers_.push_back(fxfr);
+        }
     }
 
     // Spin up the event thread before we submit so any immediate
@@ -433,7 +485,19 @@ bool LibusbUacDriver::startIsoPump() {
 
     // Initial submit. Buffers are zero-padded so the first ms of
     // output is silence — gives the audio thread a head-start to
-    // fill the ring before the iso pipeline drains it.
+    // fill the ring before the iso pipeline drains it. Feedback
+    // transfers go in first so the device knows we're listening
+    // before the data EP starts demanding samples.
+    for (libusb_transfer* fxfr : feedbackTransfers_) {
+        int rc = libusb_submit_transfer(fxfr);
+        if (rc != LIBUSB_SUCCESS) {
+            LOGE("initial submit feedback -> %d", rc);
+            stopRequested_.store(true, std::memory_order_release);
+            stopIsoPump();
+            return false;
+        }
+        inflight_.fetch_add(1, std::memory_order_relaxed);
+    }
     for (libusb_transfer* xfr : transfers_) {
         int rc = libusb_submit_transfer(xfr);
         if (rc != LIBUSB_SUCCESS) {
@@ -452,6 +516,9 @@ void LibusbUacDriver::stopIsoPump() {
     for (libusb_transfer* xfr : transfers_) {
         if (xfr) libusb_cancel_transfer(xfr);
     }
+    for (libusb_transfer* fxfr : feedbackTransfers_) {
+        if (fxfr) libusb_cancel_transfer(fxfr);
+    }
     // Drain the event loop until every transfer has reported completion
     // (cancellation counts). Bounded wait — if libusb wedges we'd
     // rather log and move on than hang the audio thread.
@@ -464,13 +531,80 @@ void LibusbUacDriver::stopIsoPump() {
     for (libusb_transfer* xfr : transfers_) {
         if (xfr) libusb_free_transfer(xfr);
     }
+    for (libusb_transfer* fxfr : feedbackTransfers_) {
+        if (fxfr) libusb_free_transfer(fxfr);
+    }
     transfers_.clear();
     transferBuffers_.clear();
+    feedbackTransfers_.clear();
+    feedbackBuffers_.clear();
     inflight_.store(0, std::memory_order_relaxed);
 }
 
 void LibusbUacDriver::onIsoTrampoline(libusb_transfer* xfr) {
     static_cast<LibusbUacDriver*>(xfr->user_data)->onIso(xfr);
+}
+
+void LibusbUacDriver::onFeedbackTrampoline(libusb_transfer* xfr) {
+    static_cast<LibusbUacDriver*>(xfr->user_data)->onFeedback(xfr);
+}
+
+// Decodes a UAC feedback packet and updates the atomic rate the
+// data-EP completion callback reads on its next pass.
+//
+// High-speed (USB 2.0): 4 bytes, little-endian, 16.16 fixed-point.
+//   Value = number of samples per microframe the device wants.
+//   Direct fit for our framesPerUframe_q16_ atomic.
+//
+// Full-speed (USB 1.1): 3 bytes, little-endian, 10.10 fixed-point
+// shifted left by 4 — i.e. the 24-bit value is "samples per frame
+// in 10.14 format". To normalize to the same q16 representation
+// the data EP uses, we left-shift by 2 (10.14 → 10.16).
+//
+// Out-of-range values (zero, or > maxFramesPerPacket_+1) are
+// ignored — better to keep the previous rate than chase a glitchy
+// reading that would overrun the iso buffer or starve the DAC.
+void LibusbUacDriver::onFeedback(libusb_transfer* xfr) {
+    if (xfr->status == LIBUSB_TRANSFER_CANCELLED ||
+        xfr->status == LIBUSB_TRANSFER_NO_DEVICE) {
+        inflight_.fetch_sub(1, std::memory_order_acq_rel);
+        return;
+    }
+    if (stopRequested_.load(std::memory_order_acquire)) {
+        inflight_.fetch_sub(1, std::memory_order_acq_rel);
+        return;
+    }
+    if (xfr->status == LIBUSB_TRANSFER_COMPLETED &&
+        xfr->num_iso_packets > 0 &&
+        xfr->iso_packet_desc[0].status == LIBUSB_TRANSFER_COMPLETED) {
+        int actual = xfr->iso_packet_desc[0].actual_length;
+        const uint8_t* p = xfr->buffer;
+        uint32_t v_q16 = 0;
+        if (actual >= 4) {
+            v_q16 =  static_cast<uint32_t>(p[0])
+                  | (static_cast<uint32_t>(p[1]) << 8)
+                  | (static_cast<uint32_t>(p[2]) << 16)
+                  | (static_cast<uint32_t>(p[3]) << 24);
+        } else if (actual >= 3) {
+            uint32_t v_q14 =
+                  static_cast<uint32_t>(p[0])
+                | (static_cast<uint32_t>(p[1]) << 8)
+                | (static_cast<uint32_t>(p[2]) << 16);
+            v_q16 = v_q14 << 2;
+        }
+        if (v_q16 > 0) {
+            uint32_t maxAllowed_q16 =
+                static_cast<uint32_t>(maxFramesPerPacket_) << 16;
+            if (v_q16 <= maxAllowed_q16) {
+                framesPerUframe_q16_.store(v_q16, std::memory_order_release);
+            }
+        }
+    }
+    int rc = libusb_submit_transfer(xfr);
+    if (rc != LIBUSB_SUCCESS) {
+        LOGE("resubmit feedback -> %d", rc);
+        inflight_.fetch_sub(1, std::memory_order_acq_rel);
+    }
 }
 
 void LibusbUacDriver::onIso(libusb_transfer* xfr) {
@@ -487,20 +621,23 @@ void LibusbUacDriver::onIso(libusb_transfer* xfr) {
         return;
     }
 
-    // Per-packet sizing via the Bresenham accumulator — handles
-    // 44.1k / 88.2k / 176.4k by dispatching base-or-base+1 frames per
-    // packet so the average matches the requested rate to within one
-    // sample. libusb iso buffers are TIGHTLY PACKED by per-packet
-    // length (packet i starts at offset = sum of lengths[0..i-1]),
-    // so we drain into a running cursor — no worst-case padding.
+    // Per-packet sizing from the 16.16 fixed-point rate the device
+    // most recently asked for (or the seeded open-loop value if no
+    // feedback EP). libusb iso buffers are TIGHTLY PACKED by
+    // per-packet length (packet i starts at offset = sum of
+    // lengths[0..i-1]), so we drain into a running cursor — no
+    // worst-case padding.
     int frameStride = format_.channels * format_.bytesPerSample;
+    uint32_t rate_q16 = framesPerUframe_q16_.load(std::memory_order_acquire);
     uint8_t* cursor = xfr->buffer;
     for (int p = 0; p < xfr->num_iso_packets; ++p) {
-        int frames = baseFrames_;
-        rateAccumulator_ += rateRemainder_;
-        if (rateAccumulator_ >= microframesPerSec_) {
-            frames++;
-            rateAccumulator_ -= microframesPerSec_;
+        fracAccumulator_q16_ += rate_q16;
+        int frames = static_cast<int>(fracAccumulator_q16_ >> 16);
+        fracAccumulator_q16_ &= 0xFFFF;
+        if (frames > maxFramesPerPacket_) {
+            // Should never happen, but cap so we don't overrun the
+            // worst-case-sized iso buffer.
+            frames = maxFramesPerPacket_;
         }
         int bytes = frames * frameStride;
         xfr->iso_packet_desc[p].length = bytes;

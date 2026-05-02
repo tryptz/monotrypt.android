@@ -38,6 +38,15 @@ struct StreamFormat {
     uint8_t clockSourceId = 0;
     uint8_t controlInterfaceNum = 0;
     bool isHighSpeed = true;   // affects packet timing (125us vs 1ms)
+    // Async iso feedback IN endpoint (UAC2 §3.16.2.2). Zero if the
+    // device is adaptive/sync — most quality DACs (incl. Focal Bathys)
+    // are async and expose one. The host reads a 16.16 fixed-point
+    // "samples per (micro)frame" value the device wants the host to
+    // pace at; without honoring it we'd drift and the device's
+    // rate-matching FIFO would eventually over- or under-flow.
+    uint8_t feedbackEndpointAddress = 0;
+    uint16_t feedbackMaxPacketSize = 0;
+    uint8_t feedbackInterval = 0;
 };
 
 class LibusbUacDriver {
@@ -129,24 +138,30 @@ private:
     // streaming_ is true.
     std::vector<libusb_transfer*> transfers_;
     std::vector<std::vector<uint8_t>> transferBuffers_;
-    std::atomic<int> inflight_{0};     // active transfers
+    std::vector<libusb_transfer*> feedbackTransfers_;
+    std::vector<std::vector<uint8_t>> feedbackBuffers_;
+    std::atomic<int> inflight_{0};     // active transfers (data + fb)
     std::thread eventThread_;
 
-    // Fractional-frame Bresenham accumulator for non-multiple-of-8000
-    // rates (44.1 / 88.2 / 176.4 kHz). On each packet:
-    //   thisPacketFrames = baseFrames_;
-    //   rateAccumulator_ += rateRemainder_;
-    //   if (rateAccumulator_ >= microframesPerSec_) {
-    //       thisPacketFrames++;
-    //       rateAccumulator_ -= microframesPerSec_;
-    //   }
-    // Lives only on the iso completion thread once start() returns,
-    // so no synchronization required.
-    int baseFrames_ = 0;
-    int rateRemainder_ = 0;
+    // Per-packet frame count is computed from a 16.16 fixed-point
+    // "frames per microframe" value. Two sources:
+    //  - When no feedback EP exists, we seed it from the requested
+    //    rate as (sampleRate / microframesPerSec) << 16, integer
+    //    plus fractional (`rateRemainder_ << 16 / microframesPerSec_`).
+    //    A fractional accumulator on the iso completion thread then
+    //    walks one packet at a time — same effect as the old
+    //    Bresenham, just in a single uint32 instead of two ints.
+    //  - When a feedback IN EP exists, every feedback URB completion
+    //    overwrites this atomic with the device-requested rate.
+    //    Packets sized off the next read get the new rate, so the
+    //    host paces to whatever the DAC's clock recovery wants.
+    std::atomic<uint32_t> framesPerUframe_q16_{0};
     int microframesPerSec_ = 8000;
-    int rateAccumulator_ = 0;
     int maxFramesPerPacket_ = 0;
+    uint32_t fracAccumulator_q16_ = 0;  // event-thread-only state
+
+    static void LIBUSB_CALL onFeedbackTrampoline(libusb_transfer* xfr);
+    void onFeedback(libusb_transfer* xfr);
 };
 
 } // namespace monotrypt::usb
