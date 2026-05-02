@@ -22,6 +22,11 @@
          version. -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
+    <!-- USB host mode — required to enumerate and route to USB Audio Class
+         DACs. Marked not-required so the app still installs on tablets / TVs
+         that lack a USB host port; UsbAudioRouter no-ops on those. -->
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
+
     <application
         android:name=".MonochromeApp"
         android:allowBackup="true"

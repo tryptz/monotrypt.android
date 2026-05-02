@@ -27,6 +27,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
@@ -61,6 +62,7 @@ class PlaybackService : MediaSessionService() {
     @Inject lateinit var parametricEqProcessor: ParametricEqProcessor
     @Inject lateinit var spectrumAnalyzerTap: SpectrumAnalyzerTap
     @Inject lateinit var unifiedTrackRegistry: UnifiedTrackRegistry
+    @Inject lateinit var usbAudioRouter: tf.monochrome.android.audio.UsbAudioRouter
 
     private var mediaSession: MediaSession? = null
     private lateinit var player: ExoPlayer
@@ -168,6 +170,20 @@ class PlaybackService : MediaSessionService() {
                 }
             }
         })
+
+        // Bit-perfect USB DAC routing — when the user has the toggle on
+        // and a USB Audio Class device is attached, pin ExoPlayer's
+        // output to it via setPreferredAudioDevice. Reverts to system
+        // default whenever the toggle goes off or the DAC is unplugged.
+        serviceScope.launch {
+            preferences.usbBitPerfectEnabled
+                .combine(usbAudioRouter.usbOutputDevice) { enabled, device ->
+                    if (enabled) device else null
+                }
+                .collect { preferred ->
+                    runCatching { player.setPreferredAudioDevice(preferred) }
+                }
+        }
 
         // Wrap the ExoPlayer so Media3's notification + lock-screen surface
         // working next / previous controls. The wrapper routes those commands
