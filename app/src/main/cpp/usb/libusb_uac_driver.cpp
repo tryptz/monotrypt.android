@@ -55,6 +55,21 @@ constexpr size_t kRingBytes = 1u << 20;  // 1 MiB, must be power of two
 // when actively diagnosing a wedge.
 constexpr uint32_t kIsoLogEvery = 1000;
 
+// Maximum audio time we'll let the renderer queue in the ring before
+// writePcm starts returning 0 (back-pressuring ExoPlayer). Without
+// this cap, the renderer eagerly fills all 1 MiB of ring at boot
+// — which at 44.1k/16-bit/stereo is ~5.94 seconds of buffered
+// audio, so every pause / skip / hardware-volume press lags the
+// DAC by 6 sec. Steady-state end-to-end bypass latency is now
+// roughly kRingTargetMs plus the iso-pump's kPacketsPerTransfer ×
+// kNumTransfers in-flight depth (~4 ms at HS). 80 ms is well
+// above ExoPlayer's typical 20–40 ms renderer wakeup jitter so
+// we don't underrun on a slow tick, well under the threshold
+// where users start to feel "responds late" on transport
+// controls. Format-scaled at the use site so the wall-time depth
+// stays the same across 44.1 / 96 / 192 / 384 kHz.
+constexpr int kRingTargetMs = 80;
+
 // Produced/consumed bytes count, not frame count. We pack interleaved
 // PCM contiguously so byte-level accounting is the natural unit.
 inline size_t ringSize(size_t head, size_t tail) {
@@ -1346,14 +1361,25 @@ int LibusbUacDriver::drainRing(uint8_t* dst, int bytes) {
 
 int LibusbUacDriver::writePcm(const uint8_t* data, int frames) {
     if (frames <= 0 || format_.channels == 0) return 0;
-    int bytes = frames * format_.channels * format_.bytesPerSample;
+    int frameStride = format_.channels * format_.bytesPerSample;
+    int bytes = frames * frameStride;
     size_t head = ringHead_.load(std::memory_order_relaxed);
     size_t tail = ringTail_.load(std::memory_order_acquire);
-    size_t free = kRingBytes - (head - tail);
+    size_t depth = head - tail;
+    // Cap working depth at kRingTargetMs of audio so end-to-end
+    // bypass latency stays bounded regardless of how aggressively
+    // ExoPlayer's renderer fills us. The 1 MiB allocation is kept
+    // because rare 384k/32-bit/2ch streams legitimately want
+    // ~700 ms of headroom; for the common 44.1k/16-bit/2ch case
+    // this caps depth at ~17.6 KiB ≈ 80 ms.
+    size_t targetBytes = static_cast<size_t>(format_.sampleRateHz) *
+                         static_cast<size_t>(kRingTargetMs) / 1000u *
+                         static_cast<size_t>(frameStride);
+    if (targetBytes == 0 || targetBytes > kRingBytes) targetBytes = kRingBytes;
+    size_t free = depth >= targetBytes ? 0 : (targetBytes - depth);
     int writable = static_cast<int>(std::min<size_t>(free, static_cast<size_t>(bytes)));
     // Round down to whole frames to avoid splitting a frame across
     // calls — saves the consumer from having to track partial frames.
-    int frameStride = format_.channels * format_.bytesPerSample;
     if (frameStride > 0) writable -= writable % frameStride;
     if (writable <= 0) return 0;
 
