@@ -9,6 +9,8 @@ import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.ForwardingAudioSink
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 /**
  * Media3 [AudioSink] that hands PCM directly to libusb when the user
@@ -143,6 +145,46 @@ class LibusbAudioSink(
     // next stream gets its own one-shot edge log.
     private var endedLogged: Boolean = false
 
+    // Phase B: end-of-stream contract flag. ExoPlayer signals
+    // "no more buffers will be supplied for this configuration" by
+    // calling playToEndOfStream() exactly once, then polls isEnded()
+    // until it returns true. The previous bypass implementation
+    // tied isEnded to driver.isStreaming.value, which never goes
+    // false on natural EOS (only on stop/reset/release), so single-
+    // track sessions hung indefinitely with the position frozen at
+    // the end of the track. The fix is to latch this flag on the
+    // override, and key isEnded off "EOS signaled AND ring drained"
+    // — the natural definition that ExoPlayer's other audio sink
+    // implementations use. Reset on configure/flush/reset so the
+    // next stream re-arms. Marked @Volatile because it's set on the
+    // audio thread (playToEndOfStream) and read on the renderer's
+    // poll thread (isEnded).
+    @Volatile
+    private var playingToEndOfStream: Boolean = false
+
+    // Phase B: iso pump retry guard. When the watchdog detects a
+    // stall, the previous behaviour was to flip bypassActive=false
+    // and fall through to the delegate — which in exclusive mode is
+    // NoOpAudioSink and produces permanent silence with no recovery.
+    // The retry path stops and re-starts the pump on a background
+    // thread (because stop() spins waiting for cancelled URBs and
+    // must not block the audio thread). pumpRetryInFlight prevents
+    // re-triggering while a retry is already running, and
+    // watchdogTripped is now reserved for "retry was attempted and
+    // also failed" — the genuinely-give-up state.
+    @Volatile
+    private var pumpRetryInFlight: Boolean = false
+
+    // Single-thread executor used only for iso pump recovery work.
+    // Rare events; we don't need a pooled scope or a heavyweight
+    // CoroutineScope. The thread is daemon so it doesn't block
+    // process exit, named explicitly so a thread dump pinpoints
+    // any pathological recovery loop, and shut down on release().
+    private val recoveryExecutor: ExecutorService =
+        Executors.newSingleThreadExecutor { r ->
+            Thread(r, "BypassPumpRecovery").apply { isDaemon = true }
+        }
+
     override fun configure(
         inputFormat: Format,
         specifiedBufferSize: Int,
@@ -164,6 +206,7 @@ class LibusbAudioSink(
         configuredFormat = inputFormat
         lastEngageFailHash = 0   // fresh attempt for the new format
         endedLogged = false      // re-arm the one-shot trace edge
+        playingToEndOfStream = false  // re-arm EOS contract for new stream
 
         val rate = inputFormat.sampleRate
         val channels = inputFormat.channelCount
@@ -303,16 +346,27 @@ class LibusbAudioSink(
         // (PlayerViewModel.setVolume), ReplayGain
         // (PlaybackService.applyReplayGain), and the hardware key
         // dispatcher (MainActivity.dispatchKeyEvent). At unity gain
-        // OR on a bit depth we don't have a fast path for (24/32),
-        // we skip the scaling entirely and feed `direct` straight to
-        // libusb — preserves bit-perfect output for users who keep
-        // the slider maxed, and matches the prior behavior at
-        // depths the integer-multiply path doesn't yet cover.
+        // we feed `direct` straight to libusb to preserve bit-perfect
+        // output. Below unity, Phase B added paths for all three
+        // bit depths the renderer produces (16/24/32) — previously
+        // only 16-bit had a path and 24/32-bit silently kept unity
+        // gain, making the volume slider appear broken for the
+        // Bathys's default 24-bit format.
         val gain = volumeController.getVolume()
-        val toWrite = if (gain >= 0.9999f || outBitsPerSample != 16) {
+        val toWrite = if (gain >= 0.9999f) {
             direct
-        } else {
-            applyGainPcm16(direct, gain)
+        } else when (outBitsPerSample) {
+            16 -> applyGainPcm16(direct, gain)
+            24 -> applyGainPcm24(direct, gain)
+            32 -> applyGainPcm32(direct, gain)
+            // Fall back to unity for unknown depths rather than
+            // emitting silence; the user will hear something, and
+            // the log will show the gap so we can add coverage.
+            else -> {
+                Log.w(TAG, "no gain path for ${outBitsPerSample}b PCM — " +
+                    "passing through at unity gain ($gain requested)")
+                direct
+            }
         }
         val written = driver.write(toWrite, framesAvailable)
         if (written <= 0) {
@@ -360,13 +414,18 @@ class LibusbAudioSink(
     // that occasionally wedges with EBUSY when snd-usb-audio
     // re-attaches in the gap.
     override fun playToEndOfStream() {
-        // Phase A only TRACES this signal — the existing forward to
-        // the delegate (which is NoOpAudioSink in exclusive mode) is
-        // preserved unchanged. Phase B will hook this to the
-        // end-of-stream isEnded fix; the trace landing in production
-        // log captures during Phase A is what lets us verify the
-        // sequence of (configure → handleBuffer → playToEndOfStream
-        // → isEnded) before any behavioural change.
+        // Phase B: latch the EOS signal so isEnded() can honestly
+        // report when both EOS has been signaled AND the ring has
+        // drained. Without this latch, isEnded would never return
+        // true on a natural end-of-stream because driver.isStreaming
+        // stays true until stop() — which the renderer never calls
+        // before isEnded returns true, deadlocking the contract.
+        // Trace records the signal so the post-fix log shows the
+        // configure → handleBuffer → playToEndOfStream → isEnded
+        // sequence completing cleanly.
+        if (bypassActive) {
+            playingToEndOfStream = true
+        }
         trace { "playToEndOfStream bypassActive=$bypassActive ring_pending=${driver.pendingFrames()}" }
         super.playToEndOfStream()
     }
@@ -375,7 +434,14 @@ class LibusbAudioSink(
         trace { "pause bypassActive=$bypassActive ring_pending=${driver.pendingFrames()}" }
         super.pause()
         if (bypassActive) {
-            driver.flushRing()
+            // Phase B: soft-mute. The previous path called
+            // driver.flushRing(), which discarded the queued PCM
+            // and lost ~80 ms of audio on every pause/resume cycle
+            // at 44.1k/16-bit/2ch (the kRingTargetMs window). Soft-
+            // mute preserves the queued PCM and just suppresses
+            // audio at the consumer side; resume picks up exactly
+            // where pause left off, with no audible drop.
+            driver.setMuted(true)
         }
     }
 
@@ -383,14 +449,14 @@ class LibusbAudioSink(
         trace { "play bypassActive=$bypassActive" }
         super.play()
         if (bypassActive) {
-            // Resume from pause: the ring is empty (we flushed on
-            // pause) and the iso pump has been padding silence
-            // while playedFrames kept advancing. Resetting the
-            // watchdog and the position-reporting baseline avoids
-            // a false "playedFrames stuck" trip on the very next
-            // write, since by definition lastPlayedAdvanceNs is
-            // far in the past after a long pause.
-            resetWatchdog()
+            driver.setMuted(false)
+            // Watchdog reset is no longer required here — the iso
+            // pump kept running through pause and playedFrames kept
+            // advancing (the soft-mute path counts emitted silence
+            // toward playedFrames), so lastPlayedAdvanceNs is fresh
+            // and the watchdog won't false-trip on resume. We do
+            // still clear startTimeUs so position reporting
+            // re-anchors to the resumed write point.
             startTimeUs = C.TIME_UNSET
         }
     }
@@ -428,24 +494,44 @@ class LibusbAudioSink(
         val sinceFirstWriteNs = now - firstWriteNs
         val sinceAdvanceNs = now - lastPlayedAdvanceNs
         if (sinceFirstWriteNs > kIsoWarmupNs && sinceAdvanceNs > kIsoStallNs) {
-            Log.w(TAG, "iso pump wedged — playedFrames=$played stuck for " +
-                "${sinceAdvanceNs / 1_000_000} ms after $framesWritten frames " +
-                "written; falling back to delegate sink. Re-engages on next " +
-                "configure/flush.")
-            trace {
-                "watchdog_trip played=$played stalled_ms=${sinceAdvanceNs / 1_000_000} " +
-                "since_first_write_ms=${sinceFirstWriteNs / 1_000_000} " +
-                "frames_written=$framesWritten"
+            // Phase B: previously this branch flipped bypassActive
+            // to false and let handleBuffer fall through to the
+            // delegate sink — which in exclusive mode is NoOp, so
+            // the user heard permanent silence with no recovery
+            // until they manually flipped exclusive off. The new
+            // behaviour stops the iso pump and restarts it with the
+            // same negotiated format on a background thread, so a
+            // transient stall (CPU starvation, brief bus hiccup,
+            // kernel scheduler pause) recovers automatically with
+            // a brief silence gap rather than a permanent one. The
+            // background thread is required because driver.stop()
+            // can spin up to a second waiting for cancelled URBs;
+            // running it on the audio thread would risk an ANR.
+            // pumpRetryInFlight de-dupes — without it the watchdog
+            // would re-fire every 50 ms while the recovery thread
+            // is still running and we'd queue a retry storm.
+            if (!pumpRetryInFlight && !watchdogTripped) {
+                pumpRetryInFlight = true
+                val fmt = configuredFormat
+                Log.w(TAG, "iso pump wedged — playedFrames=$played stuck for " +
+                    "${sinceAdvanceNs / 1_000_000} ms after $framesWritten frames " +
+                    "written; scheduling pump restart")
+                trace {
+                    "watchdog_trip played=$played stalled_ms=${sinceAdvanceNs / 1_000_000} " +
+                    "since_first_write_ms=${sinceFirstWriteNs / 1_000_000} " +
+                    "frames_written=$framesWritten retry=scheduled"
+                }
+                bypassActive = false
+                if (fmt != null) {
+                    recoveryExecutor.execute { recoverIsoPump(fmt) }
+                } else {
+                    // No format known — can't restart. Fall back to
+                    // the previous "give up" behaviour so we don't
+                    // pretend recovery is happening.
+                    watchdogTripped = true
+                    pumpRetryInFlight = false
+                }
             }
-            watchdogTripped = true
-            bypassActive = false
-            // Don't call driver.stop() here — nativeStop() spins up
-            // to a second waiting for cancelled transfers to drain,
-            // which would glitch the audio thread mid-buffer.
-            // ForwardingAudioSink's delegate is already configured
-            // with the same format (we always call super.configure
-            // in configure()), so the next handleBuffer flows
-            // straight to it.
         }
     }
 
@@ -477,13 +563,28 @@ class LibusbAudioSink(
 
     override fun isEnded(): Boolean {
         if (!bypassActive) return super.isEnded()
-        // We're ended only when the iso pump has flushed everything
-        // we pushed AND the renderer has indicated it's not feeding
-        // any more (driver.isStreaming becomes false on stop()).
-        val ended = !hasPendingData() && !driver.isStreaming.value
+        // Phase B: ended ⟺ EOS signaled AND ring drained. The
+        // previous predicate "(!hasPendingData && !driver.isStreaming)"
+        // was wrong because driver.isStreaming stays true on natural
+        // EOS — nothing calls stop() when the source signals it's
+        // done feeding. The renderer polls isEnded after calling
+        // playToEndOfStream and won't transition the player to its
+        // ENDED state until this returns true; the previous logic
+        // hung the player at the end of every single-track session.
+        //
+        // The drained check is hasPendingData(), which compares
+        // writtenFrames (host pushed into ring) against playedFrames
+        // (iso pump dispatched to DAC). When those equal each other
+        // and EOS was signaled, every byte the renderer fed us has
+        // been sent to the device. Note this does NOT wait for the
+        // device's own analog FIFO to drain — that's a few
+        // milliseconds we accept as imprecision; chasing it would
+        // require a vendor-specific clock-recovery query the UAC
+        // spec doesn't standardize.
+        val ended = playingToEndOfStream && !hasPendingData()
         if (ended && !endedLogged) {
             endedLogged = true
-            trace { "isEnded -> true frames_written=$framesWritten" }
+            trace { "isEnded -> true frames_written=$framesWritten played=${driver.playedFrames()}" }
         }
         return ended
     }
@@ -504,6 +605,8 @@ class LibusbAudioSink(
             startTimeUs = C.TIME_UNSET
         }
         lastEngageFailHash = 0
+        playingToEndOfStream = false  // gapless track transitions re-arm
+        endedLogged = false
         resetWatchdog()
     }
 
@@ -515,6 +618,8 @@ class LibusbAudioSink(
         bypassActive = false
         framesWritten = 0L
         startTimeUs = C.TIME_UNSET
+        playingToEndOfStream = false
+        endedLogged = false
         resetWatchdog()
     }
 
@@ -530,6 +635,81 @@ class LibusbAudioSink(
         trace { "release driverStreaming=${driver.isStreaming.value}" }
         super.release()
         if (driver.isStreaming.value) driver.stop()
+        // Phase B: shut down the recovery executor so the daemon
+        // thread doesn't outlive the sink. shutdownNow rather than
+        // shutdown because release() means we're tearing down for
+        // good; a recovery in flight should be abandoned, not
+        // awaited. The thread is daemon so process exit isn't
+        // affected either way, but explicit shutdown is cleaner
+        // and surfaces in thread dumps as terminated.
+        recoveryExecutor.shutdownNow()
+    }
+
+    /**
+     * Phase B: iso pump recovery worker. Runs on [recoveryExecutor],
+     * never on the audio thread. Stops the wedged pump, re-starts it
+     * with the same negotiated format, and on success leaves the
+     * sink in a state where the next [handleBuffer] will lazy-engage
+     * bypass exactly as it does after a normal configure().
+     *
+     * On failure (the device is genuinely gone, or the kernel re-grabbed
+     * the streaming interface during the gap), [watchdogTripped] is
+     * set so the sink stops attempting recovery for this configured
+     * format — re-engaging would just hit the same failure. The next
+     * [configure] or [flush] call clears the trip and gives recovery
+     * another shot, which matches user expectation: pause/resume,
+     * track change, or manual toggle of exclusive mode all let the
+     * pump try again.
+     */
+    private fun recoverIsoPump(fmt: Format) {
+        try {
+            // Stop the wedged pump. Even if its internal state is
+            // confused, stop() unconditionally cancels every URB
+            // and joins the event thread, then releases the
+            // streaming interface. The brief 100 ms wait gives the
+            // kernel time to settle before we re-claim — without
+            // it, the next libusb_claim_interface occasionally
+            // fails with EBUSY because snd-usb-audio briefly
+            // re-attaches in the gap before we've fully released.
+            driver.stop()
+            Thread.sleep(100L)
+            val rate = fmt.sampleRate
+            val ch = fmt.channelCount
+            val bits = pcmBitsFromEncoding(fmt.pcmEncoding)
+            val ok = if (rate > 0 && ch > 0 && bits > 0)
+                driver.start(rate, bits, ch) else false
+            if (ok) {
+                // The pump is alive again. Reset the watchdog so
+                // the new pump's first write isn't immediately
+                // judged against the old pump's stalled timestamps.
+                // Don't re-engage bypass here — let lazy-engage
+                // do it on the next handleBuffer, which keeps the
+                // engage path consistent with cold start.
+                resetWatchdog()
+                Log.i(TAG, "iso pump recovered ($rate/${bits}b/${ch}ch)")
+                trace { "watchdog_recover ok=true rate=$rate bits=$bits ch=$ch" }
+            } else {
+                // Genuine failure — give up on automatic recovery
+                // for this configured format. The next configure()
+                // or flush() will clear watchdogTripped and the
+                // engage path will try again.
+                watchdogTripped = true
+                Log.w(TAG, "iso pump recovery failed " +
+                    "($rate/${bits}b/${ch}ch); audio will route to " +
+                    "delegate until configure/flush retries.")
+                trace { "watchdog_recover ok=false rate=$rate bits=$bits ch=$ch" }
+            }
+        } catch (t: Throwable) {
+            // Catch-all: an exception on the recovery thread must
+            // not propagate to crash the app. Log, mark the trip
+            // permanent for this configured format, clear the
+            // in-flight flag so a future configure can try again.
+            Log.e(TAG, "iso pump recovery threw", t)
+            watchdogTripped = true
+            trace { "watchdog_recover ok=false error=${t.javaClass.simpleName}" }
+        } finally {
+            pumpRetryInFlight = false
+        }
     }
 
     // PCM16 software gain. Reads signed 16-bit samples from `src`
@@ -560,6 +740,94 @@ class LibusbAudioSink(
         }
         scratch.position(0)
         scratch.limit(numSamples * 2)
+        return scratch
+    }
+
+    /**
+     * Phase B: attenuate packed 24-bit little-endian PCM in place to
+     * a fresh scratch buffer.
+     *
+     * ExoPlayer's `C.ENCODING_PCM_24BIT` is a packed format: three
+     * bytes per sample, little-endian, with the sign bit at the top
+     * of the third byte. The wire format is [LSB, mid, MSB] with bit
+     * 7 of MSB carrying the sign. Reading the sample requires
+     * assembling the three bytes and sign-extending the top byte
+     * into the upper byte of the int; writing it back requires
+     * splitting an int back into the same packed layout.
+     *
+     * No dither and no double-precision needed because the input is
+     * already at 24-bit resolution and float gain has 24 bits of
+     * mantissa precision — the multiplication and round-to-int does
+     * not lose audible bits before the 24-bit clip. If you change
+     * the gain shape (e.g. to a curve with very small values), revisit
+     * this — for example a 0.01x gain at 24-bit underflows the int
+     * float multiply by less than 1 LSB and would be safer in double.
+     */
+    private fun applyGainPcm24(src: ByteBuffer, gain: Float): ByteBuffer {
+        val srcPos = src.position()
+        val srcLimit = src.limit()
+        val totalBytes = srcLimit - srcPos
+        val scratch = ensureGainScratch(totalBytes)
+        val numSamples = totalBytes / 3
+        // Maxima for 24-bit signed: ±(2^23 - 1) and ±(2^23) respectively.
+        val maxPos = 0x7FFFFF
+        val minNeg = -0x800000
+        for (i in 0 until numSamples) {
+            val off = srcPos + i * 3
+            val b0 = src.get(off).toInt() and 0xFF
+            val b1 = src.get(off + 1).toInt() and 0xFF
+            val b2 = src.get(off + 2).toInt()  // signed for sign-extend
+            // Sign-extend the top byte by leaving b2 as a signed
+            // int and shifting it left by 16. Java/Kotlin integer
+            // promotion preserves the sign bit through the shift,
+            // so a negative b2 produces the correct negative sample.
+            val s = (b2 shl 16) or (b1 shl 8) or b0
+            val scaled = (s * gain).toInt().coerceIn(minNeg, maxPos)
+            // Write back in the same packed layout.
+            val dstOff = i * 3
+            scratch.put(dstOff, (scaled and 0xFF).toByte())
+            scratch.put(dstOff + 1, ((scaled ushr 8) and 0xFF).toByte())
+            scratch.put(dstOff + 2, ((scaled ushr 16) and 0xFF).toByte())
+        }
+        scratch.position(0)
+        scratch.limit(numSamples * 3)
+        return scratch
+    }
+
+    /**
+     * Phase B: attenuate 32-bit signed PCM (little-endian) in place
+     * to a fresh scratch buffer.
+     *
+     * ExoPlayer's `C.ENCODING_PCM_32BIT` is the standard 4-byte signed
+     * integer, native-order ByteBuffer reads via getInt return the
+     * sample directly. We promote to double for the multiplication
+     * because float's 24-bit mantissa is less than the 32-bit dynamic
+     * range; an attenuation done in float on a near-maximum sample
+     * would round the bottom 8 bits to a multiple of 256, audible as
+     * coarse quantization at very low signal levels. Double has 53
+     * bits of mantissa, comfortably more than 32, so the round-to-int
+     * is bit-exact within the 32-bit range.
+     */
+    private fun applyGainPcm32(src: ByteBuffer, gain: Float): ByteBuffer {
+        val srcPos = src.position()
+        val srcLimit = src.limit()
+        val totalBytes = srcLimit - srcPos
+        val scratch = ensureGainScratch(totalBytes)
+        val numSamples = totalBytes / 4
+        val gainD = gain.toDouble()
+        // Use Long for the clip endpoints to avoid Int overflow at
+        // the boundaries; Int.MIN_VALUE.coerceIn(Int.MIN_VALUE..Int.MAX_VALUE)
+        // is correct but the explicit Long range is harder to misread.
+        val maxPos: Long = Int.MAX_VALUE.toLong()
+        val minNeg: Long = Int.MIN_VALUE.toLong()
+        for (i in 0 until numSamples) {
+            val s = src.getInt(srcPos + i * 4)
+            val scaledD = s.toDouble() * gainD
+            val scaledL = scaledD.toLong().coerceIn(minNeg, maxPos)
+            scratch.putInt(i * 4, scaledL.toInt())
+        }
+        scratch.position(0)
+        scratch.limit(numSamples * 4)
         return scratch
     }
 

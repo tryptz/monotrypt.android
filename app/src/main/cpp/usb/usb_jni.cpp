@@ -239,4 +239,13 @@ Java_tf_monochrome_android_audio_usb_LibusbUacDriver_nativeResetTelemetry(
     driver().resetTelemetry();
 }
 
+// Phase B: soft-mute toggle. Called from LibusbAudioSink.pause/play
+// to suppress audio without flushing the ring or releasing the
+// streaming interface. See LibusbUacDriver::setMuted for rationale.
+JNIEXPORT void JNICALL
+Java_tf_monochrome_android_audio_usb_LibusbUacDriver_nativeSetMuted(
+    JNIEnv*, jobject, jboolean muted) {
+    driver().setMuted(muted == JNI_TRUE);
+}
+
 } // extern "C"

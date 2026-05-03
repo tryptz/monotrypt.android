@@ -1067,6 +1067,15 @@ bool LibusbUacDriver::start(int sampleRateHz, int bitsPerSample, int channels) {
     // called but the pump took 50 ms to actually emit packets".
     counters_.reset(static_cast<uint64_t>(nowMonotonicNs()), 0);
 
+    // Phase B: clear the soft-mute flag so a new stream isn't silent.
+    // The flag is set true on pause and false on play, but a hot-
+    // restart (e.g. format change, or watchdog recovery) goes
+    // start→stop→start without a play() call in between, so we have
+    // to explicitly clear it here. Without this, the pump would
+    // emit silence indefinitely for the new stream and would look
+    // identical to the old "fall through to NoOp" watchdog bug.
+    muted_.store(false, std::memory_order_release);
+
     if (!startIsoPump()) {
         // startIsoPump() sets the specific subcategory itself based
         // on whether alloc or submit failed. Don't overwrite here.
@@ -1519,6 +1528,31 @@ void LibusbUacDriver::onIso(libusb_transfer* xfr) {
 // --- Ring buffer ------------------------------------------------------
 
 int LibusbUacDriver::drainRing(uint8_t* dst, int bytes) {
+    // Phase B: soft-mute. When muted, emit silence without advancing
+    // the consumer cursor so the queued PCM is preserved across the
+    // mute window. unmute resumes from exactly where pause left off,
+    // which means a pause/resume cycle no longer drops up to a
+    // kRingTargetMs window of audio (the previous flushRing-based
+    // path discarded ~80 ms at 44.1k/16-bit/2ch every cycle).
+    //
+    // Mute does NOT count as underrun — that telemetry channel is
+    // for "renderer can't keep up", and a deliberate pause is not
+    // that. We do still advance playedFrames so the renderer's
+    // position reporting stays consistent with wall clock during
+    // pause, which matches what AudioTrack.pause() does on the
+    // delegate path (the position keeps ticking on AudioTrack pause
+    // until you call AudioTrack.stop, which is the harder reset).
+    if (muted_.load(std::memory_order_acquire)) {
+        std::memset(dst, 0, bytes);
+        counters_.totalDrainBytes.fetch_add(
+            static_cast<uint64_t>(bytes), std::memory_order_relaxed);
+        int frameStride = format_.channels * format_.bytesPerSample;
+        if (frameStride > 0) {
+            playedFrames_.fetch_add(bytes / frameStride, std::memory_order_acq_rel);
+        }
+        return 0;
+    }
+
     size_t head = ringHead_.load(std::memory_order_acquire);
     size_t tail = ringTail_.load(std::memory_order_relaxed);
     size_t available = head - tail;

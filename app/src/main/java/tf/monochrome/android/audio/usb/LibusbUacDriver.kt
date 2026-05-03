@@ -306,6 +306,26 @@ class LibusbUacDriver @Inject constructor(
      */
     internal external fun nativeResetTelemetry()
 
+    /**
+     * Phase B: soft-mute the iso pump without flushing the ring or
+     * tearing down the streaming interface. When muted, the iso
+     * callback emits silence packets while preserving the queued
+     * PCM, so unmute resumes exactly where pause left off. The
+     * pause path used to call flushRing(), which discarded up to a
+     * kRingTargetMs window (~80 ms at 44.1k/16-bit/2ch) of audio
+     * on every pause/resume cycle.
+     */
+    internal external fun nativeSetMuted(muted: Boolean)
+
+    /**
+     * Public wrapper around [nativeSetMuted] that the renderer's
+     * pause/play path calls. Kept on the driver rather than on the
+     * sink so any future caller (the foreground service handling a
+     * media-button event before the sink has been constructed,
+     * for example) can mute without going through ExoPlayer.
+     */
+    fun setMuted(muted: Boolean) = nativeSetMuted(muted)
+
     companion object {
         private const val TAG = "LibusbUacDriver"
         const val ACTION_USB_PERMISSION = "tf.monochrome.android.USB_PERMISSION"

@@ -274,6 +274,22 @@ public:
     // resumes feeding the ring.
     void flushRing();
 
+    // Phase B: soft-mute switch consulted by the iso callback. When
+    // muted, drainRing emits silence without advancing the ring
+    // consumer cursor, so the queued PCM is preserved and unmute
+    // resumes from exactly where pause left off. The previous pause
+    // path called flushRing() and lost up to a kRingTargetMs window
+    // of audio (≈80 ms at 44.1k/16-bit/2ch), which manifested as a
+    // small but reliable drop at every pause/resume cycle. Soft-mute
+    // also avoids tearing down and re-claiming the streaming
+    // interface on every transport-control press, which is the slow
+    // path that occasionally fails with EBUSY when snd-usb-audio
+    // re-attaches in the gap. Atomic for cross-thread visibility
+    // (audio thread sets, libusb event thread reads).
+    void setMuted(bool muted) {
+        muted_.store(muted, std::memory_order_release);
+    }
+
     // Returns true when the iso pump is already streaming a stream
     // matching [sampleRate]/[bitsPerSample]/[channels]. Used by
     // LibusbAudioSink.configure() to skip a redundant stop/start when
@@ -474,6 +490,13 @@ private:
     // the iso pump goes live and at any time via resetTelemetry().
     // Fields are documented at the struct definition.
     mutable TelemetryCounters counters_;
+
+    // Phase-B soft-mute. Read on the libusb event thread inside
+    // drainRing, written on the audio thread via setMuted() (which
+    // is invoked from LibusbAudioSink.pause / .play). Default false
+    // so the iso pump produces audio without any opt-in; pause
+    // explicitly toggles it true.
+    std::atomic<bool> muted_{false};
 };
 
 } // namespace monotrypt::usb
