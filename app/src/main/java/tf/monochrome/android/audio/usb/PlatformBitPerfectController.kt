@@ -203,6 +203,12 @@ class PlatformBitPerfectController @Inject constructor(
         }
         if (supported.isEmpty()) {
             clearIfApplied()
+            if (_status.value != Status.NotSupported) {
+                Log.i(TAG, "HAL reports no bit-perfect mixer attrs for " +
+                    "${device.productName} (id=${device.id}) — falling " +
+                    "back to routed playback. OEM hasn't wired " +
+                    "AUDIO_OUTPUT_FLAG_BIT_PERFECT for this DAC.")
+            }
             _status.value = Status.NotSupported
             return
         }
@@ -246,11 +252,29 @@ class PlatformBitPerfectController @Inject constructor(
             appliedDevice = device
             _appliedFormat.value = match
             _status.value = Status.Active
+            Log.i(TAG, "bit-perfect engaged: ${match.format.sampleRate} Hz / " +
+                "${encodingLabel(match.format.encoding)} / " +
+                "${match.format.channelCount}ch on ${device.productName} " +
+                "(id=${device.id}) — note: setPreferredMixerAttributes " +
+                "triggers a route reconfigure, an in-flight AudioTrack " +
+                "may briefly cycle (status=-32 in logcat) before settling.")
         } else {
             appliedDevice = null
             _appliedFormat.value = null
             _status.value = Status.Error
+            Log.w(TAG, "setPreferredMixerAttributes returned false for " +
+                "${match.format.sampleRate} / " +
+                "${encodingLabel(match.format.encoding)} on " +
+                "${device.productName} — staying on routed path.")
         }
+    }
+
+    private fun encodingLabel(encoding: Int): String = when (encoding) {
+        AudioFormat.ENCODING_PCM_16BIT -> "16-bit"
+        AudioFormat.ENCODING_PCM_24BIT_PACKED -> "24-bit"
+        AudioFormat.ENCODING_PCM_32BIT -> "32-bit"
+        AudioFormat.ENCODING_PCM_FLOAT -> "float"
+        else -> "encoding=$encoding"
     }
 
     private fun clearIfApplied() {

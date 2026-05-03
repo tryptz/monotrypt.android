@@ -58,7 +58,26 @@ class UsbAudioRouter @Inject constructor(
     }
 
     private fun refresh() {
-        _usbOutputDevice.value = currentUsbOutput()
+        val current = _usbOutputDevice.value
+        val next = currentUsbOutput()
+        // Compare by id, not by reference / Object.equals. AudioManager
+        // can hand us a freshly-allocated AudioDeviceInfo for the same
+        // logical device on every onAudioDevicesAdded/Removed callback
+        // — and AudioFlinger fires those internally whenever it
+        // reconfigures an output (e.g. when an app calls
+        // setPreferredMixerAttributes for bit-perfect mode). The
+        // resulting "different instance, same DAC" stream made
+        // PlaybackService's setPreferredAudioDevice collector re-fire
+        // on every track transition, which kicked AudioFlinger into
+        // closing/recreating the in-flight AudioTrack →
+        // `restoreTrack_l ... status -32` retry cascades visible in
+        // the user-side logs from 2026-05-03. Keying dedupe on
+        // AudioDeviceInfo.id breaks that loop: same DAC stays the
+        // same StateFlow value across reroutes, plug/unplug emits a
+        // new id and only then the route is re-applied.
+        if (current?.id != next?.id) {
+            _usbOutputDevice.value = next
+        }
     }
 
     private fun initialUsbDevice(): AudioDeviceInfo? = currentUsbOutput()
