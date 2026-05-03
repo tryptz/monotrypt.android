@@ -8,6 +8,7 @@ import android.media.AudioManager
 import android.media.AudioMixerAttributes
 import android.os.Build
 import android.util.Log
+import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.util.UnstableApi
@@ -50,7 +51,7 @@ import javax.inject.Singleton
  * inputs fan in from multiple threads.
  */
 @Singleton
-@UnstableApi
+@OptIn(UnstableApi::class)
 class PlatformBitPerfectController @Inject constructor(
     @ApplicationContext appContext: Context,
     private val preferences: PreferencesManager,
@@ -257,14 +258,37 @@ class PlatformBitPerfectController @Inject constructor(
         _appliedFormat.value = null
     }
 
-    private fun pcmEncodingFor(format: Format): Int? = when (format.pcmEncoding) {
-        C.ENCODING_PCM_16BIT -> AudioFormat.ENCODING_PCM_16BIT
-        C.ENCODING_PCM_24BIT_PACKED -> AudioFormat.ENCODING_PCM_24BIT_PACKED
-        C.ENCODING_PCM_32BIT -> AudioFormat.ENCODING_PCM_32BIT
-        // PCM_FLOAT, PCM_24BIT (unpacked), and any other encoding aren't
-        // representable as bit-perfect through this API. Returning null
-        // pushes us into FormatUnsupported and we fall back to routed.
-        else -> null
+    private fun pcmEncodingFor(format: Format): Int? {
+        // AnalyticsListener.onAudioInputFormatChanged reports the
+        // RENDERER's input format — for compressed sources (FLAC,
+        // Opus, AAC, ...) the source's pcmEncoding is Format.NO_VALUE
+        // because the source isn't PCM. Per Media3 convention
+        // (Format.kt:pcmEncoding doc), NO_VALUE should be assumed to
+        // mean ENCODING_PCM_16BIT — which is what most stock decoders
+        // emit by default. So defaulting NO_VALUE → 16-bit lets us
+        // claim bit-perfect on the typical 16-bit FLAC case instead
+        // of falling to FormatUnsupported every time. The cost: on a
+        // source whose decoder actually emits 24-bit / float (rare,
+        // requires explicit codec config), we'd ask for 16-bit
+        // bit-perfect and either AudioFlinger would reject the call
+        // or fall back to resampling — in which case the user hears
+        // either silence (audible) or non-bit-perfect (cosmetic) and
+        // can flip on the libusb exclusive toggle as a known-good
+        // fallback. Acceptable trade for v1; if it bites we hook the
+        // sink-side configure() callback for the actual decoded
+        // format instead.
+        val effectivePcm = when (format.pcmEncoding) {
+            Format.NO_VALUE, C.ENCODING_INVALID -> C.ENCODING_PCM_16BIT
+            else -> format.pcmEncoding
+        }
+        return when (effectivePcm) {
+            C.ENCODING_PCM_16BIT -> AudioFormat.ENCODING_PCM_16BIT
+            C.ENCODING_PCM_24BIT_PACKED -> AudioFormat.ENCODING_PCM_24BIT_PACKED
+            C.ENCODING_PCM_32BIT -> AudioFormat.ENCODING_PCM_32BIT
+            // PCM_FLOAT, PCM_24BIT (unpacked), and anything else
+            // can't be claimed as bit-perfect through this API.
+            else -> null
+        }
     }
 
     private fun channelMaskFor(channelCount: Int): Int = when (channelCount) {
