@@ -283,10 +283,14 @@ class PlatformBitPerfectController @Inject constructor(
         }
         return when (effectivePcm) {
             C.ENCODING_PCM_16BIT -> AudioFormat.ENCODING_PCM_16BIT
-            C.ENCODING_PCM_24BIT_PACKED -> AudioFormat.ENCODING_PCM_24BIT_PACKED
+            // Media3 calls this PCM_24BIT (no _PACKED suffix); the
+            // Android-side ENCODING_PCM_24BIT_PACKED is the matching
+            // value the HAL wants when we hand it to the mixer
+            // attributes. Don't conflate the two namespaces.
+            C.ENCODING_PCM_24BIT -> AudioFormat.ENCODING_PCM_24BIT_PACKED
             C.ENCODING_PCM_32BIT -> AudioFormat.ENCODING_PCM_32BIT
-            // PCM_FLOAT, PCM_24BIT (unpacked), and anything else
-            // can't be claimed as bit-perfect through this API.
+            // PCM_FLOAT and anything else can't be claimed as
+            // bit-perfect through this API.
             else -> null
         }
     }
