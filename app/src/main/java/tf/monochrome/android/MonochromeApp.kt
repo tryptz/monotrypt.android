@@ -83,6 +83,9 @@ class MonochromeApp : Application(), Configuration.Provider, SingletonImageLoade
     @Inject
     lateinit var usbExclusiveController: tf.monochrome.android.audio.usb.UsbExclusiveController
 
+    @Inject
+    lateinit var platformBitPerfectController: tf.monochrome.android.audio.usb.PlatformBitPerfectController
+
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override val workManagerConfiguration: Configuration
@@ -148,6 +151,13 @@ class MonochromeApp : Application(), Configuration.Provider, SingletonImageLoade
         // and start publishing real status to Settings UI. Without this,
         // the toggle is a persisted boolean with no observable effect.
         usbExclusiveController.start()
+        // Layer Android 14+ platform bit-perfect on top of the existing
+        // `usbBitPerfectEnabled` toggle. No-ops on SDK < 34 and on
+        // OEMs whose AIDL Audio HAL doesn't expose
+        // AUDIO_OUTPUT_FLAG_BIT_PERFECT for the attached DAC — in
+        // both cases the existing setPreferredAudioDevice routing in
+        // PlaybackService still applies, just not bit-perfect.
+        platformBitPerfectController.start()
         // Restore auth on app start, then register this device against whichever
         // user is signed in. The collector re-fires on sign-in / sign-out.
         appScope.launch {

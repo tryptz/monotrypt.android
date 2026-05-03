@@ -7,13 +7,16 @@ import androidx.core.net.toUri
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.audio.TeeAudioProcessor
@@ -65,6 +68,7 @@ class PlaybackService : MediaSessionService() {
     @Inject lateinit var usbAudioRouter: tf.monochrome.android.audio.UsbAudioRouter
     @Inject lateinit var libusbDriver: tf.monochrome.android.audio.usb.LibusbUacDriver
     @Inject lateinit var bypassVolumeController: tf.monochrome.android.audio.usb.BypassVolumeController
+    @Inject lateinit var platformBitPerfectController: tf.monochrome.android.audio.usb.PlatformBitPerfectController
 
     private var mediaSession: MediaSession? = null
     private lateinit var player: ExoPlayer
@@ -186,6 +190,35 @@ class PlaybackService : MediaSessionService() {
                     runCatching { player.setPreferredAudioDevice(preferred) }
                 }
         }
+
+        // Feed the platform bit-perfect controller every PCM format
+        // change. AnalyticsListener.onAudioInputFormatChanged fires on
+        // track transitions and on mid-track format swaps; we forward
+        // the Format so the controller can match it against the DAC's
+        // GET_RANGE-derived AudioMixerAttributes and call
+        // setPreferredMixerAttributes(MIXER_BEHAVIOR_BIT_PERFECT) when
+        // it finds a match. STATE_IDLE / STATE_ENDED push null so the
+        // controller can clear the mixer-attribute claim against the
+        // device — avoids holding a stale bit-perfect lock after the
+        // user stops playback.
+        player.addAnalyticsListener(object : AnalyticsListener {
+            override fun onAudioInputFormatChanged(
+                eventTime: AnalyticsListener.EventTime,
+                format: Format,
+                decoderReuseEvaluation: DecoderReuseEvaluation?,
+            ) {
+                platformBitPerfectController.onAudioFormatChanged(format)
+            }
+
+            override fun onPlaybackStateChanged(
+                eventTime: AnalyticsListener.EventTime,
+                state: Int,
+            ) {
+                if (state == Player.STATE_IDLE || state == Player.STATE_ENDED) {
+                    platformBitPerfectController.onAudioFormatChanged(null)
+                }
+            }
+        })
 
         // Wrap the ExoPlayer so Media3's notification + lock-screen surface
         // working next / previous controls. The wrapper routes those commands

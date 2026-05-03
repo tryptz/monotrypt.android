@@ -1031,6 +1031,26 @@ private fun UsbBitPerfectToggle(viewModel: SettingsViewModel) {
         onCheckedChange = { viewModel.setUsbBitPerfectEnabled(it) },
     )
 
+    // Android 14+ platform bit-perfect status card. Visible only when
+    // the routing toggle is on AND the controller has something honest
+    // to report (Active / NotSupported / FormatUnsupported / Error).
+    // On Disabled / NoUsbDevice / Unsupported / Idle the row above
+    // already covers the user's understanding so we hide the card to
+    // keep the toggle stack clean.
+    val platformStatus by viewModel.usbPlatformBitPerfectStatus.collectAsState()
+    val platformFormat by viewModel.usbPlatformBitPerfectFormat.collectAsState()
+    if (enabled && platformStatus !in setOf(
+            tf.monochrome.android.audio.usb.PlatformBitPerfectController.Status.Disabled,
+            tf.monochrome.android.audio.usb.PlatformBitPerfectController.Status.NoUsbDevice,
+            tf.monochrome.android.audio.usb.PlatformBitPerfectController.Status.Unsupported,
+            tf.monochrome.android.audio.usb.PlatformBitPerfectController.Status.Idle,
+        )) {
+        PlatformBitPerfectStatusCard(
+            status = platformStatus,
+            appliedFormat = platformFormat,
+        )
+    }
+
     val exclusiveEnabled by viewModel.usbExclusiveBitPerfectEnabled.collectAsState()
     val exclusiveStatus by viewModel.usbExclusiveStatus.collectAsState()
     val diagnostics by viewModel.usbBypassDiagnostics.collectAsState()
@@ -1193,6 +1213,102 @@ private fun BypassDiagnosticsCard(
             }
         }
     }
+}
+
+/**
+ * Compact info card under the routing toggle. Reports whether the
+ * Android 14+ `setPreferredMixerAttributes(MIXER_BEHAVIOR_BIT_PERFECT)`
+ * call actually succeeded for the current PCM format on the attached
+ * USB DAC, or why it didn't. The user can tell from one glance whether
+ * audio is genuinely bit-perfect or whether AudioFlinger is still
+ * resampling underneath them.
+ */
+@Composable
+private fun PlatformBitPerfectStatusCard(
+    status: tf.monochrome.android.audio.usb.PlatformBitPerfectController.Status,
+    appliedFormat: android.media.AudioMixerAttributes?,
+) {
+    val isActive = status ==
+        tf.monochrome.android.audio.usb.PlatformBitPerfectController.Status.Active
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp, bottom = 8.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                text = if (isActive) "Bit-perfect" else "Routed",
+                style = MaterialTheme.typography.labelSmall,
+                color = if (isActive) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = when (status) {
+                    tf.monochrome.android.audio.usb.PlatformBitPerfectController.Status.Active ->
+                        // Build the human-readable spec from the
+                        // accepted AudioMixerAttributes so the user sees
+                        // the actual sample rate / depth / channel count
+                        // the framework agreed to pass through, not just
+                        // what we asked for.
+                        appliedFormat?.let { describeMixerFormat(it) }
+                            ?: "Active — passing PCM through untouched."
+                    tf.monochrome.android.audio.usb.PlatformBitPerfectController.Status.NotSupported ->
+                        "HAL doesn't expose bit-perfect for this DAC. " +
+                            "AudioFlinger may still resample. Try the " +
+                            "Exclusive USB DAC toggle below for a libusb " +
+                            "bypass that works on any Android version."
+                    tf.monochrome.android.audio.usb.PlatformBitPerfectController.Status.FormatUnsupported ->
+                        "DAC supports bit-perfect, but not for this " +
+                            "track's sample rate / encoding. Other " +
+                            "tracks may engage automatically."
+                    tf.monochrome.android.audio.usb.PlatformBitPerfectController.Status.Error ->
+                        "setPreferredMixerAttributes failed. See logcat " +
+                            "(tag PlatformBitPerfect) for the platform " +
+                            "exception. Audio still routes via " +
+                            "setPreferredAudioDevice."
+                    else -> ""  // hidden by the call-site guard
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = if (isActive) FontWeight.Medium else FontWeight.Normal,
+            )
+        }
+    }
+}
+
+/** "44.1 kHz · 16-bit · stereo" from an AudioMixerAttributes. */
+private fun describeMixerFormat(attrs: android.media.AudioMixerAttributes): String {
+    val fmt = attrs.format
+    val rateLabel = when (val sr = fmt.sampleRate) {
+        // Common audiophile rates render with one decimal so 44.1 / 88.2
+        // / 176.4 don't get rounded to 44 / 88 / 176 by the integer
+        // shortcut below.
+        44100 -> "44.1 kHz"
+        88200 -> "88.2 kHz"
+        176400 -> "176.4 kHz"
+        352800 -> "352.8 kHz"
+        else -> if (sr % 1000 == 0) "${sr / 1000} kHz" else "$sr Hz"
+    }
+    val bitsLabel = when (fmt.encoding) {
+        android.media.AudioFormat.ENCODING_PCM_16BIT -> "16-bit"
+        android.media.AudioFormat.ENCODING_PCM_24BIT_PACKED -> "24-bit"
+        android.media.AudioFormat.ENCODING_PCM_32BIT -> "32-bit"
+        android.media.AudioFormat.ENCODING_PCM_FLOAT -> "float"
+        else -> "${fmt.encoding}-encoding"
+    }
+    val channelsLabel = when (fmt.channelCount) {
+        1 -> "mono"
+        2 -> "stereo"
+        6 -> "5.1"
+        8 -> "7.1"
+        else -> "${fmt.channelCount}ch"
+    }
+    return "$rateLabel · $bitsLabel · $channelsLabel"
 }
 
 /**

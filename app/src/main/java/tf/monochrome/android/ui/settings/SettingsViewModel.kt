@@ -48,6 +48,7 @@ class SettingsViewModel @Inject constructor(
     private val spectrumAnalyzerTap: SpectrumAnalyzerTap,
     private val usbAudioRouter: tf.monochrome.android.audio.UsbAudioRouter,
     private val usbExclusiveController: tf.monochrome.android.audio.usb.UsbExclusiveController,
+    private val platformBitPerfectController: tf.monochrome.android.audio.usb.PlatformBitPerfectController,
     @ApplicationContext private val appContext: Context
 ) : ViewModel() {
 
@@ -69,6 +70,21 @@ class SettingsViewModel @Inject constructor(
     /** What rates the DAC actually supports, per its GET_RANGE table. */
     val usbBypassSupportedRates: StateFlow<List<tf.monochrome.android.audio.usb.ClockRateRange>> =
         usbExclusiveController.supportedRates
+
+    /** Live state of the Android 14+ platform bit-perfect path that
+     *  layers on top of [usbBitPerfectEnabled]. Settings UI uses this
+     *  to render either "Bit-perfect: 44.1 kHz · 16-bit · stereo"
+     *  (Active), "Routed (HAL resamples — OEM lacks bit-perfect
+     *  support)" (NotSupported), or hides the diagnostic card on
+     *  Disabled / NoUsbDevice / Unsupported. */
+    val usbPlatformBitPerfectStatus: StateFlow<tf.monochrome.android.audio.usb.PlatformBitPerfectController.Status> =
+        platformBitPerfectController.status
+
+    /** When [usbPlatformBitPerfectStatus] is `Active`, the AudioMixerAttributes
+     *  the framework actually accepted. Renders as the format line in the
+     *  status card. Null in every other state. */
+    val usbPlatformBitPerfectFormat: StateFlow<android.media.AudioMixerAttributes?> =
+        platformBitPerfectController.appliedFormat
 
     /** Shared live FFT bins from the audio pipeline — same source the NowPlaying overlay uses. */
     val spectrumBins: StateFlow<FloatArray> = spectrumAnalyzerTap.spectrumBins
