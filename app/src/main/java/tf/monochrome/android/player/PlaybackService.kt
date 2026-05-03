@@ -181,14 +181,32 @@ class PlaybackService : MediaSessionService() {
         // and a USB Audio Class device is attached, pin ExoPlayer's
         // output to it via setPreferredAudioDevice. Reverts to system
         // default whenever the toggle goes off or the DAC is unplugged.
+        //
+        // EXCEPT when the platform bit-perfect controller has
+        // succeeded with setPreferredMixerAttributes(MIXER_BEHAVIOR_BIT_PERFECT)
+        // for the same DAC. In that case the mixer attribute itself
+        // routes audio to the device, and ALSO calling
+        // setPreferredAudioDevice triggers a second route change that
+        // fights the first — on OnePlus / OxygenOS this fight produced
+        // an unbounded "ioConfigChanged() closing unknown output ..."
+        // /  status=-32 retry cascade where audio stayed permanently
+        // stuck. With Active, we emit null (clear any pin) and let
+        // the mixer attrs do their job.
         serviceScope.launch {
-            preferences.usbBitPerfectEnabled
-                .combine(usbAudioRouter.usbOutputDevice) { enabled, device ->
-                    if (enabled) device else null
+            combine(
+                preferences.usbBitPerfectEnabled,
+                usbAudioRouter.usbOutputDevice,
+                platformBitPerfectController.status,
+            ) { enabled, device, status ->
+                when {
+                    !enabled -> null
+                    status == tf.monochrome.android.audio.usb
+                        .PlatformBitPerfectController.Status.Active -> null
+                    else -> device
                 }
-                .collect { preferred ->
-                    runCatching { player.setPreferredAudioDevice(preferred) }
-                }
+            }.collect { preferred ->
+                runCatching { player.setPreferredAudioDevice(preferred) }
+            }
         }
 
         // Feed the platform bit-perfect controller every PCM format

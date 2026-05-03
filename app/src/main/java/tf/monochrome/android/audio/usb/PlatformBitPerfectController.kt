@@ -233,14 +233,29 @@ class PlatformBitPerfectController @Inject constructor(
         }
 
         // Skip a redundant set if we're already applied with the same
-        // attrs on the same device. Avoids churning the HAL on every
-        // tick when nothing actually changed.
-        if (appliedDevice?.id == device.id && _appliedFormat.value == match &&
+        // attrs on the same physical DAC. Compare by productName, NOT
+        // AudioDeviceInfo.id — OnePlus / OxygenOS reassigns the id on
+        // every output reconfigure, including the one our own
+        // setPreferredMixerAttributes call triggers, so id-based
+        // dedupe causes a runaway loop: id 925 → engage → reroute →
+        // id 1711 → re-engage → reroute → id N → ... AudioFlinger
+        // never settles a single output and audio stays stuck. The
+        // productName / productId / address on the same physical
+        // hardware stay stable across reroutes.
+        val sameHardware = appliedDevice != null &&
+            appliedDevice?.productName?.toString() == device.productName?.toString() &&
+            appliedDevice?.address == device.address
+        if (sameHardware && _appliedFormat.value == match &&
             _status.value == Status.Active) {
+            // Refresh the cached AudioDeviceInfo handle to the
+            // newly-allocated instance so subsequent clearIfApplied
+            // (on toggle off / unplug) targets the live device.
+            appliedDevice = device
             return
         }
-        // Device changed → clear the old one before applying the new.
-        if (appliedDevice != null && appliedDevice?.id != device.id) {
+        // Different physical device → clear the old one before
+        // applying the new.
+        if (appliedDevice != null && !sameHardware) {
             clearIfApplied()
         }
         val applied = runCatching {
