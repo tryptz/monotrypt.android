@@ -182,24 +182,59 @@ class PlaybackService : MediaSessionService() {
         // output to it via setPreferredAudioDevice. Reverts to system
         // default whenever the toggle goes off or the DAC is unplugged.
         //
+        // Three-way collector so we also handle the libusb exclusive
+        // case: when usbExclusiveBitPerfectEnabled is on AND a USB DAC
+        // is attached, the libusb iso pump owns the USB streaming
+        // interface exclusively. DefaultAudioSink — which still gets
+        // configured via super.configure() in LibusbAudioSink — would
+        // by default create its AudioTrack on the USB output (the
+        // system default when the DAC is plugged in), and that
+        // AudioTrack.start() then fails with status=-32 in a 10-retry
+        // loop because libusb has the interface claimed. Each retry
+        // sprays USB control transfers across the bus that contend
+        // with the iso pump's data transfers — the user hears a
+        // stuttery "KKDDRDRR" pattern on top of otherwise rate-correct
+        // playback (heartbeat data confirms the iso pump itself is
+        // dispatching at 44.1k frames/sec). Pinning the unused
+        // AudioTrack to the built-in speaker takes it off the USB
+        // bus entirely; libusb gets sole ownership of the device, no
+        // contention, no -32 cascade. Per Android docs, the speaker
+        // here just keeps the AudioTrack happy in standby — we never
+        // call super.handleBuffer when bypass is hot, so the speaker
+        // never produces sound.
+        //
         // Coexists with PlatformBitPerfectController on Android 14+:
         // setPreferredAudioDevice routes the AudioTrack to the USB
-        // device (always works, including on devices/HALs that don't
-        // expose bit-perfect), and setPreferredMixerAttributes may
-        // additionally engage MIXER_BEHAVIOR_BIT_PERFECT for that
-        // device when format matches. If the formats don't match
-        // (e.g. ExoPlayer's renderer chose float output but the
-        // mixer attrs claim 16-bit), bit-perfect silently doesn't
-        // engage but routed playback still works — exactly the
-        // pre-Android-14 behavior. UsbAudioRouter dedupe by
-        // productName+address keeps this collector from re-firing
-        // on every internal AudioFlinger output reconfigure (which
-        // would create a route-change feedback loop).
+        // device, and setPreferredMixerAttributes may additionally
+        // engage MIXER_BEHAVIOR_BIT_PERFECT for that device when
+        // format matches (currently suppressed in
+        // PlatformBitPerfectController, see BIT_PERFECT_API_CALL_SUPPRESSED).
+        // UsbAudioRouter dedupe by productName+address keeps this
+        // collector from re-firing on every internal AudioFlinger
+        // output reconfigure.
+        val audioManager =
+            this@PlaybackService.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
         serviceScope.launch {
-            preferences.usbBitPerfectEnabled
-                .combine(usbAudioRouter.usbOutputDevice) { enabled, device ->
-                    if (enabled) device else null
+            kotlinx.coroutines.flow.combine(
+                preferences.usbBitPerfectEnabled,
+                preferences.usbExclusiveBitPerfectEnabled,
+                usbAudioRouter.usbOutputDevice,
+            ) { routingEnabled, exclusiveEnabled, usbDevice ->
+                when {
+                    routingEnabled && usbDevice != null -> usbDevice
+                    exclusiveEnabled && usbDevice != null -> {
+                        // Find the built-in speaker so the unused
+                        // DefaultAudioSink AudioTrack goes there.
+                        // Returning null would let it default to the
+                        // USB DAC (the system default with the Bathys
+                        // plugged in), which is exactly the contention
+                        // case we're avoiding.
+                        audioManager.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS)
+                            .firstOrNull { it.type == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+                    }
+                    else -> null
                 }
+            }
                 .collect { preferred ->
                     runCatching { player.setPreferredAudioDevice(preferred) }
                 }
