@@ -410,70 +410,86 @@ class PlaybackService : MediaSessionService() {
                 enableFloatOutput: Boolean,
                 enableAudioTrackPlaybackParams: Boolean
             ): AudioSink {
-                return try {
-                    val defaultSink = DefaultAudioSink.Builder(context)
-                        .setEnableFloatOutput(enableFloatOutput)
-                        .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
-                        .setAudioProcessors(
-                            arrayOf(
-                                mixBusProcessor,        // DSP engine (mixer/effects)
-                                autoEqProcessor,        // AutoEQ (independent, always-on when enabled)
-                                parametricEqProcessor,  // Parametric EQ (after AutoEQ, stacks on top)
-                                spectrumAnalyzerTap,    // Passive FFT tap for the Parametric EQ editor visualizer
-                                TeeAudioProcessor(
-                                    ProjectMAudioTapProcessor(audioBus)
+                // The delegate inside LibusbAudioSink is decided at
+                // renderer-build time based on the current state of
+                // the Exclusive USB DAC toggle.
+                //
+                // - Exclusive ON  → NoOpAudioSink. Never builds an
+                //   AudioTrack. The libusb iso pump owns the USB
+                //   streaming interface alone, no contention.
+                //   Bypass-or-nothing semantics: if libusb fails to
+                //   engage we go silent rather than fight the bus
+                //   with a ghost AudioTrack the kernel can't honor.
+                // - Exclusive OFF → real DefaultAudioSink with the
+                //   full processor chain. AudioTrack handles output
+                //   normally, AudioFlinger does the routing.
+                //
+                // buildAudioSink is called once per ExoPlayer.Builder.build().
+                // The toggle change therefore takes effect at next app
+                // start, NOT mid-session. A live-rebuild watcher is a
+                // viable follow-up (capture queue + position, release
+                // player, rebuild, restore) but is intentionally left
+                // out here — the previous attempts at hot-swapping
+                // delegates re-introduced the dual-AudioTrack
+                // contention bug we're fixing.
+                val exclusiveOn = runCatching {
+                    kotlinx.coroutines.runBlocking {
+                        preferences.usbExclusiveBitPerfectEnabled.first()
+                    }
+                }.getOrDefault(false)
+
+                val delegate: AudioSink = if (exclusiveOn) {
+                    tf.monochrome.android.audio.usb.NoOpAudioSink()
+                } else {
+                    try {
+                        DefaultAudioSink.Builder(context)
+                            .setEnableFloatOutput(enableFloatOutput)
+                            .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                            .setAudioProcessors(
+                                arrayOf(
+                                    mixBusProcessor,        // DSP engine (mixer/effects)
+                                    autoEqProcessor,        // AutoEQ (independent, always-on when enabled)
+                                    parametricEqProcessor,  // Parametric EQ (after AutoEQ, stacks on top)
+                                    spectrumAnalyzerTap,    // Passive FFT tap for the Parametric EQ editor visualizer
+                                    TeeAudioProcessor(
+                                        ProjectMAudioTapProcessor(audioBus)
+                                    )
                                 )
                             )
+                            .build()
+                    } catch (error: Exception) {
+                        projectMEngineRepository.reportAudioTapFailure(
+                            "projectM audio tap unavailable: ${error.message ?: "unknown error"}"
                         )
-                        .build()
-                    // Wrap with LibusbAudioSink: a no-op when the user
-                    // hasn't enabled exclusive mode (forwards everything
-                    // to defaultSink). When the toggle is on AND
-                    // UsbExclusiveController has a libusb device handle
-                    // open, configure() spins up the iso pump and
-                    // handleBuffer() routes PCM to the DAC directly,
-                    // bypassing AudioTrack + the HAL.
-                    //
-                    // Processors are passed in so the libusb path runs
-                    // the SAME DSP / EQ / spectrum / ProjectM-tap chain
-                    // DefaultAudioSink would. The processors are
-                    // singletons but only one of the two paths
-                    // configures + drains them at a time (bypassActive
-                    // gates inside LibusbAudioSink), so there's no
-                    // contention.
-                    tf.monochrome.android.audio.usb.LibusbAudioSink(
-                        delegate = defaultSink,
-                        driver = libusbDriver,
-                        volumeController = bypassVolumeController,
-                        processors = listOf(
-                            mixBusProcessor,
-                            autoEqProcessor,
-                            parametricEqProcessor,
-                            spectrumAnalyzerTap,
-                            // ProjectM tap intentionally omitted from
-                            // the bypass chain — the inline pump runs
-                            // on the renderer thread and the visualizer
-                            // bus sometimes blocks on its consumer.
-                            // Spectrum tap is light-weight and fine.
-                        ),
-                    )
-                } catch (error: Exception) {
-                    projectMEngineRepository.reportAudioTapFailure(
-                        "projectM audio tap unavailable: ${error.message ?: "unknown error"}"
-                    )
-                    val fallback = checkNotNull(
-                        super.buildAudioSink(
-                            context,
-                            enableFloatOutput,
-                            enableAudioTrackPlaybackParams
+                        // Fallback: super.buildAudioSink gives us a
+                        // plain DefaultAudioSink without our processor
+                        // list. Audio still plays, just without DSP.
+                        checkNotNull(
+                            super.buildAudioSink(
+                                context,
+                                enableFloatOutput,
+                                enableAudioTrackPlaybackParams
+                            )
                         )
-                    )
-                    tf.monochrome.android.audio.usb.LibusbAudioSink(
-                        delegate = fallback,
-                        driver = libusbDriver,
-                        volumeController = bypassVolumeController,
-                    )
+                    }
                 }
+
+                return tf.monochrome.android.audio.usb.LibusbAudioSink(
+                    delegate = delegate,
+                    driver = libusbDriver,
+                    volumeController = bypassVolumeController,
+                    processors = listOf(
+                        mixBusProcessor,
+                        autoEqProcessor,
+                        parametricEqProcessor,
+                        spectrumAnalyzerTap,
+                        // ProjectM tap intentionally omitted from the
+                        // bypass chain — the inline pump runs on the
+                        // renderer thread and the visualizer bus
+                        // sometimes blocks on its consumer. Spectrum
+                        // tap is light-weight and fine.
+                    ),
+                )
             }
         }
     }

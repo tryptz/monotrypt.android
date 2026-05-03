@@ -13,21 +13,50 @@ import java.nio.ByteOrder
 /**
  * Media3 [AudioSink] that hands PCM directly to libusb when the user
  * has Exclusive USB DAC mode on AND the iso pump is live; otherwise
- * delegates everything to a [DefaultAudioSink] (provided by the
- * caller as `delegate`). Wrapping ForwardingAudioSink keeps every
- * one of the ~35 AudioSink methods doing the right thing without
- * us having to re-implement them.
+ * delegates to whatever sink the caller passed in.
+ *
+ * The choice of delegate is made once at renderer-build time by
+ * [tf.monochrome.android.player.PlaybackService.buildAudioSink]:
+ *
+ *  - **Exclusive ON** → `delegate` is a [NoOpAudioSink]. No
+ *    `AudioTrack` is ever created. The libusb iso pump owns the USB
+ *    streaming interface alone. Bypass-or-nothing semantics: if the
+ *    iso pump can't engage (e.g. driver.start fails), the NoOp
+ *    swallows audio → silence, and the user sees the failure reason
+ *    in the Settings status card. Better than fighting the bus with
+ *    an AudioTrack the kernel can't honor (which produced the
+ *    "KKDDRDRRDRRDLDLLDLLD" stutter that motivated this design).
+ *  - **Exclusive OFF** → `delegate` is a real [DefaultAudioSink]
+ *    with the full processor chain. AudioTrack handles output via
+ *    AudioFlinger.
+ *
+ * Switching between the two requires a full ExoPlayer rebuild
+ * (`buildAudioSink` runs once per player build, not per prepare).
+ * Currently we don't do that automatically — the toggle change takes
+ * effect at next app start. A live-rebuild watcher is a viable
+ * follow-up if the UX bites; the design is intentionally kept
+ * simple here because the previous attempts at hot-swap delegates
+ * reintroduced exactly the dual-AudioTrack contention bug we're
+ * fixing.
  *
  * Honest scope:
  *  - When bypass is hot, the sink runs the same AudioProcessor chain
  *    that DefaultAudioSink would (mixBus DSP, AutoEQ, parametric EQ,
- *    spectrum FFT, ProjectM tap) inline via [AudioProcessorChain],
- *    then writes the post-DSP PCM to libusb. So EQ + visualizer keep
- *    working in exclusive mode.
- *  - getCurrentPositionUs uses frames-written accounting, ignoring
- *    iso buffer-depth latency (~32 ms at 48 kHz w/ defaults).
- *    A/V sync is "good enough" for music; would need correction for
- *    video lipsync.
+ *    spectrum FFT) inline via [AudioProcessorChain], then writes the
+ *    post-DSP PCM to libusb. ProjectM tap is intentionally excluded
+ *    from the bypass chain (visualizer bus can block its consumer
+ *    and we can't pay that cost on the renderer thread).
+ *  - getCurrentPositionUs uses played-frames accounting from
+ *    [LibusbUacDriver.playedFrames], including silence padding —
+ *    that's intentional so the renderer doesn't see "sink stalled"
+ *    during legitimate underrun pads.
+ *  - Playback speed has no audible effect while exclusive is on.
+ *    The DefaultAudioSink path uses SonicAudioProcessor internally
+ *    for time-stretch; we don't include it in the bypass chain.
+ *    [NoOpAudioSink.setPlaybackParameters] still round-trips the
+ *    user's value so ExoPlayer's state machine is satisfied — but
+ *    the iso pump only knows how to write at the source rate. Speed
+ *    slider works again when the user toggles exclusive off.
  */
 @UnstableApi
 class LibusbAudioSink(
