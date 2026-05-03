@@ -203,4 +203,40 @@ Java_tf_monochrome_android_audio_usb_LibusbUacDriver_nativeActiveStream(
     return arr;
 }
 
+// Phase-A telemetry exports.
+//
+// nativeTelemetrySnapshot returns a long[] of fixed length matching
+// LibusbUacDriver::kTelemetrySnapshotFields. Field order is documented
+// in libusb_uac_driver.cpp::snapshotTelemetry; the Kotlin
+// BypassTelemetry.Snapshot.fromLongArray decoder is the source of
+// truth for field-name-to-index mapping. Adding fields: append at the
+// END only; reordering breaks the wire layout.
+//
+// Caller pattern: poll once per second from a coroutine on
+// Dispatchers.IO, compute deltas against the previous snapshot, format
+// a structured log line, and emit a StateFlow update for the
+// diagnostics UI. The snapshot itself is cheap — atomic loads only,
+// no locks — so this is safe to call at sub-second cadence if
+// diagnosing a fast-moving wedge.
+JNIEXPORT jlongArray JNICALL
+Java_tf_monochrome_android_audio_usb_LibusbUacDriver_nativeTelemetrySnapshot(
+    JNIEnv* env, jobject) {
+    auto snap = driver().snapshotTelemetry();
+    constexpr jsize kFields =
+        static_cast<jsize>(monotrypt::usb::LibusbUacDriver::kTelemetrySnapshotFields);
+    jlongArray arr = env->NewLongArray(kFields);
+    if (!arr) return nullptr;
+    static_assert(sizeof(jlong) == sizeof(int64_t),
+                  "JNI assumes jlong == int64_t for direct memcpy");
+    env->SetLongArrayRegion(arr, 0, kFields,
+                            reinterpret_cast<const jlong*>(snap.data()));
+    return arr;
+}
+
+JNIEXPORT void JNICALL
+Java_tf_monochrome_android_audio_usb_LibusbUacDriver_nativeResetTelemetry(
+    JNIEnv*, jobject) {
+    driver().resetTelemetry();
+}
+
 } // extern "C"

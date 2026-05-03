@@ -285,6 +285,27 @@ class LibusbUacDriver @Inject constructor(
      *  See [BypassDiagnostics.fromLongArray] for the field layout. */
     private external fun nativeActiveStream(): LongArray?
 
+    /**
+     * Phase-A telemetry surface. Returns a packed long[] whose layout
+     * is decoded by [BypassTelemetry.Snapshot.fromLongArray]. Field
+     * count and order are pinned by the native-side
+     * `kTelemetrySnapshotFields` constant; reordering is a wire-break.
+     *
+     * Cost: a sequence of relaxed atomic loads, no locks. Safe to call
+     * at any cadence the collector needs; we ship at 1 Hz by default.
+     */
+    internal external fun nativeTelemetrySnapshot(): LongArray?
+
+    /**
+     * Resets the telemetry counters to zero and re-anchors the wall-
+     * clock baseline to "now". Does NOT touch playback state — the
+     * iso pump keeps running, the ring keeps draining, only the
+     * counters get a fresh start. Use from the diagnostics screen's
+     * "reset counters" button so users can baseline a measurement
+     * window without restarting the stream.
+     */
+    internal external fun nativeResetTelemetry()
+
     companion object {
         private const val TAG = "LibusbUacDriver"
         const val ACTION_USB_PERMISSION = "tf.monochrome.android.USB_PERMISSION"

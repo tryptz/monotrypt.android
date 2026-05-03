@@ -15,6 +15,7 @@
 
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <mutex>
@@ -55,6 +56,136 @@ struct ClockRateRange {
     uint32_t minHz = 0;
     uint32_t maxHz = 0;
     uint32_t resHz = 0;
+};
+
+// Phase-A bypass telemetry. Aggregated continuously while the iso pump
+// is alive; reset at the top of every successful start(). Read by the
+// Kotlin BypassTelemetry collector via nativeTelemetrySnapshot once
+// per second to compute deltas (rates, drift, error frequencies) that
+// the Settings UI and bug-report logger surface.
+//
+// All counters use std::atomic with relaxed ordering on the hot path
+// because every increment site already pays a cache-line touch on
+// the same struct, and the aggregator only needs a coherent snapshot
+// on read. The struct is intentionally POD-like: no constructors that
+// run during onIso, no allocations, no locks. Keeping the iso callback
+// allocation-free is the whole reason the existing pump is stable;
+// breaking that invariant for telemetry would defeat the point.
+//
+// Field layout matches the order produced by snapshotTelemetry() so
+// reading the JNI long[] in Kotlin only needs index constants, not
+// tagged decoding. Add new fields at the END of the layout to keep
+// existing readers working — Kotlin tolerates trailing junk it doesn't
+// know how to read but it can NOT tolerate a re-ordered prefix.
+struct TelemetryCounters {
+    // Iso DATA transfers — top-level libusb_transfer status. A single
+    // transfer carries kPacketsPerTransfer iso packets; per-packet
+    // status is tracked separately below because a transfer can
+    // "complete" with some packets in error.
+    std::atomic<uint64_t> isoCompleted{0};
+    std::atomic<uint64_t> isoError{0};
+    std::atomic<uint64_t> isoTimedOut{0};
+    std::atomic<uint64_t> isoStall{0};
+    std::atomic<uint64_t> isoNoDevice{0};
+    std::atomic<uint64_t> isoOverflow{0};
+    std::atomic<uint64_t> isoCancelled{0};
+
+    // Per-packet outcomes inside completed transfers. The high-rate
+    // counter — at HS / 8000 packets/sec this hits ~480k/min per
+    // category, so we use 64-bit to avoid wrap on long sessions.
+    std::atomic<uint64_t> packetsCompleted{0};
+    std::atomic<uint64_t> packetsError{0};
+
+    // Ring fill stats. Captured once per onIso call (event-thread
+    // only — we can use plain ints here because there's no cross-
+    // thread race on these specific fields, but we keep them atomic
+    // so the aggregator's read is coherent even if it lands mid-
+    // callback). Depth is in BYTES, not frames, because the iso
+    // callback works in bytes and converting per-callback is wasteful.
+    std::atomic<uint32_t> ringDepthSamples{0};       // # of samples taken
+    std::atomic<uint64_t> ringDepthSumBytes{0};      // for arithmetic mean
+    std::atomic<uint32_t> ringDepthMinBytes{0xFFFFFFFFu};
+    std::atomic<uint32_t> ringDepthMaxBytes{0};
+
+    // Underrun events. drainRing pads with silence when the ring is
+    // shorter than the requested byte count; each pad is one event.
+    // The byte total is the cumulative count of silence bytes
+    // emitted, so the aggregator can compute an "underrun ratio" =
+    // silence_bytes / total_bytes that's the most honest health
+    // metric we have for the iso pump.
+    std::atomic<uint64_t> underrunEvents{0};
+    std::atomic<uint64_t> underrunBytes{0};
+    std::atomic<uint64_t> totalDrainBytes{0};
+
+    // Feedback EP. UAC2 §5.2.2.4.1 — the device tells the host how
+    // many frames per (micro)frame it wants. We record the most
+    // recently observed value plus the historical min/max so a
+    // flapping feedback (sign of bus instability or USB power
+    // negotiation problems) is visible without having to capture a
+    // full trace. Stored as 16.16 fixed-point — same wire format as
+    // libusb-side framesPerUframe_q16_; the Kotlin side converts to
+    // Hz on read.
+    std::atomic<uint64_t> feedbackCallbacks{0};
+    std::atomic<uint32_t> feedbackLastQ16{0};
+    std::atomic<uint32_t> feedbackMinQ16{0xFFFFFFFFu};
+    std::atomic<uint32_t> feedbackMaxQ16{0};
+    std::atomic<uint64_t> feedbackErrors{0};
+
+    // writePcm-side counters. Producer thread = audio thread. These
+    // tell us whether back-pressure is happening (writePcm returning
+    // 0 means the renderer was told "I can't take any more right now"
+    // and will retry on the next tick — too many of these in a
+    // window means the ring is consistently full and the iso pump is
+    // draining slower than the renderer can supply, which is the
+    // pre-symptom of the wedged-pump bug).
+    std::atomic<uint64_t> writeCalls{0};
+    std::atomic<uint64_t> writeBackPressureCalls{0};   // returned 0
+    std::atomic<uint64_t> writeAcceptedFrames{0};
+
+    // Wall-clock anchoring for drift detection. Captured at start();
+    // the aggregator computes (playedFrames * 1e9 / sampleRate) /
+    // (now_ns - startWallNs) to get effective vs nominal rate. A
+    // healthy DAC tracks within ±100 ppm over minutes; sustained
+    // drift outside that window means our packet sizing is wrong
+    // (open-loop seed bug, feedback misread, or rate-mismatch).
+    std::atomic<uint64_t> startWallNs{0};
+    std::atomic<uint64_t> startPlayedFrames{0};
+
+    // Reset everything to a fresh-stream baseline. Called from
+    // start() before iso pump submission so the first heartbeat sees
+    // values that begin at zero rather than from the previous track.
+    // Intentionally NOT thread-safe with respect to ongoing writes —
+    // start() is mutex-protected and stops the iso pump before
+    // calling reset, so no concurrent producer exists during the
+    // window this runs.
+    void reset(uint64_t nowNs, uint64_t playedFramesAtStart) {
+        isoCompleted.store(0, std::memory_order_relaxed);
+        isoError.store(0, std::memory_order_relaxed);
+        isoTimedOut.store(0, std::memory_order_relaxed);
+        isoStall.store(0, std::memory_order_relaxed);
+        isoNoDevice.store(0, std::memory_order_relaxed);
+        isoOverflow.store(0, std::memory_order_relaxed);
+        isoCancelled.store(0, std::memory_order_relaxed);
+        packetsCompleted.store(0, std::memory_order_relaxed);
+        packetsError.store(0, std::memory_order_relaxed);
+        ringDepthSamples.store(0, std::memory_order_relaxed);
+        ringDepthSumBytes.store(0, std::memory_order_relaxed);
+        ringDepthMinBytes.store(0xFFFFFFFFu, std::memory_order_relaxed);
+        ringDepthMaxBytes.store(0, std::memory_order_relaxed);
+        underrunEvents.store(0, std::memory_order_relaxed);
+        underrunBytes.store(0, std::memory_order_relaxed);
+        totalDrainBytes.store(0, std::memory_order_relaxed);
+        feedbackCallbacks.store(0, std::memory_order_relaxed);
+        feedbackLastQ16.store(0, std::memory_order_relaxed);
+        feedbackMinQ16.store(0xFFFFFFFFu, std::memory_order_relaxed);
+        feedbackMaxQ16.store(0, std::memory_order_relaxed);
+        feedbackErrors.store(0, std::memory_order_relaxed);
+        writeCalls.store(0, std::memory_order_relaxed);
+        writeBackPressureCalls.store(0, std::memory_order_relaxed);
+        writeAcceptedFrames.store(0, std::memory_order_relaxed);
+        startWallNs.store(nowNs, std::memory_order_relaxed);
+        startPlayedFrames.store(playedFramesAtStart, std::memory_order_relaxed);
+    }
 };
 
 // Negotiated PCM stream parameters (output of UAC2 enumeration).
@@ -198,6 +329,27 @@ public:
     // bit-perfect or quietly being downsampled to 48k.
     std::vector<ClockRateRange> supportedRates() const;
 
+    // Phase-A telemetry surface. snapshotTelemetry() returns a packed
+    // array readable by Kotlin without the caller needing to know
+    // about TelemetryCounters layout. The returned std::array's index
+    // ordering matches BypassTelemetry.Snapshot field order in
+    // Kotlin — keep them in sync. Calling site is the periodic
+    // collector, ~1 Hz, so a brief atomic load storm is fine; we do
+    // NOT take any locks here so the collector can never block the
+    // iso pump. Returning by value makes the read transactional from
+    // the caller's perspective even though the individual atomics
+    // are read in sequence (slight skew is acceptable — a 1-second
+    // window already smears sub-millisecond skew).
+    static constexpr int kTelemetrySnapshotFields = 28;
+    std::array<int64_t, kTelemetrySnapshotFields> snapshotTelemetry() const;
+
+    // Reset telemetry counters without touching playback state. Used
+    // by the Kotlin collector when the user explicitly clicks "reset
+    // counters" in the diagnostics screen so they can baseline before
+    // a test. NOT called automatically — the natural baseline is at
+    // start(), which already resets counters as part of pump init.
+    void resetTelemetry();
+
 private:
     // Walks the active config, finds an Audio Streaming alt-setting
     // whose AS_GENERAL/AS_FORMAT_TYPE descriptors match the request,
@@ -316,6 +468,12 @@ private:
     // errorMutex_ — readers and the start() writer don't race on the
     // hot path.
     std::vector<ClockRateRange> supportedRates_;
+
+    // Phase-A telemetry. Mutable because const methods snapshot it
+    // (atomics support const-correct reads). Reset at start() before
+    // the iso pump goes live and at any time via resetTelemetry().
+    // Fields are documented at the struct definition.
+    mutable TelemetryCounters counters_;
 };
 
 } // namespace monotrypt::usb

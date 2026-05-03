@@ -49,6 +49,7 @@ class UsbExclusiveController @Inject constructor(
     @ApplicationContext private val appContext: Context,
     private val driver: LibusbUacDriver,
     private val preferences: PreferencesManager,
+    private val telemetry: BypassTelemetry,
 ) {
     enum class Status {
         Disabled,
@@ -130,8 +131,17 @@ class UsbExclusiveController @Inject constructor(
             driver.isStreaming.collect { streaming ->
                 if (streaming) {
                     _status.value = Status.Streaming
-                } else if (_status.value == Status.Streaming) {
-                    _status.value = if (driver.isOpen.value) Status.DeviceOpen else Status.NoDevice
+                    // Phase-A telemetry. Starts polling when the iso
+                    // pump is live and stops when it tears down. The
+                    // collector's start/stop is idempotent so the
+                    // edge cases (rapid toggle, format-change
+                    // restarts) won't double-start it.
+                    telemetry.start()
+                } else {
+                    telemetry.stop()
+                    if (_status.value == Status.Streaming) {
+                        _status.value = if (driver.isOpen.value) Status.DeviceOpen else Status.NoDevice
+                    }
                 }
             }
         }

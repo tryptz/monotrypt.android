@@ -66,6 +66,26 @@ class LibusbAudioSink(
     processors: List<AudioProcessor> = emptyList(),
 ) : ForwardingAudioSink(delegate) {
 
+    /**
+     * Phase-A renderer state-trace log. When [traceEnabled] is true,
+     * every state-machine boundary Media3 walks through emits a
+     * structured logcat line tagged [TRACE_TAG]. The output is
+     * grep-friendly key=value pairs so a captured logcat can be
+     * reduced to a state timeline by `grep -F LibusbSinkTrace`.
+     *
+     * The flag is `const`-style here rather than gated on a
+     * BuildConfig boolean because Phase-A instrumentation is
+     * intentionally on for the duration of this branch — turning it
+     * off requires a deliberate edit, which prevents it from being
+     * accidentally enabled in production by a config oversight.
+     * Phase D will move it behind a debug build variant.
+     */
+    private val traceEnabled = true
+
+    private inline fun trace(msg: () -> String) {
+        if (traceEnabled) Log.v(TRACE_TAG, msg())
+    }
+
     private val chain = AudioProcessorChain(processors)
     private var bypassActive = false
     private var configuredFormat: Format? = null
@@ -117,17 +137,33 @@ class LibusbAudioSink(
     // to recompute pcmBitsFromEncoding on every handleBuffer.
     private var outBitsPerSample: Int = 0
 
+    // Latch so the trace log records isEnded becoming true exactly
+    // once per stream, rather than on every poll (which the renderer
+    // does at high frequency). Reset on flush/reset/configure so the
+    // next stream gets its own one-shot edge log.
+    private var endedLogged: Boolean = false
+
     override fun configure(
         inputFormat: Format,
         specifiedBufferSize: Int,
         outputChannels: IntArray?,
     ) {
+        trace {
+            "configure inputRate=${inputFormat.sampleRate} " +
+            "ch=${inputFormat.channelCount} " +
+            "enc=${inputFormat.pcmEncoding} " +
+            "bufSize=$specifiedBufferSize " +
+            "outCh=${outputChannels?.joinToString() ?: "null"} " +
+            "driverOpen=${driver.isOpen.value} " +
+            "driverStreaming=${driver.isStreaming.value}"
+        }
         // Always configure the delegate so [flush] / [reset] / fallback
         // playback all work. The libusb pump only kicks in if start()
         // succeeds; if it doesn't, audio still plays via the delegate.
         super.configure(inputFormat, specifiedBufferSize, outputChannels)
         configuredFormat = inputFormat
         lastEngageFailHash = 0   // fresh attempt for the new format
+        endedLogged = false      // re-arm the one-shot trace edge
 
         val rate = inputFormat.sampleRate
         val channels = inputFormat.channelCount
@@ -219,6 +255,7 @@ class LibusbAudioSink(
                         lastEngageFailHash = 0
                         Log.i(TAG, "lazy-engaged bypass mid-stream " +
                             "($rate/${bits}b/${ch}ch)")
+                        trace { "engage_lazy ok=true rate=$rate bits=$bits ch=$ch" }
                     } else {
                         // Cache the failed format so we don't retry
                         // until configure or flush clears it. Without
@@ -227,6 +264,7 @@ class LibusbAudioSink(
                         lastEngageFailHash = fmtHash
                         Log.w(TAG, "bypass engage failed for "
                             + "$rate/${bits}b/${ch}ch — staying on delegate")
+                        trace { "engage_lazy ok=false rate=$rate bits=$bits ch=$ch" }
                     }
                 }
             }
@@ -321,7 +359,20 @@ class LibusbAudioSink(
     // re-claim the streaming interface, which is the slow path
     // that occasionally wedges with EBUSY when snd-usb-audio
     // re-attaches in the gap.
+    override fun playToEndOfStream() {
+        // Phase A only TRACES this signal — the existing forward to
+        // the delegate (which is NoOpAudioSink in exclusive mode) is
+        // preserved unchanged. Phase B will hook this to the
+        // end-of-stream isEnded fix; the trace landing in production
+        // log captures during Phase A is what lets us verify the
+        // sequence of (configure → handleBuffer → playToEndOfStream
+        // → isEnded) before any behavioural change.
+        trace { "playToEndOfStream bypassActive=$bypassActive ring_pending=${driver.pendingFrames()}" }
+        super.playToEndOfStream()
+    }
+
     override fun pause() {
+        trace { "pause bypassActive=$bypassActive ring_pending=${driver.pendingFrames()}" }
         super.pause()
         if (bypassActive) {
             driver.flushRing()
@@ -329,6 +380,7 @@ class LibusbAudioSink(
     }
 
     override fun play() {
+        trace { "play bypassActive=$bypassActive" }
         super.play()
         if (bypassActive) {
             // Resume from pause: the ring is empty (we flushed on
@@ -380,6 +432,11 @@ class LibusbAudioSink(
                 "${sinceAdvanceNs / 1_000_000} ms after $framesWritten frames " +
                 "written; falling back to delegate sink. Re-engages on next " +
                 "configure/flush.")
+            trace {
+                "watchdog_trip played=$played stalled_ms=${sinceAdvanceNs / 1_000_000} " +
+                "since_first_write_ms=${sinceFirstWriteNs / 1_000_000} " +
+                "frames_written=$framesWritten"
+            }
             watchdogTripped = true
             bypassActive = false
             // Don't call driver.stop() here — nativeStop() spins up
@@ -423,10 +480,18 @@ class LibusbAudioSink(
         // We're ended only when the iso pump has flushed everything
         // we pushed AND the renderer has indicated it's not feeding
         // any more (driver.isStreaming becomes false on stop()).
-        return !hasPendingData() && !driver.isStreaming.value
+        val ended = !hasPendingData() && !driver.isStreaming.value
+        if (ended && !endedLogged) {
+            endedLogged = true
+            trace { "isEnded -> true frames_written=$framesWritten" }
+        }
+        return ended
     }
 
     override fun flush() {
+        trace {
+            "flush bypassActive=$bypassActive ring_pending=${driver.pendingFrames()}"
+        }
         super.flush()
         chain.flush()
         if (bypassActive) {
@@ -443,6 +508,7 @@ class LibusbAudioSink(
     }
 
     override fun reset() {
+        trace { "reset bypassActive=$bypassActive driverStreaming=${driver.isStreaming.value}" }
         super.reset()
         chain.reset()
         if (driver.isStreaming.value) driver.stop()
@@ -461,6 +527,7 @@ class LibusbAudioSink(
     }
 
     override fun release() {
+        trace { "release driverStreaming=${driver.isStreaming.value}" }
         super.release()
         if (driver.isStreaming.value) driver.stop()
     }
@@ -525,6 +592,11 @@ class LibusbAudioSink(
 
     companion object {
         private const val TAG = "LibusbAudioSink"
+        // Phase-A renderer state-trace tag. Separate from TAG so a
+        // logcat capture can isolate just the trace line stream
+        // with `adb logcat -s LibusbSinkTrace:V` while leaving the
+        // existing INFO/WARN logging on its original tag.
+        private const val TRACE_TAG = "LibusbSinkTrace"
         // Give the iso pump this long to start dispatching frames
         // before we even consider it stuck. The first ~150 ms after
         // configure can legitimately produce zero playedFrames while

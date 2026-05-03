@@ -7,6 +7,7 @@
 #include <libusb.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 
 #define TAG "LibusbUacDriver"
@@ -89,6 +90,41 @@ inline size_t ringSize(size_t head, size_t tail) {
     return head - tail;
 }
 
+// Monotonic nanoseconds for telemetry timestamps. CLOCK_MONOTONIC via
+// std::chrono::steady_clock — never goes backwards across NTP slews,
+// not affected by daylight saving / wall-clock changes. Audio drift
+// detection relies on a stable monotonic clock; using the wall clock
+// would let a single ntpd correction look like a gigantic playback-
+// rate spike. Keep the cast pinned to int64_t (not uint64_t) because
+// the JNI side passes the value as a jlong and signed/unsigned
+// confusion is a future-bug magnet.
+inline int64_t nowMonotonicNs() {
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+// Lock-free min/max update for monitor counters. Atomic compare-and-
+// swap loop — converges in O(1) under contention because the loser
+// of a race re-reads the latest value and either succeeds or no
+// longer needs to update (because the winner's value already covers
+// it). std::memory_order_relaxed is correct here because we only
+// need atomicity, not synchronization with other variables: the
+// final aggregator pass reads each counter independently.
+inline void updateAtomicMin(std::atomic<uint32_t>& slot, uint32_t v) {
+    uint32_t cur = slot.load(std::memory_order_relaxed);
+    while (v < cur && !slot.compare_exchange_weak(
+               cur, v, std::memory_order_relaxed, std::memory_order_relaxed)) {
+        // cur was reloaded by compare_exchange_weak; loop again.
+    }
+}
+inline void updateAtomicMax(std::atomic<uint32_t>& slot, uint32_t v) {
+    uint32_t cur = slot.load(std::memory_order_relaxed);
+    while (v > cur && !slot.compare_exchange_weak(
+               cur, v, std::memory_order_relaxed, std::memory_order_relaxed)) {
+        // cur was reloaded by compare_exchange_weak; loop again.
+    }
+}
+
 bool isClassDescriptor(const uint8_t* p, size_t remaining,
                        uint8_t descType, uint8_t subtype) {
     if (remaining < 3) return false;
@@ -134,6 +170,71 @@ std::string LibusbUacDriver::lastErrorDetail() const {
 std::vector<ClockRateRange> LibusbUacDriver::supportedRates() const {
     std::lock_guard<std::mutex> lock(errorMutex_);
     return supportedRates_;
+}
+
+std::array<int64_t, LibusbUacDriver::kTelemetrySnapshotFields>
+LibusbUacDriver::snapshotTelemetry() const {
+    // The snapshot order is the source of truth for the JNI marshalling
+    // and the Kotlin BypassTelemetry.Snapshot decoder. Adding fields:
+    // append at the END only. Reordering or inserting in the middle is
+    // a wire-break and requires updating the Kotlin index constants in
+    // the same commit. The static_assert below guards the field-count
+    // invariant at compile time so the size of this array can never
+    // silently disagree with kTelemetrySnapshotFields.
+    std::array<int64_t, kTelemetrySnapshotFields> out{};
+    int i = 0;
+    out[i++] = static_cast<int64_t>(counters_.isoCompleted.load(std::memory_order_relaxed));
+    out[i++] = static_cast<int64_t>(counters_.isoError.load(std::memory_order_relaxed));
+    out[i++] = static_cast<int64_t>(counters_.isoTimedOut.load(std::memory_order_relaxed));
+    out[i++] = static_cast<int64_t>(counters_.isoStall.load(std::memory_order_relaxed));
+    out[i++] = static_cast<int64_t>(counters_.isoNoDevice.load(std::memory_order_relaxed));
+    out[i++] = static_cast<int64_t>(counters_.isoOverflow.load(std::memory_order_relaxed));
+    out[i++] = static_cast<int64_t>(counters_.isoCancelled.load(std::memory_order_relaxed));
+    out[i++] = static_cast<int64_t>(counters_.packetsCompleted.load(std::memory_order_relaxed));
+    out[i++] = static_cast<int64_t>(counters_.packetsError.load(std::memory_order_relaxed));
+    out[i++] = static_cast<int64_t>(counters_.ringDepthSamples.load(std::memory_order_relaxed));
+    out[i++] = static_cast<int64_t>(counters_.ringDepthSumBytes.load(std::memory_order_relaxed));
+    // Min slot can be 0xFFFFFFFFu sentinel meaning "no samples yet".
+    // Kotlin treats values > UINT32_MAX/2 as "no data" and renders n/a
+    // in the UI rather than a misleading 4-billion-byte ring.
+    out[i++] = static_cast<int64_t>(counters_.ringDepthMinBytes.load(std::memory_order_relaxed));
+    out[i++] = static_cast<int64_t>(counters_.ringDepthMaxBytes.load(std::memory_order_relaxed));
+    out[i++] = static_cast<int64_t>(counters_.underrunEvents.load(std::memory_order_relaxed));
+    out[i++] = static_cast<int64_t>(counters_.underrunBytes.load(std::memory_order_relaxed));
+    out[i++] = static_cast<int64_t>(counters_.totalDrainBytes.load(std::memory_order_relaxed));
+    out[i++] = static_cast<int64_t>(counters_.feedbackCallbacks.load(std::memory_order_relaxed));
+    out[i++] = static_cast<int64_t>(counters_.feedbackLastQ16.load(std::memory_order_relaxed));
+    out[i++] = static_cast<int64_t>(counters_.feedbackMinQ16.load(std::memory_order_relaxed));
+    out[i++] = static_cast<int64_t>(counters_.feedbackMaxQ16.load(std::memory_order_relaxed));
+    out[i++] = static_cast<int64_t>(counters_.feedbackErrors.load(std::memory_order_relaxed));
+    out[i++] = static_cast<int64_t>(counters_.writeCalls.load(std::memory_order_relaxed));
+    out[i++] = static_cast<int64_t>(counters_.writeBackPressureCalls.load(std::memory_order_relaxed));
+    out[i++] = static_cast<int64_t>(counters_.writeAcceptedFrames.load(std::memory_order_relaxed));
+    out[i++] = static_cast<int64_t>(counters_.startWallNs.load(std::memory_order_relaxed));
+    out[i++] = static_cast<int64_t>(counters_.startPlayedFrames.load(std::memory_order_relaxed));
+    // Two derived/contextual fields the collector wants in the same
+    // snapshot so it doesn't have to make a second JNI call (cheap
+    // but not free): current monotonic time and current playedFrames.
+    // Including them here makes the wall-clock-vs-playedFrames drift
+    // calculation a pure subtraction in Kotlin.
+    out[i++] = static_cast<int64_t>(nowMonotonicNs());
+    out[i++] = static_cast<int64_t>(playedFrames_.load(std::memory_order_relaxed));
+    static_assert(kTelemetrySnapshotFields == 28,
+                  "snapshot writer count must match field count constant");
+    return out;
+}
+
+void LibusbUacDriver::resetTelemetry() {
+    // Manual reset path — the natural baseline is at start(), but the
+    // diagnostics screen exposes a "reset counters" button so users
+    // can take a clean measurement window after the pump has settled
+    // (without restarting the stream, which would also reset much
+    // more than they wanted). The reset uses the *current* time and
+    // playedFrames as the anchor so subsequent drift calculations
+    // are relative to the user's chosen baseline rather than start().
+    counters_.reset(
+        static_cast<uint64_t>(nowMonotonicNs()),
+        static_cast<uint64_t>(playedFrames_.load(std::memory_order_relaxed)));
 }
 
 namespace {
@@ -958,6 +1059,14 @@ bool LibusbUacDriver::start(int sampleRateHz, int bitsPerSample, int channels) {
     playedFrames_.store(0, std::memory_order_relaxed);
     stopRequested_.store(false, std::memory_order_relaxed);
 
+    // Phase-A telemetry baseline. Reset BEFORE startIsoPump so the
+    // first iso completion callback already sees the fresh counters,
+    // and the wall-clock anchor point is captured close enough to
+    // the actual start of streaming that drift calculations over
+    // long sessions don't carry an offset bias from "start() was
+    // called but the pump took 50 ms to actually emit packets".
+    counters_.reset(static_cast<uint64_t>(nowMonotonicNs()), 0);
+
     if (!startIsoPump()) {
         // startIsoPump() sets the specific subcategory itself based
         // on whether alloc or submit failed. Don't overwrite here.
@@ -1248,6 +1357,7 @@ void LibusbUacDriver::onFeedback(libusb_transfer* xfr) {
     if (xfr->status == LIBUSB_TRANSFER_COMPLETED &&
         xfr->num_iso_packets > 0 &&
         xfr->iso_packet_desc[0].status == LIBUSB_TRANSFER_COMPLETED) {
+        counters_.feedbackCallbacks.fetch_add(1, std::memory_order_relaxed);
         int actual = xfr->iso_packet_desc[0].actual_length;
         const uint8_t* p = xfr->buffer;
         uint32_t v_q16 = 0;
@@ -1268,8 +1378,28 @@ void LibusbUacDriver::onFeedback(libusb_transfer* xfr) {
                 static_cast<uint32_t>(maxFramesPerPacket_) << 16;
             if (v_q16 <= maxAllowed_q16) {
                 framesPerUframe_q16_.store(v_q16, std::memory_order_release);
+                // Telemetry: track the actual feedback envelope
+                // observed during this stream. A healthy DAC settles
+                // within a few ppm of the requested rate after the
+                // initial PLL settle (~50 ms); flapping (min and max
+                // far apart in steady state) is a sign of bus power
+                // instability or a kernel that's still racing for the
+                // streaming interface. Stored as last-observed plus
+                // running min/max.
+                counters_.feedbackLastQ16.store(
+                    v_q16, std::memory_order_relaxed);
+                updateAtomicMin(counters_.feedbackMinQ16, v_q16);
+                updateAtomicMax(counters_.feedbackMaxQ16, v_q16);
             }
         }
+    } else {
+        // Either the libusb transfer itself failed or the single iso
+        // packet inside it did. Both prevent us from reading a fresh
+        // rate value, which means the next iso transfer will still
+        // pace at the previous rate. A few of these in a row means
+        // the device's feedback EP is dropping packets, often
+        // because of bus power negotiation or hub contention.
+        counters_.feedbackErrors.fetch_add(1, std::memory_order_relaxed);
     }
     int rc = libusb_submit_transfer(xfr);
     if (rc != LIBUSB_SUCCESS) {
@@ -1279,6 +1409,43 @@ void LibusbUacDriver::onFeedback(libusb_transfer* xfr) {
 }
 
 void LibusbUacDriver::onIso(libusb_transfer* xfr) {
+    // Classify the transfer-level status into our telemetry counters
+    // before any control-flow branching. Doing it up front means we
+    // never miss a count due to an early return, and the increment is
+    // a single relaxed atomic — cheap enough that we can afford to
+    // record cancellation paths too (which the previous code silently
+    // dropped). Cancellation counts matter for diagnosing the wedge:
+    // an iso pump being torn down after stop() should produce exactly
+    // kNumTransfers cancellations and zero errors. Anything else is a
+    // bug in shutdown sequencing.
+    switch (xfr->status) {
+        case LIBUSB_TRANSFER_COMPLETED:
+            counters_.isoCompleted.fetch_add(1, std::memory_order_relaxed);
+            break;
+        case LIBUSB_TRANSFER_ERROR:
+            counters_.isoError.fetch_add(1, std::memory_order_relaxed);
+            break;
+        case LIBUSB_TRANSFER_TIMED_OUT:
+            counters_.isoTimedOut.fetch_add(1, std::memory_order_relaxed);
+            break;
+        case LIBUSB_TRANSFER_STALL:
+            counters_.isoStall.fetch_add(1, std::memory_order_relaxed);
+            break;
+        case LIBUSB_TRANSFER_NO_DEVICE:
+            counters_.isoNoDevice.fetch_add(1, std::memory_order_relaxed);
+            break;
+        case LIBUSB_TRANSFER_OVERFLOW:
+            counters_.isoOverflow.fetch_add(1, std::memory_order_relaxed);
+            break;
+        case LIBUSB_TRANSFER_CANCELLED:
+            counters_.isoCancelled.fetch_add(1, std::memory_order_relaxed);
+            break;
+        default:
+            // Unknown status — bucket as error so the count isn't lost.
+            counters_.isoError.fetch_add(1, std::memory_order_relaxed);
+            break;
+    }
+
     if (xfr->status == LIBUSB_TRANSFER_CANCELLED ||
         xfr->status == LIBUSB_TRANSFER_NO_DEVICE) {
         inflight_.fetch_sub(1, std::memory_order_acq_rel);
@@ -1302,6 +1469,16 @@ void LibusbUacDriver::onIso(libusb_transfer* xfr) {
     uint32_t rate_q16 = framesPerUframe_q16_.load(std::memory_order_acquire);
     uint8_t* cursor = xfr->buffer;
     for (int p = 0; p < xfr->num_iso_packets; ++p) {
+        // Per-packet status — packets inside a "completed" transfer
+        // can individually fail (BABBLE on a rotten cable, etc.) and
+        // we want to see that without having to enable USB-level
+        // tracing on the device.
+        if (xfr->iso_packet_desc[p].status == LIBUSB_TRANSFER_COMPLETED) {
+            counters_.packetsCompleted.fetch_add(1, std::memory_order_relaxed);
+        } else {
+            counters_.packetsError.fetch_add(1, std::memory_order_relaxed);
+        }
+
         fracAccumulator_q16_ += rate_q16;
         int frames = static_cast<int>(fracAccumulator_q16_ >> 16);
         fracAccumulator_q16_ &= 0xFFFF;
@@ -1345,6 +1522,25 @@ int LibusbUacDriver::drainRing(uint8_t* dst, int bytes) {
     size_t head = ringHead_.load(std::memory_order_acquire);
     size_t tail = ringTail_.load(std::memory_order_relaxed);
     size_t available = head - tail;
+
+    // Capture pre-drain ring depth for telemetry. We sample at drain
+    // time rather than write time because drain is the consumer-side
+    // observation: it's the count of bytes the iso pump found waiting
+    // for it. A consistently small ring at drain time means the pump
+    // is keeping up; a consistently large ring means writePcm is
+    // ahead of realtime (expected when kRingTargetMs is doing its
+    // job). Underrun shows up as available < bytes here, so this is
+    // the natural place to record both.
+    {
+        uint32_t depthSample = static_cast<uint32_t>(
+            std::min<size_t>(available, 0xFFFFFFFFu));
+        counters_.ringDepthSamples.fetch_add(1, std::memory_order_relaxed);
+        counters_.ringDepthSumBytes.fetch_add(
+            depthSample, std::memory_order_relaxed);
+        updateAtomicMin(counters_.ringDepthMinBytes, depthSample);
+        updateAtomicMax(counters_.ringDepthMaxBytes, depthSample);
+    }
+
     int n = static_cast<int>(std::min<size_t>(available, static_cast<size_t>(bytes)));
     if (n > 0) {
         size_t off = tail & ringMask_;
@@ -1359,7 +1555,18 @@ int LibusbUacDriver::drainRing(uint8_t* dst, int bytes) {
         // Underrun — pad with silence so the iso packet still ships.
         // The DAC hears a click rather than dropping the entire URB.
         std::memset(dst + n, 0, bytes - n);
+        // Telemetry: the silence-bytes ratio is the most honest
+        // measure of how often the pump is starving. A few percent
+        // is normal at startup (the first few packets ship before
+        // the renderer has filled the ring); sustained > 1 % during
+        // steady state means the renderer can't keep up and we will
+        // hear it as periodic clicks.
+        counters_.underrunEvents.fetch_add(1, std::memory_order_relaxed);
+        counters_.underrunBytes.fetch_add(
+            static_cast<uint64_t>(bytes - n), std::memory_order_relaxed);
     }
+    counters_.totalDrainBytes.fetch_add(
+        static_cast<uint64_t>(bytes), std::memory_order_relaxed);
     // Frames "played" = frames the pump has dispatched, including the
     // silence padding (since the device hears those samples too). Used
     // for accurate position reporting back to ExoPlayer.
@@ -1372,6 +1579,7 @@ int LibusbUacDriver::drainRing(uint8_t* dst, int bytes) {
 
 int LibusbUacDriver::writePcm(const uint8_t* data, int frames) {
     if (frames <= 0 || format_.channels == 0) return 0;
+    counters_.writeCalls.fetch_add(1, std::memory_order_relaxed);
     int frameStride = format_.channels * format_.bytesPerSample;
     int bytes = frames * frameStride;
     size_t head = ringHead_.load(std::memory_order_relaxed);
@@ -1392,7 +1600,15 @@ int LibusbUacDriver::writePcm(const uint8_t* data, int frames) {
     // Round down to whole frames to avoid splitting a frame across
     // calls — saves the consumer from having to track partial frames.
     if (frameStride > 0) writable -= writable % frameStride;
-    if (writable <= 0) return 0;
+    if (writable <= 0) {
+        // Back-pressure: ring is at the soft cap. The renderer will
+        // retry on its next tick. Counted separately so the collector
+        // can distinguish "feeder is healthy and the cap is doing
+        // its job" from "feeder is starving the pump" — the former
+        // is back-pressure dominant, the latter is underrun dominant.
+        counters_.writeBackPressureCalls.fetch_add(1, std::memory_order_relaxed);
+        return 0;
+    }
 
     size_t off = head & ringMask_;
     size_t first = std::min<size_t>(writable, kRingBytes - off);
@@ -1403,6 +1619,8 @@ int LibusbUacDriver::writePcm(const uint8_t* data, int frames) {
     ringHead_.store(head + writable, std::memory_order_release);
     int framesPushed = writable / frameStride;
     writtenFrames_.fetch_add(framesPushed, std::memory_order_acq_rel);
+    counters_.writeAcceptedFrames.fetch_add(
+        static_cast<uint64_t>(framesPushed), std::memory_order_relaxed);
     return framesPushed;
 }
 
