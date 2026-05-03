@@ -316,38 +316,35 @@ class PlaybackService : MediaSessionService() {
         // MediaCodec can't (DSD, APE, TAK, WavPack, MPC, TrueHD, DTS, …).
         return object : io.github.anilbeesetti.nextlib.media3ext.ffdecoder.NextRenderersFactory(this@PlaybackService) {
             init {
-                // PREFER over ON. The platform MediaCodec-backed audio
-                // renderer goes through Android's IResourceManagerService,
-                // which on OnePlus / OxygenOS 15 reclaims our audio codec
-                // every ~1 second under any concurrent media load (Chrome
-                // video tabs, screen recorder, system notifications,
-                // etc.) — even with MediaFormat.KEY_IMPORTANCE = 0 set
-                // by ImportanceMediaCodecAdapterFactory. Each
-                // reclamation tears down the AudioSink, flushRing()
-                // zeros the libusb iso pump's ring, and the user hears
-                // a ~150 ms micro-dropout. At ~1 cycle/sec this stitches
-                // into the "audio plays too fast" perception in field
-                // logs (heartbeat shows 44.1k frames/sec dispatch is
-                // technically correct; the chop is what sounds rushed).
+                // EXTENSION_RENDERER_MODE_ON keeps FFmpeg renderers
+                // available as fallbacks (DSD / APE / TAK / WavPack /
+                // MPC / TrueHD / DTS — the formats stock MediaCodec
+                // can't handle) but defers to platform MediaCodec for
+                // common audio (FLAC / AAC / MP3 / Opus / Vorbis /
+                // ALAC). The platform path has hardware-decoder benefits
+                // and most-tested AudioTrack integration; the cost is
+                // that on OnePlus / OxygenOS 15 the resource manager
+                // sometimes evicts our audio codec under concurrent
+                // media pressure (logged as `MediaCodec: Released by
+                // resource manager` followed by audio dropouts).
                 //
-                // PREFER pushes FFmpeg-backed renderers to the front of
-                // the renderer list, so FLAC / Opus / Vorbis / ALAC /
-                // AAC source streams get decoded by libavcodec inside
-                // our own process — no MediaCodec involvement, no
-                // resource manager arbitration, no eviction window.
-                // FFmpeg software FLAC at 44.1k/16-bit/2ch costs <1%
-                // CPU on a OnePlus 15, so the trade-off is trivial vs.
-                // the dropouts the platform path was producing.
-                //
-                // Platform MediaCodec stays available as a fallback for
-                // formats FFmpeg can't handle (rare on the audio side)
-                // and for video (ON-mode list still includes
-                // MediaCodecVideoRenderer first because we don't have
-                // an FFmpeg video renderer in this build path —
-                // NextRenderersFactory inserts FfmpegAudioRenderer
-                // before audio platform decoders when PREFER is set,
-                // not video).
-                setExtensionRendererMode(EXTENSION_RENDERER_MODE_PREFER)
+                // We tried PREFER (commit 00ce550) to push FFmpeg ahead
+                // of MediaCodec for the common formats and avoid the
+                // resource manager entirely; field reports of
+                // "too many pipeline buffer it's not playing back
+                // correctly" came back immediately, so reverted.
+                // Working theory: NextRenderersFactory's PREFER mode
+                // changes back-pressure timing in a way the libusb
+                // bypass sink doesn't handle as cleanly as the
+                // MediaCodec path. Needs a deeper investigation
+                // (DecoderAudioRenderer.processOutputBuffer vs
+                // MediaCodecAudioRenderer.processOutputBuffer) before
+                // we re-attempt. Path forward for codec-churn fix is
+                // either a runtime priority bump via
+                // MediaCodec.setParameters(PARAMETER_KEY_PRIORITY) or
+                // app-level coordination with system media services —
+                // not a renderer-level swap.
+                setExtensionRendererMode(EXTENSION_RENDERER_MODE_ON)
             }
 
             // Wrap the platform-default MediaCodecAdapter.Factory in
