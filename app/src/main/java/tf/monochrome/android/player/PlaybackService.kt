@@ -316,7 +316,38 @@ class PlaybackService : MediaSessionService() {
         // MediaCodec can't (DSD, APE, TAK, WavPack, MPC, TrueHD, DTS, …).
         return object : io.github.anilbeesetti.nextlib.media3ext.ffdecoder.NextRenderersFactory(this@PlaybackService) {
             init {
-                setExtensionRendererMode(EXTENSION_RENDERER_MODE_ON)
+                // PREFER over ON. The platform MediaCodec-backed audio
+                // renderer goes through Android's IResourceManagerService,
+                // which on OnePlus / OxygenOS 15 reclaims our audio codec
+                // every ~1 second under any concurrent media load (Chrome
+                // video tabs, screen recorder, system notifications,
+                // etc.) — even with MediaFormat.KEY_IMPORTANCE = 0 set
+                // by ImportanceMediaCodecAdapterFactory. Each
+                // reclamation tears down the AudioSink, flushRing()
+                // zeros the libusb iso pump's ring, and the user hears
+                // a ~150 ms micro-dropout. At ~1 cycle/sec this stitches
+                // into the "audio plays too fast" perception in field
+                // logs (heartbeat shows 44.1k frames/sec dispatch is
+                // technically correct; the chop is what sounds rushed).
+                //
+                // PREFER pushes FFmpeg-backed renderers to the front of
+                // the renderer list, so FLAC / Opus / Vorbis / ALAC /
+                // AAC source streams get decoded by libavcodec inside
+                // our own process — no MediaCodec involvement, no
+                // resource manager arbitration, no eviction window.
+                // FFmpeg software FLAC at 44.1k/16-bit/2ch costs <1%
+                // CPU on a OnePlus 15, so the trade-off is trivial vs.
+                // the dropouts the platform path was producing.
+                //
+                // Platform MediaCodec stays available as a fallback for
+                // formats FFmpeg can't handle (rare on the audio side)
+                // and for video (ON-mode list still includes
+                // MediaCodecVideoRenderer first because we don't have
+                // an FFmpeg video renderer in this build path —
+                // NextRenderersFactory inserts FfmpegAudioRenderer
+                // before audio platform decoders when PREFER is set,
+                // not video).
+                setExtensionRendererMode(EXTENSION_RENDERER_MODE_PREFER)
             }
 
             // Wrap the platform-default MediaCodecAdapter.Factory in
