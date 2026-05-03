@@ -62,13 +62,24 @@ constexpr uint32_t kIsoLogEvery = 1000;
 // audio, so every pause / skip / hardware-volume press lags the
 // DAC by 6 sec. Steady-state end-to-end bypass latency is now
 // roughly kRingTargetMs plus the iso-pump's kPacketsPerTransfer ×
-// kNumTransfers in-flight depth (~4 ms at HS). 80 ms is well
-// above ExoPlayer's typical 20–40 ms renderer wakeup jitter so
-// we don't underrun on a slow tick, well under the threshold
-// where users start to feel "responds late" on transport
-// controls. Format-scaled at the use site so the wall-time depth
-// stays the same across 44.1 / 96 / 192 / 384 kHz.
-constexpr int kRingTargetMs = 80;
+// kNumTransfers in-flight depth (~4 ms at HS).
+//
+// 250 ms picked after a first attempt at 80 ms produced audible
+// clicks + a "speed maxxing" / chopped-up perception in field
+// reports. Root cause: ExoPlayer's audio renderer is decoded by
+// MediaCodec on a separate thread plus our DSP chain (mixBus,
+// AutoEQ, parametric EQ, spectrum FFT) all fight for CPU on the
+// same audio path, and ART GC / scheduler hiccups can park the
+// feeder for >100 ms occasionally — at 80 ms the ring underruns,
+// drainRing pads silence, the next renderer wakeup floods the
+// ring back to cap, and the on-off pattern sounds like the music
+// is racing in bursts. 250 ms gives ~150 ms of headroom over
+// realistic worst-case feeder gaps without making transport
+// controls feel laggy (well below the 300–500 ms threshold where
+// pause/skip start to feel "delayed"). Format-scaled at the use
+// site so wall-time depth stays the same across 44.1 / 96 / 192
+// / 384 kHz; if you change this, change kRingTargetMs only.
+constexpr int kRingTargetMs = 250;
 
 // Produced/consumed bytes count, not frame count. We pack interleaved
 // PCM contiguously so byte-level accounting is the natural unit.
