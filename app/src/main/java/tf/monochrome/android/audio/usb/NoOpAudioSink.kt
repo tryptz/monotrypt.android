@@ -41,7 +41,7 @@ import java.nio.ByteBuffer
  *     `Listener.onPositionDiscontinuity` so the renderer's position
  *     tracking stays correct after seeks. `DefaultAudioSink` fires this
  *     from inside its AudioTrack lifecycle; we have to do it manually.
- *   - [getFormatSupport] reports `SINK_FORMAT_HANDLED` for int PCM and
+ *   - [getFormatSupport] reports `SINK_FORMAT_SUPPORTED_DIRECTLY` for int PCM and
  *     `SINK_FORMAT_UNSUPPORTED` for float / non-PCM. This propagates
  *     into `MediaCodecAudioRenderer` and disables float-output
  *     negotiation for the codec, so the decoded PCM that reaches us is
@@ -85,7 +85,7 @@ class NoOpAudioSink : AudioSink {
         return when (format.pcmEncoding) {
             C.ENCODING_PCM_16BIT,
             C.ENCODING_PCM_24BIT,
-            C.ENCODING_PCM_32BIT -> AudioSink.SINK_FORMAT_HANDLED
+            C.ENCODING_PCM_32BIT -> AudioSink.SINK_FORMAT_SUPPORTED_DIRECTLY
             // Float / packed-24-BE / 32-BE / non-PCM all unsupported —
             // bypass cannot transcode and LibusbAudioSink's gain path
             // only handles 16-bit; 24/32-bit fall through to direct
