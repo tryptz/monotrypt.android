@@ -74,8 +74,7 @@ class NoOpAudioSink : AudioSink {
     override fun supportsFormat(format: Format): Boolean =
         getFormatSupport(format) != AudioSink.SINK_FORMAT_UNSUPPORTED
 
-    @AudioSink.SinkFormatSupport
-    override fun getFormatSupport(format: Format): Int {
+    override fun getFormatSupport(format: Format): @AudioSink.SinkFormatSupport Int {
         // Compressed source formats (FLAC, Opus, etc.) reach us here
         // with pcmEncoding = NO_VALUE before the decoder has reported
         // its output format. Reject — the renderer will re-query with
