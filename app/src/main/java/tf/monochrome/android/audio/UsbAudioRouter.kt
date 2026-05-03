@@ -60,24 +60,33 @@ class UsbAudioRouter @Inject constructor(
     private fun refresh() {
         val current = _usbOutputDevice.value
         val next = currentUsbOutput()
-        // Compare by id, not by reference / Object.equals. AudioManager
-        // can hand us a freshly-allocated AudioDeviceInfo for the same
-        // logical device on every onAudioDevicesAdded/Removed callback
-        // — and AudioFlinger fires those internally whenever it
-        // reconfigures an output (e.g. when an app calls
-        // setPreferredMixerAttributes for bit-perfect mode). The
-        // resulting "different instance, same DAC" stream made
-        // PlaybackService's setPreferredAudioDevice collector re-fire
-        // on every track transition, which kicked AudioFlinger into
-        // closing/recreating the in-flight AudioTrack →
-        // `restoreTrack_l ... status -32` retry cascades visible in
-        // the user-side logs from 2026-05-03. Keying dedupe on
-        // AudioDeviceInfo.id breaks that loop: same DAC stays the
-        // same StateFlow value across reroutes, plug/unplug emits a
-        // new id and only then the route is re-applied.
-        if (current?.id != next?.id) {
+        // Compare by productName + address (stable across AudioFlinger
+        // output reconfigures), NOT by AudioDeviceInfo.id (ephemeral
+        // — OnePlus / OxygenOS reassigns id every time
+        // setPreferredMixerAttributes triggers an output reconfigure,
+        // 925 → 1711 → ... within ~15 seconds in field logs). The id
+        // is also reassigned whenever AudioFlinger rebuilds the route
+        // for any reason. Keying dedupe on productName+address means
+        // the same physical Bathys stays the same StateFlow value
+        // across all internal reroutes; only an actual plug/unplug
+        // emits, which is the only case where the downstream
+        // setPreferredAudioDevice collector should re-fire.
+        //
+        // Without this, the routing collector re-fired on every
+        // reroute and AudioFlinger never settled a single output →
+        // "ioConfigChanged() closing unknown output" cascade and
+        // audio stayed permanently stuck on the platform-bit-perfect
+        // path.
+        if (!sameHardware(current, next)) {
             _usbOutputDevice.value = next
         }
+    }
+
+    private fun sameHardware(a: AudioDeviceInfo?, b: AudioDeviceInfo?): Boolean {
+        if (a == null && b == null) return true
+        if (a == null || b == null) return false
+        return a.productName?.toString() == b.productName?.toString() &&
+            a.address == b.address
     }
 
     private fun initialUsbDevice(): AudioDeviceInfo? = currentUsbOutput()
