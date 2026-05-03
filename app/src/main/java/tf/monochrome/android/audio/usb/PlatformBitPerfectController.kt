@@ -75,8 +75,21 @@ class PlatformBitPerfectController @Inject constructor(
          *  it can do 48 / 96 / 192 kHz bit-perfect but the track is
          *  44.1 kHz, or track is float and HAL is integer-only. */
         FormatUnsupported,
+        /** HAL would accept setPreferredMixerAttributes for this PCM
+         *  format on this DAC, but we don't actually call it because
+         *  the resulting route reconfigure interacts badly with
+         *  ExoPlayer's DefaultAudioSink AudioTrack lifecycle (see
+         *  field log monotryptdebug20260503124933.log: AudioFlinger
+         *  closes outputs faster than ExoPlayer can restoreTrack_l,
+         *  -32 retry cascade exhausts, audio dies permanently). The
+         *  routed-but-not-bit-perfect path via setPreferredAudioDevice
+         *  remains active so audio still plays through the DAC; only
+         *  bit-perfect at the HAL level isn't engaged. Use the libusb
+         *  exclusive toggle for true bit-perfect on this device. */
+        SuppressedForCompatibility,
         /** `setPreferredMixerAttributes` succeeded — AudioFlinger is now
-         *  passing PCM through untouched to the DAC. */
+         *  passing PCM through untouched to the DAC. (Currently
+         *  unreachable until SuppressedForCompatibility is lifted.) */
         Active,
         /** `setPreferredMixerAttributes` returned false or threw. The
          *  existing preferred-device routing still applies, just not
@@ -232,6 +245,55 @@ class PlatformBitPerfectController @Inject constructor(
             return
         }
 
+        // INTENTIONALLY suppressed. We've identified that the HAL
+        // would accept setPreferredMixerAttributes for this PCM
+        // format on this DAC — but actually calling it interacts
+        // badly with ExoPlayer's DefaultAudioSink AudioTrack
+        // lifecycle on every device we've tested (OnePlus 15 /
+        // OxygenOS in particular: AudioFlinger keeps closing
+        // outputs faster than ExoPlayer's restoreTrack_l can
+        // recreate them, the -32 retry cascade exhausts after 10
+        // attempts, audio dies permanently — see field log
+        // monotryptdebug20260503124933.log:227-300). UAPP / Hiby
+        // avoid this by constructing AudioTrack themselves with
+        // setAudioFormat(mixerAttributes!!.format) exactly matching
+        // what they registered; ExoPlayer can't easily be coerced
+        // into that without rewriting DefaultAudioSink.
+        //
+        // The routed-but-not-bit-perfect path via
+        // PlaybackService's setPreferredAudioDevice collector still
+        // pins playback to the USB DAC, so audio plays normally
+        // through the OEM mixer (with whatever resampling
+        // AudioFlinger does). For true bit-perfect on this device
+        // the user falls back to the libusb exclusive toggle,
+        // which is independently confirmed to work (heartbeat
+        // played counter advances at exactly the source sample
+        // rate, no AudioTrack involvement at all).
+        //
+        // Leaving the controller wired up so we still get
+        // diagnostic logs (HAL bit-perfect support / format match)
+        // and so flipping this back on is a one-line change once
+        // either Google fixes the AudioMixerAttributes ↔ AudioTrack
+        // routing race or Media3 grows a way to coerce the
+        // AudioSink format. Both are tracked upstream
+        // (androidx/media #415, public).
+        if (BIT_PERFECT_API_CALL_SUPPRESSED) {
+            if (_status.value != Status.SuppressedForCompatibility) {
+                Log.i(TAG, "would engage bit-perfect on ${device.productName} " +
+                    "(${match.format.sampleRate} Hz / " +
+                    "${encodingLabel(match.format.encoding)} / " +
+                    "${match.format.channelCount}ch) but the actual " +
+                    "setPreferredMixerAttributes call is suppressed — " +
+                    "ExoPlayer's AudioTrack lifecycle races with the " +
+                    "AudioFlinger output reconfigure on every OEM we've " +
+                    "tested. Audio still routes via setPreferredAudioDevice; " +
+                    "for true bit-perfect, use the Exclusive USB DAC toggle.")
+            }
+            _appliedFormat.value = match
+            _status.value = Status.SuppressedForCompatibility
+            return
+        }
+
         // Skip a redundant set if we're already applied with the same
         // attrs on the same physical DAC. Compare by productName, NOT
         // AudioDeviceInfo.id — OnePlus / OxygenOS reassigns the id on
@@ -352,6 +414,20 @@ class PlatformBitPerfectController @Inject constructor(
 
     companion object {
         private const val TAG = "PlatformBitPerfect"
+
+        // Suppresses the actual setPreferredMixerAttributes() call.
+        // See the SuppressedForCompatibility enum doc for why. Flip
+        // to false once Google / Media3 fix the underlying
+        // AudioTrack ↔ AudioMixerAttributes route reconfigure race
+        // (tracked at androidx/media #415).
+        //
+        // Even with this true, the controller still does the full
+        // device + format detection so the Settings UI reports
+        // accurate "would engage" diagnostics, and so flipping it
+        // back on is a one-line change with no other code edits
+        // needed.
+        private const val BIT_PERFECT_API_CALL_SUPPRESSED = true
+
         // Reused across every set/clear call. AudioAttributes is only
         // read by the framework, never mutated, so a singleton is safe.
         private val MEDIA_AUDIO_ATTRS: AudioAttributes =

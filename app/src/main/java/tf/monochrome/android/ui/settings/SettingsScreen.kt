@@ -1044,6 +1044,14 @@ private fun UsbBitPerfectToggle(viewModel: SettingsViewModel) {
             tf.monochrome.android.audio.usb.PlatformBitPerfectController.Status.NoUsbDevice,
             tf.monochrome.android.audio.usb.PlatformBitPerfectController.Status.Unsupported,
             tf.monochrome.android.audio.usb.PlatformBitPerfectController.Status.Idle,
+            // SuppressedForCompatibility is silent in the UI by
+            // default — the toggle's own subtitle ("On → Focal
+            // Bathys") is enough for the user; we don't want to
+            // distract with a "would have engaged" message that
+            // the user can't act on. Re-enabled when the platform
+            // bit-perfect call is unsuppressed in the controller
+            // (see BIT_PERFECT_API_CALL_SUPPRESSED).
+            tf.monochrome.android.audio.usb.PlatformBitPerfectController.Status.SuppressedForCompatibility,
         )) {
         PlatformBitPerfectStatusCard(
             status = platformStatus,
