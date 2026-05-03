@@ -126,8 +126,11 @@ class PlatformBitPerfectController @Inject constructor(
                 }
         }
         scope.launch {
+            // No distinctUntilChanged here — usbOutputDevice is a
+            // StateFlow which already conflates duplicate emissions
+            // (and as of kotlinx.coroutines 1.7 calling
+            // distinctUntilChanged on a StateFlow is a hard error).
             usbAudioRouter.usbOutputDevice
-                .distinctUntilChanged()
                 .collect { tick.trySend(Unit) }
         }
         scope.launch {
