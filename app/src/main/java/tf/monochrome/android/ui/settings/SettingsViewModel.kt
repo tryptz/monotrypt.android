@@ -49,6 +49,7 @@ class SettingsViewModel @Inject constructor(
     private val usbAudioRouter: tf.monochrome.android.audio.UsbAudioRouter,
     private val usbExclusiveController: tf.monochrome.android.audio.usb.UsbExclusiveController,
     private val platformBitPerfectController: tf.monochrome.android.audio.usb.PlatformBitPerfectController,
+    private val bypassSelfTest: tf.monochrome.android.audio.usb.BypassSelfTest,
     @ApplicationContext private val appContext: Context
 ) : ViewModel() {
 
@@ -70,6 +71,48 @@ class SettingsViewModel @Inject constructor(
     /** What rates the DAC actually supports, per its GET_RANGE table. */
     val usbBypassSupportedRates: StateFlow<List<tf.monochrome.android.audio.usb.ClockRateRange>> =
         usbExclusiveController.supportedRates
+
+    // Phase D: in-app bypass self-test surface.
+    //
+    // The UI binds [bypassSelfTestVerdict] to render the result and
+    // calls [runBypassSelfTest] from a button tap. While the test is
+    // running, [bypassSelfTestRunning] is true so the UI can disable
+    // the button and show a progress indicator. The test takes about
+    // five seconds (a measurement window plus a brief settle); the
+    // user feels the wait but it is short enough to be acceptable.
+    //
+    // We deliberately keep the verdict in a StateFlow rather than a
+    // one-shot SharedFlow so the result persists until the next run,
+    // which lets the user re-open Settings after a self-test and
+    // still see the last verdict without having to re-run.
+    private val _bypassSelfTestVerdict = MutableStateFlow<
+        tf.monochrome.android.audio.usb.BypassSelfTest.Verdict?>(null)
+    val bypassSelfTestVerdict: StateFlow<
+        tf.monochrome.android.audio.usb.BypassSelfTest.Verdict?> =
+        _bypassSelfTestVerdict.asStateFlow()
+
+    private val _bypassSelfTestRunning = MutableStateFlow(false)
+    val bypassSelfTestRunning: StateFlow<Boolean> =
+        _bypassSelfTestRunning.asStateFlow()
+
+    /**
+     * Phase D: launch the bypass self-test in [viewModelScope]. The
+     * UI tap handler calls this directly; the result lands in
+     * [bypassSelfTestVerdict] when complete. Re-entrant calls are
+     * de-duped by the running flag — a second tap while a test is in
+     * flight is a no-op.
+     */
+    fun runBypassSelfTest() {
+        if (_bypassSelfTestRunning.value) return
+        _bypassSelfTestRunning.value = true
+        viewModelScope.launch {
+            try {
+                _bypassSelfTestVerdict.value = bypassSelfTest.run()
+            } finally {
+                _bypassSelfTestRunning.value = false
+            }
+        }
+    }
 
     /** Live state of the Android 14+ platform bit-perfect path that
      *  layers on top of [usbBitPerfectEnabled]. Settings UI uses this

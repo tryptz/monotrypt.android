@@ -175,6 +175,30 @@ class LibusbAudioSink(
     @Volatile
     private var pumpRetryInFlight: Boolean = false
 
+    // Phase D: configuration generation counter. Every call to
+    // configure() bumps this, which is the canonical "the renderer's
+    // intent has changed" signal. The recovery worker captures the
+    // generation at scheduling time and refuses to call driver.start
+    // if the generation has advanced — which would mean the format
+    // it captured is stale and starting the pump for it would race
+    // with whatever new format the renderer is about to push. The
+    // race window is real: between watchdog trip on the audio
+    // thread and driver.start on the recovery thread, a track
+    // change with a different sample rate can arrive and call
+    // configure() concurrently. Without this guard the recovery
+    // thread would bring the pump up at the OLD rate, the
+    // renderer's next handleBuffer would feed NEW-rate frames into
+    // a ring sized for the old, and the user would hear pitched-up
+    // audio or rapid stutter depending on which size won.
+    //
+    // Atomic Int rather than Volatile because we need both
+    // increment and compare-load semantics — Volatile alone would
+    // give us correct visibility but no atomic increment. The
+    // performance cost is one CAS per configure(), which happens
+    // at most a few times per second; nothing on the hot path
+    // touches this field.
+    private val configGeneration = java.util.concurrent.atomic.AtomicInteger(0)
+
     // Single-thread executor used only for iso pump recovery work.
     // Rare events; we don't need a pooled scope or a heavyweight
     // CoroutineScope. The thread is daemon so it doesn't block
@@ -207,6 +231,15 @@ class LibusbAudioSink(
         lastEngageFailHash = 0   // fresh attempt for the new format
         endedLogged = false      // re-arm the one-shot trace edge
         playingToEndOfStream = false  // re-arm EOS contract for new stream
+        // Phase D: bump the configuration generation. The recovery
+        // worker reads this when it's about to call driver.start; if
+        // the value has changed since the watchdog scheduled the
+        // recovery, the recovery aborts because its captured format
+        // is no longer what the renderer wants. Bump AFTER the
+        // configuration writes above are done, so a recovery worker
+        // that observes the new generation also observes the new
+        // configuredFormat consistently.
+        configGeneration.incrementAndGet()
 
         val rate = inputFormat.sampleRate
         val channels = inputFormat.channelCount
@@ -513,17 +546,26 @@ class LibusbAudioSink(
             if (!pumpRetryInFlight && !watchdogTripped) {
                 pumpRetryInFlight = true
                 val fmt = configuredFormat
+                // Phase D: capture the configuration generation at
+                // the moment the watchdog decides to recover. The
+                // recovery worker will compare against the live
+                // counter just before calling driver.start; if a
+                // configure() ran in between, the captured fmt is
+                // stale and the recovery aborts (a fresh
+                // lazy-engage on the next handleBuffer will bring
+                // the pump up at the correct format).
+                val genAtSchedule = configGeneration.get()
                 Log.w(TAG, "iso pump wedged — playedFrames=$played stuck for " +
                     "${sinceAdvanceNs / 1_000_000} ms after $framesWritten frames " +
                     "written; scheduling pump restart")
                 trace {
                     "watchdog_trip played=$played stalled_ms=${sinceAdvanceNs / 1_000_000} " +
                     "since_first_write_ms=${sinceFirstWriteNs / 1_000_000} " +
-                    "frames_written=$framesWritten retry=scheduled"
+                    "frames_written=$framesWritten retry=scheduled gen=$genAtSchedule"
                 }
                 bypassActive = false
                 if (fmt != null) {
-                    recoveryExecutor.execute { recoverIsoPump(fmt) }
+                    recoveryExecutor.execute { recoverIsoPump(fmt, genAtSchedule) }
                 } else {
                     // No format known — can't restart. Fall back to
                     // the previous "give up" behaviour so we don't
@@ -652,16 +694,23 @@ class LibusbAudioSink(
      * sink in a state where the next [handleBuffer] will lazy-engage
      * bypass exactly as it does after a normal configure().
      *
-     * On failure (the device is genuinely gone, or the kernel re-grabbed
-     * the streaming interface during the gap), [watchdogTripped] is
-     * set so the sink stops attempting recovery for this configured
-     * format — re-engaging would just hit the same failure. The next
-     * [configure] or [flush] call clears the trip and gives recovery
-     * another shot, which matches user expectation: pause/resume,
-     * track change, or manual toggle of exclusive mode all let the
-     * pump try again.
+     * Phase D: takes a [generationAtSchedule] parameter that the
+     * watchdog captured at the moment of the trip. We re-check the
+     * live [configGeneration] just before calling driver.start; if
+     * a configure() ran in between the trip and now, the captured
+     * format is stale, and bringing the pump up at it would race
+     * with whatever new format the renderer is about to push. In
+     * that case we abort the recovery — the next handleBuffer's
+     * lazy-engage will bring the pump up at the new format.
+     *
+     * On hard failure (the device is genuinely gone, or the kernel
+     * re-grabbed the streaming interface during the gap),
+     * [watchdogTripped] is set so the sink stops attempting recovery
+     * for this configured format — re-engaging would just hit the
+     * same failure. The next [configure] or [flush] call clears the
+     * trip and gives recovery another shot.
      */
-    private fun recoverIsoPump(fmt: Format) {
+    private fun recoverIsoPump(fmt: Format, generationAtSchedule: Int) {
         try {
             // Stop the wedged pump. Even if its internal state is
             // confused, stop() unconditionally cancels every URB
@@ -673,6 +722,27 @@ class LibusbAudioSink(
             // re-attaches in the gap before we've fully released.
             driver.stop()
             Thread.sleep(100L)
+
+            // Phase D: format-change race check. The renderer might
+            // have called configure() with a different format while
+            // we were asleep. If so, abandon — the new lazy-engage
+            // on the next handleBuffer will bring the pump up at
+            // the renderer's current format. Without this check we
+            // would commit to the stale format and the renderer
+            // would feed wrong-sized buffers into the ring.
+            val liveGeneration = configGeneration.get()
+            if (liveGeneration != generationAtSchedule) {
+                Log.i(TAG, "iso pump recovery aborted — format changed " +
+                    "during recovery window (gen $generationAtSchedule -> " +
+                    "$liveGeneration). Lazy-engage on next handleBuffer " +
+                    "will bring up the new format.")
+                trace {
+                    "watchdog_recover ok=aborted reason=format_changed " +
+                    "gen_sched=$generationAtSchedule gen_live=$liveGeneration"
+                }
+                return
+            }
+
             val rate = fmt.sampleRate
             val ch = fmt.channelCount
             val bits = pcmBitsFromEncoding(fmt.pcmEncoding)

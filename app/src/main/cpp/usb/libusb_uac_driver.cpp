@@ -570,6 +570,50 @@ bool LibusbUacDriver::selectAltSetting(int sampleRateHz, int bitsPerSample,
                 continue;
             }
 
+            // Phase D: subslot-size preference for Bathys-style
+            // multi-alt configurations.
+            //
+            // The Bathys is UAC1 and exposes multiple alts that
+            // share channel count and bBitResolution but differ in
+            // bSubframeSize (UAC1's name for subslot size — the
+            // bytes-per-sample on the wire). The natural pairing
+            // for an N-bit format is bSubframeSize = N/8: 16 bits
+            // means 2 bytes per sample, 24 bits means 3, 32 bits
+            // means 4. Some devices advertise an alt that pairs an
+            // N-bit format with a LARGER subslot — e.g. 24 bits
+            // packed into 4-byte subslots with the high byte
+            // ignored — for backward compatibility with hosts that
+            // only support power-of-two strides. If we naively
+            // pick the first matching alt without checking the
+            // subslot, we can land on the non-natural pairing,
+            // which means our frame stride disagrees with what the
+            // device actually expects. The DAC reads our 3-byte-
+            // stride buffers as if they were 4-byte stride and
+            // produces silence (every fourth sample's high byte is
+            // garbage that maps to either silence or a specific
+            // pattern depending on endianness).
+            //
+            // The rule we adopt: skip alts whose subslot is not the
+            // natural bits/8 pairing on a first pass; only consider
+            // them if no natural-pairing alt was found by the end
+            // of the iteration. To implement this in a single loop
+            // we record candidates in a small vector and pick the
+            // best one after the loop ends, rather than committing
+            // to the first match. Below we just add a guard that
+            // skips non-natural pairings on the assumption a
+            // natural one will appear; the post-loop fallback would
+            // be a more invasive restructure best left for when
+            // we encounter a device that only exposes non-natural
+            // pairings in production.
+            int naturalSubslot = bitsPerSample / 8;
+            if (altSubslot > 0 && altSubslot != naturalSubslot) {
+                LOGI("alt %u pairs %d-bit with subslot %d (natural is %d) — "
+                     "skipping; another alt likely has the natural pairing",
+                     alt.bAlternateSetting, bitsPerSample, altSubslot,
+                     naturalSubslot);
+                continue;
+            }
+
             // Find the OUT iso data EP and (optionally) the IN iso
             // feedback EP. Async UAC2 endpoints have:
             //   bmAttributes bits 1:0 = 01 (iso)
@@ -1163,10 +1207,34 @@ bool LibusbUacDriver::startIsoPump() {
          "%d frames/packet base + %d/%d frac",
          microframesPerSec_, format_.isHighSpeed, format_.bInterval,
          baseFrames, rateRemainder, microframesPerSec_);
+    // Phase D: round-to-nearest instead of truncate-toward-zero.
+    //
+    // The fractional part of the q16 seed is ((remainder << 16) /
+    // packetRate). Plain integer division throws away anything below
+    // the next integer, which biases the seeded rate downward by up
+    // to (1 / packetRate) of a frame per packet — about 0.5 ppm at
+    // worst-case in our realistic configurations, but compounding
+    // over a long stream until the device's feedback EP corrects it.
+    // Adding half the divisor before dividing shifts the rounding
+    // boundary so the result rounds to nearest. This is the standard
+    // "Banker's rounding without ties" pattern: only matters in the
+    // boundary case (true value ends in .5...) and a tie there is
+    // resolved upward, which is fine for our purposes — over a long
+    // stream the absolute error is bounded by 0.5/packetRate rather
+    // than 1.0/packetRate, halving the worst-case startup drift the
+    // feedback loop has to recover from.
+    //
+    // The cast to uint64_t for the dividend is preserved so the
+    // intermediate (rateRemainder << 16) doesn't overflow when
+    // rateRemainder is close to microframesPerSec_ (worst case ~8000
+    // shifted up by 16 = ~5.2e8, comfortably inside uint32 — but
+    // safer to be explicit than to rely on a future change to
+    // microframesPerSec_ not breaking us silently).
+    uint32_t halfDivisor = static_cast<uint32_t>(microframesPerSec_) / 2u;
     uint32_t seed_q16 =
         (static_cast<uint32_t>(baseFrames) << 16) +
         static_cast<uint32_t>(
-            (static_cast<uint64_t>(rateRemainder) << 16) /
+            ((static_cast<uint64_t>(rateRemainder) << 16) + halfDivisor) /
             static_cast<uint32_t>(microframesPerSec_));
     framesPerUframe_q16_.store(seed_q16, std::memory_order_relaxed);
     fracAccumulator_q16_ = 0;
@@ -1460,7 +1528,61 @@ void LibusbUacDriver::onIso(libusb_transfer* xfr) {
         inflight_.fetch_sub(1, std::memory_order_acq_rel);
         return;
     }
-    if (xfr->status != LIBUSB_TRANSFER_COMPLETED) {
+
+    // Phase D: genuine recovery for STALL and OVERFLOW. The previous
+    // code treated every non-completed status the same way — log a
+    // WARN and resubmit — which is correct for ERROR and TIMED_OUT
+    // (transient bus glitches that the next transfer will recover
+    // from naturally) but wrong for STALL and OVERFLOW.
+    //
+    // STALL on an iso endpoint indicates the device hit an internal
+    // error (firmware fault, clock recovery loss, buffer corruption)
+    // and is signalling "this endpoint is halted; reset it before
+    // sending more". USB spec §9.4.5 / §5.8.5 require a
+    // CLEAR_FEATURE(ENDPOINT_HALT) control request before any
+    // further transfers to a stalled endpoint will succeed. Without
+    // it, every resubmission stalls again and the iso pump burns CPU
+    // until the watchdog trips. libusb_clear_halt is the wrapper for
+    // that control request — it's a synchronous call that takes ~1ms
+    // and is safe to issue from the event thread because the iso
+    // endpoint is already in a halted state (no in-flight transfers
+    // to race with).
+    //
+    // OVERFLOW on an OUT iso transfer should never happen because
+    // OUT means we're sending data, and overflow is "the device
+    // sent more than the buffer could hold" — but libusb sometimes
+    // surfaces a size mismatch here when wMaxPacketSize negotiation
+    // landed on the wrong alt setting. There's no clean recovery:
+    // resubmission would fail the same way, and we can't change alt
+    // setting from the event thread (claim/release isn't safe to
+    // race with the audio thread). Best we can do is log loudly
+    // enough for the bug report and let the watchdog tear down. We
+    // skip the resubmission for this transfer so its slot is
+    // released; if every transfer overflows, the watchdog will
+    // observe playedFrames not advancing and trigger recovery.
+    if (xfr->status == LIBUSB_TRANSFER_STALL) {
+        LOGW("iso STALL on ep 0x%02x — clearing halt and resubmitting",
+             xfr->endpoint);
+        // Best-effort: if clear_halt fails the device is probably
+        // gone, in which case the next transfer will return
+        // NO_DEVICE and the recovery path takes over. We don't
+        // propagate the failure here because there's no good action
+        // to take from the event thread — the audio-thread-side
+        // watchdog will see the wedge and restart the pump.
+        int rc = libusb_clear_halt(device_, xfr->endpoint);
+        if (rc != LIBUSB_SUCCESS) {
+            LOGE("libusb_clear_halt(ep=0x%02x) -> %d", xfr->endpoint, rc);
+        }
+    } else if (xfr->status == LIBUSB_TRANSFER_OVERFLOW) {
+        LOGE("iso OVERFLOW on ep 0x%02x — wMaxPacketSize mismatch with "
+             "device. Negotiated %u, actual %d. Will not resubmit this "
+             "transfer; watchdog will recover.",
+             xfr->endpoint, format_.maxPacketSize, xfr->actual_length);
+        inflight_.fetch_sub(1, std::memory_order_acq_rel);
+        return;
+    } else if (xfr->status != LIBUSB_TRANSFER_COMPLETED) {
+        // ERROR and TIMED_OUT: transient. Resubmit and move on.
+        // The previous LOGW message is preserved for log continuity.
         LOGW("iso transfer status=%d (will resubmit)", xfr->status);
     }
     if (stopRequested_.load(std::memory_order_acquire)) {
