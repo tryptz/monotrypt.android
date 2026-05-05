@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.22.1)
 project("monochrome_native")
 
+# NDK 28/29 + CMake doesn't auto-link libc++ when using -static-libstdc++.
+# Add explicit shared libc++ to every target (including projectm subproject).
+link_libraries(c++_shared)
+
 # ── ProjectM Visualizer ──────────────────────────────────────────────────
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/projectm
     ${CMAKE_CURRENT_BINARY_DIR}/projectm)
