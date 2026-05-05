@@ -82,8 +82,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.Image
+import androidx.annotation.DrawableRes
+import tf.monochrome.android.R
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import tf.monochrome.android.domain.model.AudioQuality
@@ -1765,6 +1769,48 @@ private fun SystemTab(viewModel: SettingsViewModel, navController: NavController
             text = "Open-source, ad-free music streaming",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+        IconLinkItem(
+            iconRes = R.drawable.ic_kofi,
+            label = "Support on Ko-fi",
+            url = "https://ko-fi.com/trypt",
+            context = context
+        )
+        IconLinkItem(
+            iconRes = R.drawable.ic_soundcloud,
+            label = "SoundCloud",
+            url = "https://on.soundcloud.com/2RohXH2thNXOA396Jj",
+            context = context
+        )
+    }
+}
+
+@Composable
+private fun IconLinkItem(
+    @DrawableRes iconRes: Int,
+    label: String,
+    url: String,
+    context: android.content.Context
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri())) }
+            .padding(vertical = 10.dp)
+    ) {
+        Image(
+            painter = painterResource(id = iconRes),
+            contentDescription = label,
+            modifier = Modifier.size(24.dp)
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.primary
         )
     }
 }
