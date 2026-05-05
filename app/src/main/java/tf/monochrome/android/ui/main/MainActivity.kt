@@ -227,7 +227,12 @@ class MainActivity : ComponentActivity() {
                 } else {
                     current - step
                 }
-                val clamped = next.coerceIn(0f, 1f)
+                // Floor at 1/25 so vol-down presses can never drive the
+                // app to total silence — without an in-flow volume
+                // slider the user has no way back from a silenced
+                // state, and a stale 0.0 in preferences silences the
+                // app on every subsequent launch.
+                val clamped = next.coerceIn(step, 1f)
                 bypassVolumeController.setVolume(clamped)
                 lifecycleScope.launch {
                     preferences.setVolume(clamped.toDouble())
