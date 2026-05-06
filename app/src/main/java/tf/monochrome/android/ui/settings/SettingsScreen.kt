@@ -1802,7 +1802,7 @@ private fun AboutTab() {
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "Monotrypt is built and maintained by trypt. If it's "
+                text = "Tryptify is built and maintained by trypt. If it's "
                     + "earned a place in your day, a tip on Ko-fi keeps the "
                     + "lights on and the next features shipping.",
                 style = MaterialTheme.typography.bodyMedium,
