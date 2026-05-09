@@ -6,7 +6,9 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -48,7 +50,7 @@ class SquiglinkApi {
             Source("https://kr0mka.squig.link", "kr0mka", MeasurementRig.UNKNOWN, "over-ear"),
             Source("https://dchpgall.squig.link", "dcinside", MeasurementRig.IEC_711_CLONE, "in-ear"),
             Source("https://joycesreview.squig.link", "Joyce's Review", MeasurementRig.IEC_711_CLONE, "in-ear"),
-            Source("https://graph.headphones.com", "Headphones.com (Resolve)", MeasurementRig.GRAS_43AG_7, null),
+            Source("https://listener.squig.link", "Listener (DMS)", MeasurementRig.GRAS_43AG_7, null),
         )
     }
 
@@ -111,14 +113,20 @@ class SquiglinkApi {
     }
 
     /**
-     * phone_book.json shapes vary slightly across CrinGraph forks, but the
-     * common contract is an array of brands, each with `name` and `phones`,
-     * where each phone has a `phone` (display name) and optional `fileName`
-     * (used for the FR data filename if it differs from the display name).
+     * Canonical CrinGraph schema (verified against 12 live instances):
+     *
+     *   [{ "name": "<brand>", "phones": [
+     *       { "name": "<model>", "file": "<basename>" | ["v1","v2",...],
+     *         "suffix": ["", "(variant tag)", ...] }, ... ]}]
+     *
+     * `file` may be a string OR an array of variant basenames; when it's an
+     * array the parallel `suffix` array tags each variant ("(Spring tips)",
+     * "(ANC On)", etc.) and we emit one entry per variant. Optional fields
+     * (reviewScore / reviewLink / price / shopLink) are ignored.
      */
     private fun parsePhoneBook(body: String, src: Source): List<Headphone> {
         val root = runCatching { json.parseToJsonElement(body) }.getOrNull() ?: return emptyList()
-        val brands = root.jsonArray
+        val brands = (root as? JsonArray) ?: return emptyList()
         val out = mutableListOf<Headphone>()
         for (brand in brands) {
             val brandObj = brand as? JsonObject ?: continue
@@ -126,27 +134,52 @@ class SquiglinkApi {
             val phones = brandObj["phones"]?.jsonArray ?: continue
             for (phone in phones) {
                 val phoneObj = phone as? JsonObject ?: continue
-                val phoneName = phoneObj["phone"]?.jsonPrimitive?.contentOrNull ?: continue
-                val displayName = if (brandName.isNotBlank()) "$brandName $phoneName" else phoneName
-                val fileName = phoneObj["fileName"]?.jsonPrimitive?.contentOrNull ?: phoneName
-                out += Headphone(
-                    id = displayName.replace(' ', '_').lowercase(),
-                    name = displayName,
-                    type = src.type ?: "in-ear",
-                    measurements = listOf(
-                        AutoEqMeasurement(
-                            source = src.label,
-                            target = "squiglink",
-                            path = src.host,
-                            fileName = fileName,
-                            rig = src.rig,
-                            host = src.host,
+                val modelName = phoneObj["name"]?.jsonPrimitive?.contentOrNull ?: continue
+                val variants = extractVariants(phoneObj, modelName)
+                for ((variantTag, fileBase) in variants) {
+                    val displayName = buildString {
+                        if (brandName.isNotBlank()) {
+                            append(brandName); append(' ')
+                        }
+                        append(modelName)
+                        if (variantTag.isNotBlank()) {
+                            append(' '); append(variantTag)
+                        }
+                    }
+                    out += Headphone(
+                        id = "${src.label}_$displayName".replace(' ', '_').lowercase(),
+                        name = displayName,
+                        type = src.type ?: "in-ear",
+                        measurements = listOf(
+                            AutoEqMeasurement(
+                                source = src.label,
+                                target = "squiglink",
+                                path = src.host,
+                                fileName = fileBase,
+                                rig = src.rig,
+                                host = src.host,
+                            )
                         )
                     )
-                )
+                }
             }
         }
         return out
+    }
+
+    /** Returns (suffixTag, fileBasename) pairs for the variants in a phone entry. */
+    private fun extractVariants(phoneObj: JsonObject, fallbackName: String): List<Pair<String, String>> {
+        val fileEl = phoneObj["file"] ?: return listOf("" to fallbackName)
+        val suffixEl = phoneObj["suffix"] as? JsonArray
+        return when (fileEl) {
+            is JsonPrimitive -> listOf("" to (fileEl.contentOrNull ?: fallbackName))
+            is JsonArray -> fileEl.mapIndexed { i, el ->
+                val basename = (el as? JsonPrimitive)?.contentOrNull ?: fallbackName
+                val tag = (suffixEl?.getOrNull(i) as? JsonPrimitive)?.contentOrNull.orEmpty()
+                tag to basename
+            }
+            else -> listOf("" to fallbackName)
+        }
     }
 
     private fun mergeByName(all: List<Headphone>): List<Headphone> =
