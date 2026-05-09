@@ -23,7 +23,7 @@ If a commit was already created with the wrong author, amend with
 
 ## Project Overview
 
-Tryptify is a premium Android music player with TIDAL HiFi streaming, local library support, encrypted collections, a 33-processor native DSP engine, 10-band AutoEQ, and a ProjectM OpenGL visualizer. Single-module Kotlin/Compose app with C++ native audio processing via JNI. Internal package namespace remains `tf.monochrome.android` (codename "Monochrome"); shipped applicationId is `tf.monotrypt.android`.
+Tryptify is a premium Android music player with TIDAL HiFi streaming, local library support, encrypted collections, a 34-processor native DSP engine, 10-band AutoEQ, and a ProjectM OpenGL visualizer. Single-module Kotlin/Compose app with C++ native audio processing via JNI. Internal package namespace remains `tf.monochrome.android` (codename "Monochrome"); shipped applicationId is `tf.monotrypt.android`.
 
 ## Build & Run
 
@@ -75,7 +75,7 @@ tf.monochrome.android/
 |-------|------|
 | UI | Jetpack Compose + Material 3, Coil 3, Haze (glassmorphism) |
 | DI | Hilt 2.57.1 |
-| Database | Room 2.7.1 (22 tables, schema v4) |
+| Database | Room 2.7.1 (24 tables, schema v8) |
 | Network | Ktor 3.0.3 (OkHttp engine) |
 | Playback | Media3 / ExoPlayer 1.5.1 |
 | Async | Kotlin Coroutines 1.9.0 + Flow |
@@ -93,7 +93,7 @@ tf.monochrome.android/
 - **Navigation:** Single-Activity with Compose Navigation (`MonochromeNavHost`)
 - **DSP processors:** C++ headers in `app/src/main/cpp/dsp/snapins/`, compiled with `-O3 -ffast-math`
 - **No tests:** Project has no test suite currently
-- **Theme:** 16 color themes defined in `ui/theme/Color.kt`, dimensions in `ui/theme/Dimensions.kt`
+- **Theme:** 17 color themes defined in `ui/theme/Color.kt`, dimensions in `ui/theme/Dimensions.kt`
 
 ## Important Patterns
 
@@ -118,6 +118,6 @@ tf.monochrome.android/
 | Domain models | `domain/model/Models.kt` |
 | DI setup | `di/AppModule.kt`, `di/DatabaseModule.kt` |
 | DSP C++ engine | `app/src/main/cpp/dsp/dsp_engine.cpp` |
-| DSP processors | `app/src/main/cpp/dsp/snapins/*.h` (33 files) |
+| DSP processors | `app/src/main/cpp/dsp/snapins/*.h` (34 files) |
 | Visualizer JNI | `app/src/main/cpp/projectm_bridge.cpp` |
 | Version catalog | `gradle/libs.versions.toml` |
