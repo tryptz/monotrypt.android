@@ -78,6 +78,7 @@ fun HeadphoneSelectScreen(
     onDismiss: () -> Unit,
 ) {
     val availableHeadphones by viewModel.availableHeadphones.collectAsState()
+    val uploadedHeadphones by viewModel.uploadedHeadphones.collectAsState()
     val headphonesLoading by viewModel.headphonesLoading.collectAsState()
     val error by viewModel.error.collectAsState()
     val selectedRig by viewModel.selectedRig.collectAsState()
@@ -181,11 +182,13 @@ fun HeadphoneSelectScreen(
                 contentPadding = PaddingValues(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                // Pin the Uploaded chip leftmost when the user has any
-                // saved uploads — it leads the row before even "All rigs"
-                // so personal measurements are the first thing visible.
+                // Pin the Uploaded chip leftmost the moment the user has any
+                // saved uploads — gated on uploadedHeadphones (restored from
+                // prefs at init) rather than availableRigs (which is empty
+                // until the network round-trip in loadAvailableHeadphones
+                // returns), so the chip appears instantly on screen open.
                 val uploadedRig = MeasurementRig.UPLOADED
-                if (uploadedRig in availableRigs) {
+                if (uploadedHeadphones.isNotEmpty()) {
                     item(key = "rig_uploaded") {
                         FilterChip(
                             selected = selectedRig == uploadedRig,
