@@ -247,13 +247,10 @@ class HiFiApiClient @Inject constructor(
     suspend fun searchQobuz(query: String, offset: Int = 0): SearchResult {
         val instance = instanceManager.qobuzInstanceOrNull() ?: return SearchResult()
         val base = instance.url.trimEnd('/')
-        val cookie = preferences.qobuzAuthCookie.first()
 
         val envelope = withTimeoutOrNull(QOBUZ_REQUEST_TIMEOUT_MS) {
             runCatching {
-                val res = httpClient.get("$base/api/get-music?q=${query.encodeUrl()}&offset=$offset") {
-                    attachQobuzAuth(cookie)
-                }
+                val res = httpClient.get("$base/api/get-music?q=${query.encodeUrl()}&offset=$offset")
                 if (!res.status.isSuccess()) return@runCatching null
                 json.decodeFromString<QobuzSearchEnvelope>(res.bodyAsText())
             }.getOrNull()
@@ -293,13 +290,12 @@ class HiFiApiClient @Inject constructor(
         val instance = instanceManager.qobuzInstanceOrNull() ?: return null
         if (albumSlug.isBlank()) return null
         val base = instance.url.trimEnd('/')
-        val cookie = preferences.qobuzAuthCookie.first()
 
         val envelope = withTimeoutOrNull(QOBUZ_REQUEST_TIMEOUT_MS) {
             runCatching {
                 val res = httpClient.get(
                     "$base/api/get-album?album_id=${albumSlug.encodeUrl()}"
-                ) { attachQobuzAuth(cookie) }
+                )
                 if (!res.status.isSuccess()) return@runCatching null
                 json.decodeFromString<QobuzAlbumDetailEnvelope>(res.bodyAsText())
             }.getOrNull()
@@ -337,13 +333,10 @@ class HiFiApiClient @Inject constructor(
     suspend fun getQobuzArtist(artistId: Long): ArtistDetail? {
         val instance = instanceManager.qobuzInstanceOrNull() ?: return null
         val base = instance.url.trimEnd('/')
-        val cookie = preferences.qobuzAuthCookie.first()
 
         val envelope = withTimeoutOrNull(QOBUZ_REQUEST_TIMEOUT_MS) {
             runCatching {
-                val res = httpClient.get("$base/api/get-artist?artist_id=$artistId") {
-                    attachQobuzAuth(cookie)
-                }
+                val res = httpClient.get("$base/api/get-artist?artist_id=$artistId")
                 if (!res.status.isSuccess()) return@runCatching null
                 json.decodeFromString<QobuzArtistDetailEnvelope>(res.bodyAsText())
             }.getOrNull()
@@ -820,11 +813,8 @@ class HiFiApiClient @Inject constructor(
     private suspend fun resolveQobuzDownloadUrl(trackId: Long, quality: AudioQuality): String? {
         val instance = instanceManager.qobuzInstanceOrNull() ?: return null
         val base = instance.url.trimEnd('/')
-        val cookie = preferences.qobuzAuthCookie.first()
         val code = quality.qobuzCode()
-        val response = httpClient.get("$base/api/download-music?track_id=$trackId&quality=$code") {
-            attachQobuzAuth(cookie)
-        }
+        val response = httpClient.get("$base/api/download-music?track_id=$trackId&quality=$code")
         if (!response.status.isSuccess()) return null
         val body = response.bodyAsText()
         val resolved = extractQobuzFileUrlFromEnvelope(body, base)
@@ -900,18 +890,6 @@ class HiFiApiClient @Inject constructor(
         }
     }
 
-    // Attach the user-pinned Qobuz session cookie (Settings → Instances →
-    // Qobuz Auth Cookie) when one is set. The trypt-hifi backend issues a
-    // session cookie at login that the SPA forwards on every /api/ request;
-    // without it the backend 401s. Cookie value should be the raw header
-    // form (one or more "name=value" pairs separated by "; "), as copied
-    // from DevTools → Application → Cookies.
-    private fun HttpRequestBuilder.attachQobuzAuth(rawCookie: String?) {
-        val trimmed = rawCookie?.trim().orEmpty()
-        if (trimmed.isNotEmpty()) {
-            header("Cookie", trimmed)
-        }
-    }
 }
 
 // --- Qobuz item → domain mappers (file-private extensions) -----------------

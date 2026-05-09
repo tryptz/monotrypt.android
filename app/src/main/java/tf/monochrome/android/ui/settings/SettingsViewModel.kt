@@ -209,8 +209,6 @@ class SettingsViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
     val qobuzEndpoint: StateFlow<String?> = preferences.qobuzInstanceUrl
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
-    val qobuzCookie: StateFlow<String?> = preferences.qobuzAuthCookie
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
     val devModeEnabled: StateFlow<Boolean> = preferences.devModeEnabled
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
     val sourceMode: StateFlow<tf.monochrome.android.data.preferences.SourceMode> =
@@ -497,12 +495,6 @@ class SettingsViewModel @Inject constructor(
     fun setQobuzEndpoint(endpoint: String?) {
         viewModelScope.launch {
             preferences.setQobuzInstanceUrl(endpoint)
-        }
-    }
-
-    fun setQobuzCookie(cookie: String?) {
-        viewModelScope.launch {
-            preferences.setQobuzAuthCookie(cookie)
         }
     }
 
