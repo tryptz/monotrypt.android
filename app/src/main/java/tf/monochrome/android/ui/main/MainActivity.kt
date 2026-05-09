@@ -1,6 +1,7 @@
 package tf.monochrome.android.ui.main
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color as AndroidColor
@@ -215,6 +216,7 @@ class MainActivity : ComponentActivity() {
      * ACTION_UP fires on every key release and would double the
      * step otherwise.
      */
+    @SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.action == KeyEvent.ACTION_DOWN) {
             val isVolumeKey = event.keyCode == KeyEvent.KEYCODE_VOLUME_UP ||
