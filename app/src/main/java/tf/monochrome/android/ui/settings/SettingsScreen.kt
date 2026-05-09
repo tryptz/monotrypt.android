@@ -1348,13 +1348,11 @@ private fun InstancesTab(viewModel: SettingsViewModel) {
     val streamingInstances by viewModel.streamingInstances.collectAsState()
     val customEndpoint by viewModel.customEndpoint.collectAsState()
     val qobuzEndpoint by viewModel.qobuzEndpoint.collectAsState()
-    val qobuzCookie by viewModel.qobuzCookie.collectAsState()
     val devModeEnabled by viewModel.devModeEnabled.collectAsState()
     val sourceMode by viewModel.sourceMode.collectAsState()
     val refreshing by viewModel.instancesRefreshing.collectAsState()
     var customInput by remember(customEndpoint) { mutableStateOf(customEndpoint ?: "") }
     var qobuzInput by remember(qobuzEndpoint) { mutableStateOf(qobuzEndpoint ?: "") }
-    var qobuzCookieInput by remember(qobuzCookie) { mutableStateOf(qobuzCookie ?: "") }
 
     SettingsTabContent {
         // Source mode picker — controls which catalogs feed search/discovery.
@@ -1490,52 +1488,6 @@ private fun InstancesTab(viewModel: SettingsViewModel) {
                             val trimmed = latestQobuzInput.value.trim().ifBlank { null }
                             if (trimmed != latestQobuzSaved.value) {
                                 viewModel.setQobuzEndpoint(trimmed)
-                            }
-                        }
-                    }
-            )
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Qobuz Auth Cookie",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = "Optional. Paste the GAESA=… session cookie from the trypt-hifi web app's DevTools → Application → Cookies if the API requires auth.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            val latestCookieInput = rememberUpdatedState(qobuzCookieInput)
-            val latestCookieSaved = rememberUpdatedState(qobuzCookie)
-            OutlinedTextField(
-                value = qobuzCookieInput,
-                onValueChange = { qobuzCookieInput = it },
-                placeholder = {
-                    Text(
-                        "GAESA=…",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = {
-                    viewModel.setQobuzCookie(latestCookieInput.value.trim().ifBlank { null })
-                }),
-                modifier = Modifier
-                    .widthIn(max = 240.dp)
-                    .onFocusChanged { focusState ->
-                        if (!focusState.isFocused) {
-                            val trimmed = latestCookieInput.value.trim().ifBlank { null }
-                            if (trimmed != latestCookieSaved.value) {
-                                viewModel.setQobuzCookie(trimmed)
                             }
                         }
                     }
