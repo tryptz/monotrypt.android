@@ -1,4 +1,4 @@
-# CLAUDE.md - MonoTrypT Android
+# CLAUDE.md - Tryptify Android
 
 ## Commit Authorship (MANDATORY)
 
@@ -23,7 +23,7 @@ If a commit was already created with the wrong author, amend with
 
 ## Project Overview
 
-MonoTrypT is a premium Android music player with TIDAL HiFi streaming, local library support, encrypted collections, a 33-processor native DSP engine, 10-band AutoEQ, and a ProjectM OpenGL visualizer. Single-module Kotlin/Compose app with C++ native audio processing via JNI.
+Tryptify is a premium Android music player with TIDAL HiFi streaming, local library support, encrypted collections, a 33-processor native DSP engine, 10-band AutoEQ, and a ProjectM OpenGL visualizer. Single-module Kotlin/Compose app with C++ native audio processing via JNI. Internal package namespace remains `tf.monochrome.android` (codename "Monochrome"); shipped applicationId is `tf.monotrypt.android`.
 
 ## Build & Run
 
@@ -40,7 +40,7 @@ MonoTrypT is a premium Android music player with TIDAL HiFi streaming, local lib
 
 - **Min SDK:** 26 (Android 8.0) | **Target/Compile SDK:** 36
 - **JVM Target:** 17 (OpenJDK 17 required)
-- **NDK:** 28.2.13676358 | **CMake:** 3.22.1 | **C++ Standard:** C++17
+- **NDK:** 29.0.14206865 | **CMake:** 3.22.1 | **C++ Standard:** C++17 (with `link_libraries(c++_shared)` at the CMake project root)
 - **ABIs:** arm64-v8a, armeabi-v7a, x86_64
 - **Gradle:** 9.1.0 with version catalog (`gradle/libs.versions.toml`)
 
