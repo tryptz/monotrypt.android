@@ -174,6 +174,13 @@ class LibusbUacDriver @Inject constructor(
         connection = null
         _device.value = null
         _isOpen.value = false
+        // Without this, after a USB DAC unplug isStreaming stayed at
+        // its last value (often true). MainActivity's volume-key
+        // intercept gates on isStreaming, so phone vol-down presses
+        // would keep writing decreasing values to the bypass volume
+        // controller / preferences even after the DAC was gone, and
+        // could land at 0 (= silence) on the next BT-only session.
+        _isStreaming.value = false
     }
 
     /**
