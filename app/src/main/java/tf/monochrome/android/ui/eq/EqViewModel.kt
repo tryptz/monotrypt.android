@@ -525,6 +525,11 @@ class EqViewModel @Inject constructor(
                 _headphonesLoading.value = true
                 _error.value = null
 
+                // Seed with uploaded entries immediately so the Uploaded
+                // section has rows during the multi-second remote round-trip,
+                // not just after it returns.
+                _availableHeadphones.value = _uploadedHeadphones.value
+
                 headphoneRepository.getAllHeadphones().collect { headphones ->
                     // Uploaded entries lead the list so they're always
                     // discoverable, even before remote sources finish loading.
