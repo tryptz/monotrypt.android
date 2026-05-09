@@ -233,7 +233,11 @@ class PreferencesManager @Inject constructor(
     }
 
     val volume: Flow<Double> = dataStore.data.map { prefs ->
-        prefs[VOLUME] ?: 1.0
+        // A stored 0.0 silences the app on launch (the slider can't be
+        // grabbed if you can't hear what's playing). Treat exact silence
+        // as a stale/uninitialised state and fall back to full volume.
+        val stored = prefs[VOLUME] ?: 1.0
+        if (stored <= 0.0) 1.0 else stored
     }
 
     suspend fun setShuffleEnabled(enabled: Boolean) {
