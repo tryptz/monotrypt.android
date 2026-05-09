@@ -141,6 +141,7 @@ class PreferencesManager @Inject constructor(
         private val EQ_CUSTOM_TARGETS_JSON = stringPreferencesKey("eq_custom_targets_json")
         private val EQ_SELECTED_HEADPHONE_ID = stringPreferencesKey("eq_selected_headphone_id")
         private val EQ_SELECTED_HEADPHONE_NAME = stringPreferencesKey("eq_selected_headphone_name")
+        private val EQ_MEASUREMENT_JSON = stringPreferencesKey("eq_measurement_json")
 
         // Parametric EQ (independent of AutoEQ)
         private val PARAM_EQ_ENABLED = booleanPreferencesKey("param_eq_enabled")
@@ -726,6 +727,16 @@ class PreferencesManager @Inject constructor(
         dataStore.edit {
             it.remove(EQ_SELECTED_HEADPHONE_ID)
             it.remove(EQ_SELECTED_HEADPHONE_NAME)
+        }
+    }
+
+    // Cached parsed FR points from the last loaded measurement, JSON-encoded.
+    // Lets the EQ screen restore the curve on cold start without re-fetching.
+    val eqMeasurementJson: Flow<String?> = dataStore.data.map { it[EQ_MEASUREMENT_JSON] }
+    suspend fun setEqMeasurementJson(json: String?) {
+        dataStore.edit {
+            if (json != null) it[EQ_MEASUREMENT_JSON] = json
+            else it.remove(EQ_MEASUREMENT_JSON)
         }
     }
 

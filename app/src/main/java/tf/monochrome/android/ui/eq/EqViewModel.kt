@@ -216,6 +216,22 @@ class EqViewModel @Inject constructor(
             if (headphoneId != null && headphoneName != null) {
                 _selectedHeadphone.value = Headphone(id = headphoneId, name = headphoneName)
             }
+
+            // Restore the cached measurement curve so the FR graph repopulates
+            // immediately when the EQ screen reopens, no network round-trip.
+            val measurementJson = preferences.eqMeasurementJson.stateIn(
+                viewModelScope, SharingStarted.Eagerly, null
+            ).value
+            if (!measurementJson.isNullOrBlank()) {
+                try {
+                    val jsonParser = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+                    val points = jsonParser.decodeFromString(
+                        kotlinx.serialization.builtins.ListSerializer(FrequencyPoint.serializer()),
+                        measurementJson,
+                    )
+                    _originalMeasurement.value = points
+                } catch (_: Exception) { }
+            }
         }
 
         viewModelScope.launch {
@@ -558,6 +574,16 @@ class EqViewModel @Inject constructor(
         }
     }
 
+    private suspend fun persistMeasurement(points: List<FrequencyPoint>) {
+        try {
+            val json = kotlinx.serialization.json.Json.encodeToString(
+                kotlinx.serialization.builtins.ListSerializer(FrequencyPoint.serializer()),
+                points,
+            )
+            preferences.setEqMeasurementJson(json)
+        } catch (_: Exception) { }
+    }
+
     private suspend fun loadHeadphonePresetForMeasurement(
         measurement: tf.monochrome.android.domain.model.AutoEqMeasurement,
     ) {
@@ -579,6 +605,7 @@ class EqViewModel @Inject constructor(
             }
 
             _originalMeasurement.value = parsed
+            persistMeasurement(parsed)
 
             val target = _selectedTarget.value.data
             if (target.isEmpty()) {
@@ -633,6 +660,7 @@ class EqViewModel @Inject constructor(
                         }
 
                         _originalMeasurement.value = measurement
+                        persistMeasurement(measurement)
 
                         val target = _selectedTarget.value.data
                         if (target.isEmpty()) {
