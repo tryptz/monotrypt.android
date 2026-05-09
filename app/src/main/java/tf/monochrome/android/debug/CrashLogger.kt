@@ -6,6 +6,7 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
+import androidx.annotation.RequiresApi
 import dagger.hilt.android.qualifiers.ApplicationContext
 import tf.monochrome.android.BuildConfig
 import java.io.File
@@ -77,6 +78,7 @@ class CrashLogger @Inject constructor(
         if (!wrote) Log.w(TAG, "Crash dump could not be written to Downloads")
     }
 
+    @RequiresApi(Build.VERSION_CODES.Q)
     private fun writeViaMediaStore(fileName: String, bytes: ByteArray): Boolean {
         val resolver = context.contentResolver
         val values = ContentValues().apply {
