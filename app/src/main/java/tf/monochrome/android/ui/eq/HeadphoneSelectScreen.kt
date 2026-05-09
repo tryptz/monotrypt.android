@@ -177,6 +177,22 @@ fun HeadphoneSelectScreen(
                 contentPadding = PaddingValues(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                // Pin the Uploaded chip leftmost when the user has any
+                // saved uploads — it leads the row before even "All rigs"
+                // so personal measurements are the first thing visible.
+                val uploadedRig = MeasurementRig.UPLOADED
+                if (uploadedRig in availableRigs) {
+                    item(key = "rig_uploaded") {
+                        FilterChip(
+                            selected = selectedRig == uploadedRig,
+                            onClick = {
+                                viewModel.setRigFilter(if (selectedRig == uploadedRig) null else uploadedRig)
+                            },
+                            label = { Text(uploadedRig.label) },
+                            colors = FilterChipDefaults.filterChipColors(),
+                        )
+                    }
+                }
                 item(key = "rig_all") {
                     FilterChip(
                         selected = selectedRig == null,
@@ -185,11 +201,12 @@ fun HeadphoneSelectScreen(
                         colors = FilterChipDefaults.filterChipColors(),
                     )
                 }
+                val remoteRigs = availableRigs.filter { it != uploadedRig }
                 items(
-                    count = availableRigs.size,
-                    key = { i -> "rig_${availableRigs[i].name}" },
+                    count = remoteRigs.size,
+                    key = { i -> "rig_${remoteRigs[i].name}" },
                 ) { i ->
-                    val rig = availableRigs[i]
+                    val rig = remoteRigs[i]
                     FilterChip(
                         selected = selectedRig == rig,
                         onClick = {

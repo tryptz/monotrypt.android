@@ -115,6 +115,11 @@ class EqViewModel @Inject constructor(
     private val _headphoneTypeFilter = MutableStateFlow<String?>(null)
     val headphoneTypeFilter: StateFlow<String?> = _headphoneTypeFilter.asStateFlow()
 
+    // ===== Uploaded user measurements =====
+
+    private val _uploadedHeadphones = MutableStateFlow<List<Headphone>>(emptyList())
+    val uploadedHeadphones: StateFlow<List<Headphone>> = _uploadedHeadphones.asStateFlow()
+
     // ===== Rig filter (new index) =====
 
     private val _selectedRig = MutableStateFlow<tf.monochrome.android.domain.model.MeasurementRig?>(null)
@@ -213,6 +218,19 @@ class EqViewModel @Inject constructor(
             if (headphoneId != null && headphoneName != null) {
                 _selectedHeadphone.value = Headphone(id = headphoneId, name = headphoneName)
             }
+
+            // Restore user-uploaded headphone measurements so the "Uploaded"
+            // chip in HeadphoneSelectScreen has its rows even before any
+            // remote source has loaded.
+            val uploadedJson = preferences.eqUploadedHeadphonesJson.first()
+            try {
+                val jsonParser = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+                val uploads = jsonParser.decodeFromString(
+                    kotlinx.serialization.builtins.ListSerializer(Headphone.serializer()),
+                    uploadedJson,
+                )
+                _uploadedHeadphones.value = uploads
+            } catch (_: Exception) { }
 
             // Restore the cached measurement curve so the FR graph repopulates
             // immediately when the EQ screen reopens, no network round-trip.
@@ -510,13 +528,60 @@ class EqViewModel @Inject constructor(
                 _error.value = null
 
                 headphoneRepository.getAllHeadphones().collect { headphones ->
-                    _availableHeadphones.value = headphones
+                    // Uploaded entries lead the list so they're always
+                    // discoverable, even before remote sources finish loading.
+                    _availableHeadphones.value = _uploadedHeadphones.value + headphones
                     _headphonesLoading.value = false
                 }
             } catch (e: Exception) {
                 _error.value = "Failed to load headphones: ${e.message}"
                 _headphonesLoading.value = false
             }
+        }
+    }
+
+    /**
+     * Persist a user-uploaded measurement as a named Headphone with embedded
+     * FR data, then merge it into _availableHeadphones so it shows up under
+     * the "Uploaded" rig chip immediately.
+     */
+    fun addUploadedMeasurement(name: String, csv: String) {
+        viewModelScope.launch {
+            val trimmedName = name.trim().ifBlank { return@launch }
+            val points = EqDataParser.parseRawData(csv)
+            if (points.isEmpty()) return@launch
+
+            val id = "uploaded_${trimmedName.replace(' ', '_').lowercase()}"
+            val measurement = tf.monochrome.android.domain.model.AutoEqMeasurement(
+                source = "User upload",
+                target = "uploaded",
+                path = "",
+                fileName = trimmedName,
+                rig = tf.monochrome.android.domain.model.MeasurementRig.UPLOADED,
+                host = "",
+            )
+            val headphone = Headphone(
+                id = id,
+                name = trimmedName,
+                type = "uploaded",
+                data = points,
+                measurements = listOf(measurement),
+            )
+
+            val updated = (_uploadedHeadphones.value.filter { it.id != id } + headphone)
+                .sortedBy { it.name.lowercase() }
+            _uploadedHeadphones.value = updated
+            _availableHeadphones.value = updated +
+                _availableHeadphones.value.filter { it.measurements.firstOrNull()?.rig != tf.monochrome.android.domain.model.MeasurementRig.UPLOADED }
+
+            try {
+                val jsonParser = kotlinx.serialization.json.Json
+                val json = jsonParser.encodeToString(
+                    kotlinx.serialization.builtins.ListSerializer(Headphone.serializer()),
+                    updated,
+                )
+                preferences.setEqUploadedHeadphonesJson(json)
+            } catch (_: Exception) { }
         }
     }
 
@@ -586,13 +651,22 @@ class EqViewModel @Inject constructor(
             _isCalculating.value = true
             _error.value = null
 
-            val csvData = headphoneRepository.fetchMeasurementText(measurement)
-            if (csvData == null) {
-                _error.value = "Failed to fetch measurement"
-                _isCalculating.value = false
-                return
+            // Uploaded measurements carry their FR data inline on the
+            // Headphone — short-circuit the remote fetch.
+            val parsed = if (measurement.rig == tf.monochrome.android.domain.model.MeasurementRig.UPLOADED) {
+                _uploadedHeadphones.value
+                    .firstOrNull { it.name == measurement.fileName }
+                    ?.data
+                    ?: emptyList()
+            } else {
+                val csvData = headphoneRepository.fetchMeasurementText(measurement)
+                if (csvData == null) {
+                    _error.value = "Failed to fetch measurement"
+                    _isCalculating.value = false
+                    return
+                }
+                EqDataParser.parseRawData(csvData)
             }
-            val parsed = EqDataParser.parseRawData(csvData)
             if (parsed.isEmpty()) {
                 _error.value = "Failed to parse headphone measurement"
                 _isCalculating.value = false

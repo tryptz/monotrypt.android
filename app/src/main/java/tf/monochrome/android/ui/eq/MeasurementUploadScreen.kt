@@ -394,6 +394,13 @@ fun MeasurementUploadScreen(
                 onClick = {
                     calculationAttempted = true
                     viewModel.setBandCount(bandCount.toInt())
+                    // When the user gave the upload a name, persist it as a
+                    // first-class entry so it appears under the "Uploaded"
+                    // rig chip on the next browse. Anonymous uploads stay
+                    // transient (one-shot calibration only).
+                    if (headphoneName.isNotBlank()) {
+                        viewModel.addUploadedMeasurement(headphoneName, measurementData)
+                    }
                     viewModel.calculateAutoEq(measurementData)
                 },
                 modifier = Modifier.weight(1.5f),

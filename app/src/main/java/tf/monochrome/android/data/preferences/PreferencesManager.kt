@@ -142,6 +142,7 @@ class PreferencesManager @Inject constructor(
         private val EQ_SELECTED_HEADPHONE_ID = stringPreferencesKey("eq_selected_headphone_id")
         private val EQ_SELECTED_HEADPHONE_NAME = stringPreferencesKey("eq_selected_headphone_name")
         private val EQ_MEASUREMENT_JSON = stringPreferencesKey("eq_measurement_json")
+        private val EQ_UPLOADED_HEADPHONES_JSON = stringPreferencesKey("eq_uploaded_headphones_json")
 
         // Parametric EQ (independent of AutoEQ)
         private val PARAM_EQ_ENABLED = booleanPreferencesKey("param_eq_enabled")
@@ -738,6 +739,14 @@ class PreferencesManager @Inject constructor(
             if (json != null) it[EQ_MEASUREMENT_JSON] = json
             else it.remove(EQ_MEASUREMENT_JSON)
         }
+    }
+
+    // User-uploaded headphone measurements, JSON-encoded as List<Headphone>.
+    // Each entry carries its own parsed FR points so it works fully offline.
+    val eqUploadedHeadphonesJson: Flow<String> =
+        dataStore.data.map { it[EQ_UPLOADED_HEADPHONES_JSON] ?: "[]" }
+    suspend fun setEqUploadedHeadphonesJson(json: String) {
+        dataStore.edit { it[EQ_UPLOADED_HEADPHONES_JSON] = json }
     }
 
     // --- Parametric EQ (independent of AutoEQ) ---
