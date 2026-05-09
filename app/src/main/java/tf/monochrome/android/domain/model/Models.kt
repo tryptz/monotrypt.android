@@ -520,6 +520,9 @@ data class AutoEqMeasurement(
  */
 @Serializable
 enum class MeasurementRig(val label: String) {
+    // Pinned first by ordinal so the rig filter chip row leads with the
+    // user's own measurements before any remote source.
+    UPLOADED("Uploaded"),
     BK_5128("B&K 5128"),
     GRAS_43AG_7("GRAS 43AG-7"),
     GRAS_43AC_10("GRAS 43AC-10"),
