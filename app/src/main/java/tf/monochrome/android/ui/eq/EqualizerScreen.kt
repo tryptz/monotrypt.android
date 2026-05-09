@@ -91,7 +91,6 @@ fun EqualizerScreen(
     val bandCount by viewModel.bandCount.collectAsState()
     val maxFrequency by viewModel.maxFrequency.collectAsState()
     val sampleRate by viewModel.sampleRate.collectAsState()
-    val headphoneTypeFilter by viewModel.headphoneTypeFilter.collectAsState()
     val availableHeadphones by viewModel.availableHeadphones.collectAsState()
     val showTutorial by viewModel.showTutorial.collectAsState()
 
@@ -218,35 +217,6 @@ fun EqualizerScreen(
                     },
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
-            }
-
-            // ─── Category Tabs (ALL / OVER-EAR / IN-EAR) ───
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    TabChip(
-                        label = "ALL",
-                        isSelected = headphoneTypeFilter == null,
-                        onClick = { viewModel.setHeadphoneTypeFilter(null) },
-                        modifier = Modifier.weight(1f)
-                    )
-                    TabChip(
-                        label = "OVER-EAR",
-                        isSelected = headphoneTypeFilter == "over-ear",
-                        onClick = { viewModel.setHeadphoneTypeFilter("over-ear") },
-                        modifier = Modifier.weight(1f)
-                    )
-                    TabChip(
-                        label = "IN-EAR",
-                        isSelected = headphoneTypeFilter == "in-ear",
-                        onClick = { viewModel.setHeadphoneTypeFilter("in-ear") },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
             }
 
             // ─── Headphone Model Selector ───

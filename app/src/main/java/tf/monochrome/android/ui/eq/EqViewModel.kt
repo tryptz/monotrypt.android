@@ -112,8 +112,6 @@ class EqViewModel @Inject constructor(
     private val _sampleRate = MutableStateFlow(48000f)
     val sampleRate: StateFlow<Float> = _sampleRate.asStateFlow()
 
-    private val _headphoneTypeFilter = MutableStateFlow<String?>(null)
-    val headphoneTypeFilter: StateFlow<String?> = _headphoneTypeFilter.asStateFlow()
 
     // ===== Uploaded user measurements =====
 
@@ -541,6 +539,29 @@ class EqViewModel @Inject constructor(
     }
 
     /**
+     * Drop a previously-saved upload by id and update the available list.
+     */
+    fun removeUploadedMeasurement(headphoneId: String) {
+        viewModelScope.launch {
+            val updated = _uploadedHeadphones.value.filter { it.id != headphoneId }
+            _uploadedHeadphones.value = updated
+            _availableHeadphones.value = _availableHeadphones.value.filter { it.id != headphoneId }
+            if (_selectedHeadphone.value?.id == headphoneId) {
+                _selectedHeadphone.value = null
+                preferences.clearEqSelectedHeadphone()
+            }
+            try {
+                val jsonParser = kotlinx.serialization.json.Json
+                val json = jsonParser.encodeToString(
+                    kotlinx.serialization.builtins.ListSerializer(Headphone.serializer()),
+                    updated,
+                )
+                preferences.setEqUploadedHeadphonesJson(json)
+            } catch (_: Exception) { }
+        }
+    }
+
+    /**
      * Persist a user-uploaded measurement as a named Headphone with embedded
      * FR data, then merge it into _availableHeadphones so it shows up under
      * the "Uploaded" rig chip immediately.
@@ -793,10 +814,6 @@ class EqViewModel @Inject constructor(
 
     fun setSampleRate(rate: Float) {
         _sampleRate.value = rate
-    }
-
-    fun setHeadphoneTypeFilter(type: String?) {
-        _headphoneTypeFilter.value = type
     }
 
     fun updateBandByDrag(bandId: Int, newFreq: Float, newGain: Float) {

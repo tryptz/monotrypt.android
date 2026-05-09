@@ -3,6 +3,7 @@ package tf.monochrome.android.ui.eq
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,9 +26,11 @@ import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -81,6 +84,7 @@ fun HeadphoneSelectScreen(
     val availableRigs by viewModel.availableRigs.collectAsState()
 
     var localSearchQuery by remember { mutableStateOf("") }
+    var pendingDelete by remember { mutableStateOf<Headphone?>(null) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
@@ -336,6 +340,9 @@ fun HeadphoneSelectScreen(
                                         )
                                         onHeadphoneSelected(entry.row.headphone)
                                     },
+                                    onLongClick = if (entry.row.measurement.rig == MeasurementRig.UPLOADED) {
+                                        { pendingDelete = entry.row.headphone }
+                                    } else null,
                                 )
                                 HorizontalDivider(
                                     modifier = Modifier.padding(horizontal = 16.dp),
@@ -362,18 +369,44 @@ fun HeadphoneSelectScreen(
             }
         }
     }
+
+    // Long-press confirmation for uploaded measurements. Tap-and-hold the
+    // row → this dialog → Delete wipes the upload from prefs.
+    val toDelete = pendingDelete
+    if (toDelete != null) {
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("Delete uploaded measurement?") },
+            text = { Text(toDelete.name) },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.removeUploadedMeasurement(toDelete.id)
+                    pendingDelete = null
+                }) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MeasurementRowItem(
     headphone: Headphone,
     measurement: AutoEqMeasurement,
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
