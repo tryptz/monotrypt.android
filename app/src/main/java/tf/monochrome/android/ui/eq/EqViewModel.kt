@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import tf.monochrome.android.audio.eq.AutoEqEngine
@@ -110,8 +112,29 @@ class EqViewModel @Inject constructor(
     private val _sampleRate = MutableStateFlow(48000f)
     val sampleRate: StateFlow<Float> = _sampleRate.asStateFlow()
 
-    private val _headphoneTypeFilter = MutableStateFlow<String?>(null)
-    val headphoneTypeFilter: StateFlow<String?> = _headphoneTypeFilter.asStateFlow()
+
+    // ===== Uploaded user measurements =====
+
+    private val _uploadedHeadphones = MutableStateFlow<List<Headphone>>(emptyList())
+    val uploadedHeadphones: StateFlow<List<Headphone>> = _uploadedHeadphones.asStateFlow()
+
+    // ===== Rig filter (new index) =====
+
+    private val _selectedRig = MutableStateFlow<tf.monochrome.android.domain.model.MeasurementRig?>(null)
+    val selectedRig: StateFlow<tf.monochrome.android.domain.model.MeasurementRig?> = _selectedRig.asStateFlow()
+
+    val availableRigs: StateFlow<List<tf.monochrome.android.domain.model.MeasurementRig>> = _availableHeadphones
+        .map { hps ->
+            hps.flatMap { hp -> hp.measurements }
+                .map { it.rig }
+                .toSortedSet(compareBy { it.ordinal })
+                .toList()
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun setRigFilter(rig: tf.monochrome.android.domain.model.MeasurementRig?) {
+        _selectedRig.value = rig
+    }
 
     private val _originalMeasurement = MutableStateFlow<List<FrequencyPoint>>(emptyList())
     val originalMeasurement: StateFlow<List<FrequencyPoint>> = _originalMeasurement.asStateFlow()
@@ -155,11 +178,13 @@ class EqViewModel @Inject constructor(
             }
         }
 
-        // Restore bands + preset + headphone from persistent storage
+        // Restore bands + preset + headphone from persistent storage.
+        // NOTE: use Flow.first() to await the first DataStore emission;
+        // the previous stateIn(...).value pattern raced and almost always
+        // returned the null initial value before the prefs read landed,
+        // which made every restore here silently no-op.
         viewModelScope.launch {
-            val presetId = preferences.eqActivePresetId.stateIn(
-                viewModelScope, SharingStarted.Eagerly, null
-            ).value
+            val presetId = preferences.eqActivePresetId.first()
 
             if (presetId != null) {
                 val preset = eqRepository.getPresetById(presetId)
@@ -172,9 +197,7 @@ class EqViewModel @Inject constructor(
                 }
             } else {
                 // No active preset — restore raw bands from DataStore
-                val bandsJson = preferences.eqBandsJson.stateIn(
-                    viewModelScope, SharingStarted.Eagerly, null
-                ).value
+                val bandsJson = preferences.eqBandsJson.first()
                 if (!bandsJson.isNullOrBlank()) {
                     try {
                         val jsonParser = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
@@ -188,14 +211,37 @@ class EqViewModel @Inject constructor(
             }
 
             // Restore saved headphone
-            val headphoneId = preferences.eqSelectedHeadphoneId.stateIn(
-                viewModelScope, SharingStarted.Eagerly, null
-            ).value
-            val headphoneName = preferences.eqSelectedHeadphoneName.stateIn(
-                viewModelScope, SharingStarted.Eagerly, null
-            ).value
+            val headphoneId = preferences.eqSelectedHeadphoneId.first()
+            val headphoneName = preferences.eqSelectedHeadphoneName.first()
             if (headphoneId != null && headphoneName != null) {
                 _selectedHeadphone.value = Headphone(id = headphoneId, name = headphoneName)
+            }
+
+            // Restore user-uploaded headphone measurements so the "Uploaded"
+            // chip in HeadphoneSelectScreen has its rows even before any
+            // remote source has loaded.
+            val uploadedJson = preferences.eqUploadedHeadphonesJson.first()
+            try {
+                val jsonParser = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+                val uploads = jsonParser.decodeFromString(
+                    kotlinx.serialization.builtins.ListSerializer(Headphone.serializer()),
+                    uploadedJson,
+                )
+                _uploadedHeadphones.value = uploads
+            } catch (_: Exception) { }
+
+            // Restore the cached measurement curve so the FR graph repopulates
+            // immediately when the EQ screen reopens, no network round-trip.
+            val measurementJson = preferences.eqMeasurementJson.first()
+            if (!measurementJson.isNullOrBlank()) {
+                try {
+                    val jsonParser = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+                    val points = jsonParser.decodeFromString(
+                        kotlinx.serialization.builtins.ListSerializer(FrequencyPoint.serializer()),
+                        measurementJson,
+                    )
+                    _originalMeasurement.value = points
+                } catch (_: Exception) { }
             }
         }
 
@@ -479,14 +525,89 @@ class EqViewModel @Inject constructor(
                 _headphonesLoading.value = true
                 _error.value = null
 
+                // Seed with uploaded entries immediately so the Uploaded
+                // section has rows during the multi-second remote round-trip,
+                // not just after it returns.
+                _availableHeadphones.value = _uploadedHeadphones.value
+
                 headphoneRepository.getAllHeadphones().collect { headphones ->
-                    _availableHeadphones.value = headphones
+                    // Uploaded entries lead the list so they're always
+                    // discoverable, even before remote sources finish loading.
+                    _availableHeadphones.value = _uploadedHeadphones.value + headphones
                     _headphonesLoading.value = false
                 }
             } catch (e: Exception) {
                 _error.value = "Failed to load headphones: ${e.message}"
                 _headphonesLoading.value = false
             }
+        }
+    }
+
+    /**
+     * Drop a previously-saved upload by id and update the available list.
+     */
+    fun removeUploadedMeasurement(headphoneId: String) {
+        viewModelScope.launch {
+            val updated = _uploadedHeadphones.value.filter { it.id != headphoneId }
+            _uploadedHeadphones.value = updated
+            _availableHeadphones.value = _availableHeadphones.value.filter { it.id != headphoneId }
+            if (_selectedHeadphone.value?.id == headphoneId) {
+                _selectedHeadphone.value = null
+                preferences.clearEqSelectedHeadphone()
+            }
+            try {
+                val jsonParser = kotlinx.serialization.json.Json
+                val json = jsonParser.encodeToString(
+                    kotlinx.serialization.builtins.ListSerializer(Headphone.serializer()),
+                    updated,
+                )
+                preferences.setEqUploadedHeadphonesJson(json)
+            } catch (_: Exception) { }
+        }
+    }
+
+    /**
+     * Persist a user-uploaded measurement as a named Headphone with embedded
+     * FR data, then merge it into _availableHeadphones so it shows up under
+     * the "Uploaded" rig chip immediately.
+     */
+    fun addUploadedMeasurement(name: String, csv: String) {
+        viewModelScope.launch {
+            val trimmedName = name.trim().ifBlank { return@launch }
+            val points = EqDataParser.parseRawData(csv)
+            if (points.isEmpty()) return@launch
+
+            val id = "uploaded_${trimmedName.replace(' ', '_').lowercase()}"
+            val measurement = tf.monochrome.android.domain.model.AutoEqMeasurement(
+                source = "User upload",
+                target = "uploaded",
+                path = "",
+                fileName = trimmedName,
+                rig = tf.monochrome.android.domain.model.MeasurementRig.UPLOADED,
+                host = "",
+            )
+            val headphone = Headphone(
+                id = id,
+                name = trimmedName,
+                type = "uploaded",
+                data = points,
+                measurements = listOf(measurement),
+            )
+
+            val updated = (_uploadedHeadphones.value.filter { it.id != id } + headphone)
+                .sortedBy { it.name.lowercase() }
+            _uploadedHeadphones.value = updated
+            _availableHeadphones.value = updated +
+                _availableHeadphones.value.filter { it.measurements.firstOrNull()?.rig != tf.monochrome.android.domain.model.MeasurementRig.UPLOADED }
+
+            try {
+                val jsonParser = kotlinx.serialization.json.Json
+                val json = jsonParser.encodeToString(
+                    kotlinx.serialization.builtins.ListSerializer(Headphone.serializer()),
+                    updated,
+                )
+                preferences.setEqUploadedHeadphonesJson(json)
+            } catch (_: Exception) { }
         }
     }
 
@@ -512,7 +633,8 @@ class EqViewModel @Inject constructor(
     }
 
     /**
-     * Select a headphone and load its measurement
+     * Select a headphone and load its measurement (legacy path: picks the
+     * headphone's first available AutoEq measurement).
      */
     fun selectHeadphone(headphone: Headphone) {
         _selectedHeadphone.value = headphone
@@ -520,6 +642,88 @@ class EqViewModel @Inject constructor(
             preferences.setEqSelectedHeadphone(headphone.id, headphone.name)
         }
         loadHeadphonePreset(headphone.name)
+    }
+
+    /**
+     * Select a specific measurement (squig.link or AutoEq) for a headphone.
+     * Used by the rig-filtered headphone browser, where each row binds to one
+     * concrete measurement rather than the whole headphone.
+     */
+    fun selectMeasurement(
+        headphone: Headphone,
+        measurement: tf.monochrome.android.domain.model.AutoEqMeasurement,
+    ) {
+        _selectedHeadphone.value = headphone
+        viewModelScope.launch {
+            preferences.setEqSelectedHeadphone(headphone.id, headphone.name)
+            loadHeadphonePresetForMeasurement(measurement)
+        }
+    }
+
+    private suspend fun persistMeasurement(points: List<FrequencyPoint>) {
+        try {
+            val json = kotlinx.serialization.json.Json.encodeToString(
+                kotlinx.serialization.builtins.ListSerializer(FrequencyPoint.serializer()),
+                points,
+            )
+            preferences.setEqMeasurementJson(json)
+        } catch (_: Exception) { }
+    }
+
+    private suspend fun loadHeadphonePresetForMeasurement(
+        measurement: tf.monochrome.android.domain.model.AutoEqMeasurement,
+    ) {
+        try {
+            _isCalculating.value = true
+            _error.value = null
+
+            // Uploaded measurements carry their FR data inline on the
+            // Headphone — short-circuit the remote fetch.
+            val parsed = if (measurement.rig == tf.monochrome.android.domain.model.MeasurementRig.UPLOADED) {
+                _uploadedHeadphones.value
+                    .firstOrNull { it.name == measurement.fileName }
+                    ?.data
+                    ?: emptyList()
+            } else {
+                val csvData = headphoneRepository.fetchMeasurementText(measurement)
+                if (csvData == null) {
+                    _error.value = "Failed to fetch measurement"
+                    _isCalculating.value = false
+                    return
+                }
+                EqDataParser.parseRawData(csvData)
+            }
+            if (parsed.isEmpty()) {
+                _error.value = "Failed to parse headphone measurement"
+                _isCalculating.value = false
+                return
+            }
+
+            _originalMeasurement.value = parsed
+            persistMeasurement(parsed)
+
+            val target = _selectedTarget.value.data
+            if (target.isEmpty()) {
+                _error.value = "Target curve not available"
+                _isCalculating.value = false
+                return
+            }
+
+            val bands = AutoEqEngine.runAutoEqAlgorithm(
+                measurement = parsed,
+                target = target,
+                bandCount = _bandCount.value,
+                maxFrequency = _maxFrequency.value,
+                sampleRate = _sampleRate.value,
+            )
+            _currentBands.value = bands
+            saveBandsToPreferences(bands)
+            _error.value = null
+            _isCalculating.value = false
+        } catch (e: Exception) {
+            _error.value = "Failed to load measurement: ${e.message}"
+            _isCalculating.value = false
+        }
     }
 
     /**
@@ -551,6 +755,7 @@ class EqViewModel @Inject constructor(
                         }
 
                         _originalMeasurement.value = measurement
+                        persistMeasurement(measurement)
 
                         val target = _selectedTarget.value.data
                         if (target.isEmpty()) {
@@ -614,10 +819,6 @@ class EqViewModel @Inject constructor(
 
     fun setSampleRate(rate: Float) {
         _sampleRate.value = rate
-    }
-
-    fun setHeadphoneTypeFilter(type: String?) {
-        _headphoneTypeFilter.value = type
     }
 
     fun updateBandByDrag(bandId: Int, newFreq: Float, newGain: Float) {
