@@ -1,8 +1,16 @@
-# MonoTrypT Android
+# Tryptify
 
-A hi-fi music player with TIDAL streaming, local library, encrypted collections, a 33-processor native DSP mixing console, a 10-band AutoEQ driven by 4,000+ headphone measurements, and a real-time ProjectM visualizer.
+A native Android hi-fi music player with TIDAL and Qobuz streaming, local-library
+playback, encrypted collections, a 32-processor DSP mixing console, a 10-band
+AutoEQ driven by 4,000+ headphone measurements (squig.link + AutoEq), a libusb
+USB Audio Class bit-perfect bypass for external DACs, and a real-time ProjectM
+visualizer.
 
-[**Download the latest APK**](https://github.com/tryptz/monotrypt.android/releases/latest) — Android 8.0+ (API 26), sideload or `adb install`.
+> Formerly **MonoTrypT**. The launcher icon and About screen now read
+> "Tryptify"; package id, storage paths, and existing installs are unchanged.
+
+[**Download the latest APK**](https://github.com/tryptz/monotrypt.android/releases/latest)
+— Android 8.0+ (API 26), sideload or `adb install`.
 
 ---
 
@@ -11,135 +19,355 @@ A hi-fi music player with TIDAL streaming, local library, encrypted collections,
 <p align="center">
   <img src="https://github.com/user-attachments/assets/0a23a50e-6dfe-482f-987d-42c3c7536dfb" width="220" alt="Now Playing — album art, HD playback, and controls" />
   <img src="https://github.com/user-attachments/assets/359bf19e-1a79-4372-a7a0-1d841cc03387" width="220" alt="DSP Mixer — bus strips with gain, pan, mute, solo, and plugin chains" />
-  <img src="https://github.com/user-attachments/assets/2670b38b-18cf-4aba-a71f-b3c1390761ec" width="220" alt="Plugin picker — categorized browser for all 33 audio processors" />
+  <img src="https://github.com/user-attachments/assets/2670b38b-18cf-4aba-a71f-b3c1390761ec" width="220" alt="Plugin picker — categorized browser for all 32 audio processors" />
   <img src="https://github.com/user-attachments/assets/2a36210f-bd54-4bf7-98d1-aee0e556569b" width="220" alt="Plugin editor — per-effect parameter controls" />
   <img src="https://github.com/user-attachments/assets/e2d9b57d-ab5f-40c7-9eff-f8c9a741c942" width="220" alt="AutoEQ — headphone correction filters generator" />
-  <img src="https://github.com/user-attachments/assets/58930158-4f00-45f2-a0bd-ae1d32961525" width="220" alt="AutoEQ — headphone model database browser" />
+  <img src="https://github.com/user-attachments/assets/58930158-4f00-45f2-a0bd-ae1d32961525" width="220" alt="AutoEQ — headphone model database browser with rig taxonomy" />
 </p>
+
+---
+
+## What's new in 1.5.0
+
+- **Rebrand to Tryptify.** Launcher name, About tab, and version footer updated;
+  package, app id, and existing user data are untouched.
+- **Qobuz catalog source.** Pickable source mode in Settings — TIDAL only,
+  Qobuz only, or both fanned out in parallel at search time. Album / artist /
+  track detail screens, `QobuzCached` stream resolution via the configured
+  trypt-hifi instance, and per-track QobuzIdRegistry routing so a Qobuz id
+  never accidentally falls through to TIDAL.
+- **Bit-perfect USB DAC bypass.** UAPP-style libusb-backed UAC1 and UAC2
+  driver, end-to-end iso pump, sample-accurate feedback-EP pacing, software
+  volume + hardware-key control, exclusive-mode interface claim. EQ, AutoEQ,
+  and the mixer DSP keep working on the bypass path.
+- **Rig-aware AutoEQ.** 12 squig.link sources merged with the existing AutoEq
+  GitHub catalog, rig taxonomy (B&K 5128, GRAS 43AG-7 / 43AC-10 / 45CA-10, IEC
+  711 clone, MiniDSP EARS, Uploaded), pinned-left "Uploaded" section, instant
+  chip feedback, long-press delete on user uploads, FR measurement cached
+  across sessions.
+- **Synced karaoke lyrics** with a blurred-album-art backdrop, plus an LRCLib
+  fallback when TIDAL has no lyrics for a track.
+- **Per-track Share** sends the FLAC directly (downloading on demand if it
+  isn't already local).
+- **Polish:** infinite-scroll unified search, downloaded-album art in the
+  catalog, Ko-fi link in a new About tab, NDK bumped to `29.0.14206865` with
+  explicit `libc++_shared`, vsync toggle for the ProjectM surface, and a
+  pile of audio-safety / lint / volume-state fixes.
+
+A full per-commit list lives in
+[the 1.5.0 release notes](https://github.com/tryptz/monotrypt.android/releases/tag/1.5.0).
 
 ---
 
 ## What's inside
 
-**Playback**
-- TIDAL HiFi streaming (lossless FLAC, 24-bit hi-res, WiFi/cellular quality auto-switching)
-- Local library via MediaStore with embedded-tag reader, incremental sync, and filesystem watching
-- AES-256-GCM encrypted collections with transparent decryption at playback time
-- ReplayGain (track/album with preamp + peak protection)
-- Offline FLAC downloads via WorkManager with optional LRC export
+**Catalog & playback**
+
+- Two streaming sources — TIDAL HiFi (lossless FLAC, 24-bit hi-res) and a
+  user-configurable Qobuz instance (trypt-hifi compatible). Source mode is
+  user-selectable; both run in parallel on search by default with Qobuz
+  failures isolated so they can never block the TIDAL path.
+- Local library via MediaStore with embedded-tag reader, incremental sync,
+  and filesystem watcher.
+- AES-256-GCM encrypted collections with transparent decryption at playback
+  time.
+- ReplayGain (track / album with preamp + peak protection), gapless
+  playback, queue with drag-to-reorder + shuffle + 3-mode repeat, variable
+  speed.
+- Offline FLAC downloads via WorkManager, with optional LRC export and
+  on-demand share-to-FLAC.
 - Chromecast through Media3 Cast, Glance home-screen widget, Android Auto
-- Last.fm and ListenBrainz scrobbling
+  media browser.
+- Last.fm and ListenBrainz scrobbling, Supabase-backed cloud sync of
+  favorites / history / playlists.
+- Synced karaoke lyrics (TIDAL + LRCLib fallback) with blurred-art backdrop.
 
 **Audio processing**
-- **DSP Mixer** — 4 buses + master, up to 16 plugin slots each, 33 native processors
-- **AutoEQ** — 10-band parametric generator against 10 target curves, 4,000+ measurements
-- **Parametric EQ** — ±24 dB per band with bundled and user presets
-- **ProjectM visualizer** — OpenGL renderer with album-art color tinting
+
+- **DSP Mixer** — 4 buses + master, up to 16 plugin slots each, 32 native
+  processors. User-selectable block size (4096 / 8K / 16K). True bypass
+  when the mixer is off.
+- **AutoEQ** — 10-band parametric generator, 10 target curves, 4,000+
+  measurements from squig.link + AutoEq, rig-aware filtering, custom
+  measurement upload.
+- **Parametric EQ** — ±24 dB per band with bundled and user presets.
+- **Oxford / Seap effects** — separate Inflator and Compressor screens for
+  the dedicated processors (outside the bus plugin chain).
+- **ProjectM visualizer** — OpenGL renderer with album-art color tinting,
+  optional vsync disable.
+
+**USB DAC bit-perfect bypass**
+
+- libusb-backed UAC1 and UAC2 driver — claims the streaming interface from
+  the kernel, sets the alt setting, negotiates the sample rate via the
+  clock entity, and drives the iso endpoint directly with a preallocated
+  transfer pool and a single-producer / single-consumer ring buffer.
+- Sample-accurate UAC2 pacing using the asynchronous feedback endpoint;
+  graceful UAC1 fallback for devices like the Focal Bathys that don't
+  speak UAC2.
+- Software-volume control on the bypass path with hardware-key handling,
+  pause-silences-DAC, and a watchdog that falls back to the delegate sink
+  if the iso pump wedges.
+- DSP / EQ / spectrum / ProjectM tap all keep working when bypass is on —
+  the mixer chain runs inline, then the post-DSP PCM goes to libusb
+  instead of the Android audio HAL.
+- Categorized error reporting (no-device, no matching alt, claim failed,
+  set-alt failed, sample-rate failed, iso pump alloc / submit failed)
+  surfaced to Settings instead of the old "kernel still owns it"
+  boilerplate that was wrong half the time.
 
 **Interface**
-- 16 built-in color themes plus a true light "White" scheme
-- "System" theme follows the OS dark-mode toggle
-- **Dynamic colors** — Material You-style palette extracted live from album art
-- Status / navigation bar icons follow the active theme background
-- Custom font loading, configurable text scale
-- Compose + Material 3 throughout
+
+- 16 built-in palettes plus a true light "White" scheme.
+- "System" theme follows the OS dark-mode toggle live; system bar icons
+  adapt to the resolved background.
+- Dynamic colors — Material You-style palette extracted from the current
+  track's album art.
+- Custom font loading, configurable text scale.
+- Compose + Material 3 throughout, with a floating curved player UI
+  designed against modern Android device screen radii.
+
+---
+
+## Catalog architecture
+
+```
+                  ┌─ TIDAL HiFi API client ──────┐
+SearchViewModel ──┤                              ├─→ unified results
+                  ├─ HiFiApiClient (Qobuz)       │
+                  └─ Local + Collections         ┘
+                              │
+                              ▼
+                       PlaybackSource
+                       ├─ TidalStream
+                       ├─ QobuzCached       ←  /api/download-music + LRU file cache
+                       ├─ LocalFile
+                       └─ EncryptedCollection
+                              │
+                              ▼
+                       StreamResolver  →  Media3 ExoPlayer
+```
+
+`SourceMode` (BOTH / TIDAL_ONLY / QOBUZ_ONLY) gates which catalogs feed
+search and discovery; per-track playback always follows the originating
+`PlaybackSource`. Qobuz failures (instance unset, network error, schema
+mismatch) are logged and dropped — the TIDAL path is never blocked behind
+a slow or hung Qobuz instance.
+
+`QobuzIdRegistry` records (numeric `qobuz_id` → alphanumeric slug) at search
+time so the album-detail endpoint, which wants the slug, can be hit from a
+navigation route keyed by `Long`. Track ids are also stamped so the player
+routes Qobuz-album tracks through `QobuzCached` instead of falling through
+to TIDAL with an id TIDAL doesn't recognize.
 
 ---
 
 ## DSP Mixer
 
-A mixing console built as a C++17 native library (`monochrome_dsp`) sitting inside the ExoPlayer audio pipeline. ARM NEON SIMD, denormal flush-to-zero, and lock-free atomic updates between the UI and audio threads.
+A C++17 native library (`monochrome_dsp`) sitting inside the ExoPlayer audio
+pipeline. ARM NEON SIMD, denormal flush-to-zero, lock-free atomic updates
+between the UI and audio threads.
 
 ```
-ExoPlayer → ReplayGain → AutoEQ → MixBusProcessor (JNI) → ProjectM tap → AudioSink
-                                         │
-                                    Native DspEngine
-                                    ├─ Bus 1  [up to 16 plugins]
-                                    ├─ Bus 2  [up to 16 plugins]
-                                    ├─ Bus 3  [up to 16 plugins]
-                                    ├─ Bus 4  [up to 16 plugins]
-                                    ├─ Sum ───────────────────────┐
-                                    └─ Master [up to 16 plugins] ─┘
+ExoPlayer → ReplayGain → AutoEQ / ParamEQ → MixBusProcessor (JNI) → ProjectM tap → AudioSink
+                                                  │                                    │
+                                            Native DspEngine             ┌─────────────┴─────────────┐
+                                            ├─ Bus 1  [up to 16 plugins] │  default → DefaultAudioSink
+                                            ├─ Bus 2  [up to 16 plugins] │  bypass  → LibusbAudioSink
+                                            ├─ Bus 3  [up to 16 plugins] │             (libusb UAC)
+                                            ├─ Bus 4  [up to 16 plugins] └───────────────────────────┘
+                                            ├─ Sum ──────────────────────┐
+                                            └─ Master [up to 16 plugins] ┘
 ```
 
-Per-bus gain (dB), pan, mute, solo, and input enable. Master sums active buses, runs its own plugin chain, and meters the output with peak + hold ballistics (1.5 s decay). Engine state serializes to JSON and persists in Room DB.
+Per-bus gain (dB), pan, mute, solo, and input-enable. Master sums active
+buses, runs its own plugin chain, and meters the output with peak + hold
+ballistics (1.5 s decay). Engine state serializes to JSON and persists in
+Room.
 
-### 33 processors
+### 32 mixer plugins
 
 | Category | Processors |
 |----------|------------|
-| **Utility** | Gain · Stereo (M/S + equal-power pan) · Channel Mixer (2×2 routing) |
-| **EQ & Filter** | Biquad Filter (LP/BP/HP/Notch/Shelf/Peak, 1×–4× slope) · 3-Band EQ (Linkwitz-Riley) · Comb Filter · Formant Filter · Ladder Filter (Moog/diode, 2× OS) · Nonlinear Filter (SVF + 5 shapers) · Resonator |
-| **Dynamics** | Compressor · Limiter (5 ms lookahead, true peak) · Gate · Dynamics (dual-threshold up/down) · Compactor (lookahead limiter/ducker) · Transient Shaper |
-| **Distortion** | Distortion (6 modes) · Shaper (256-pt transfer LUT) · Bitcrush (SR + bit depth, TPDF dither) · Phase Distortion (Hilbert self-PM) |
-| **Modulation** | Chorus · Ensemble · Flanger (barberpole) · Phaser (2–12 stage) · Ring Mod · Tape Stop · Frequency Shifter (SSB via Hilbert pair) · Pitch Shifter (granular OLA) · Haas |
+| **Utility** | Gain · Stereo (M/S + equal-power pan) · Channel Mixer (2×2 routing) · Haas |
+| **EQ & Filter** | Filter (RBJ biquad, LP/BP/HP/Notch/Shelf/Peak, 1×–4× slope) · Comb Filter · Formant Filter · Ladder Filter (Moog/diode, 2× OS) · Nonlinear Filter (SVF + 5 shapers) · Resonator |
+| **Dynamics** | Compressor · Limiter (5 ms lookahead, true peak) · Gate · Dynamics (dual-threshold up/down) · Compactor (lookahead limiter / ducker) · Transient Shaper · Trance Gate (8-step, ADSR) |
+| **Distortion** | Distortion (6 modes) · Shaper (256-pt transfer LUT) · Bitcrush (SR + bit-depth, TPDF dither) · Phase Distortion (Hilbert self-PM) |
+| **Modulation** | Chorus · Ensemble · Flanger (barberpole) · Phaser (2–12 stage) · Ring Mod · Tape Stop · Frequency Shifter (SSB via Hilbert pair) · Pitch Shifter (granular OLA) |
 | **Space** | Delay (up to 2 s, ping-pong, ducking) · Reverb (8-line FDN + 4 allpass diffusers) · Reverser |
-| **Sequenced** | Trance Gate (8-step, ADSR, 1/4–1/32) |
 
-Every processor has bypass, dry/wet, and 5 ms parameter smoothing. All setters clamp inputs and reject non-finite values before reaching the real-time thread; biquads fall back to passthrough on pathological f/Q combinations.
+Every plugin has bypass, dry / wet, and 5 ms parameter smoothing. All
+setters clamp inputs and reject non-finite values before reaching the
+real-time thread; biquads fall back to passthrough on pathological f / Q
+combinations.
+
+The Oxford / Seap **Inflator** and **Compressor** are dedicated effects
+exposed on their own screens, separate from the bus plugin chain.
 
 ### Shared DSP primitives
 
-Biquads (RBJ cookbook), cubic-interpolated delay lines, peak/RMS envelopes, LFOs, allpass chains, DC blocker, Hilbert transform, 2× half-band oversampler, lookahead buffers, Hann overlap-add crossfade, 256-point transfer-curve LUT, exponential parameter smoothers.
+Biquads (RBJ cookbook), cubic-interpolated delay lines, peak / RMS envelope
+followers, LFOs, allpass chains, DC blocker, Hilbert transform, 2× half-band
+oversampler, lookahead buffers, Hann overlap-add crossfade, 256-point
+transfer-curve LUT, exponential parameter smoothers.
 
 ---
 
 ## AutoEQ
 
-10-band parametric EQ that generates headphone-correction filters from frequency-response measurements.
+10-band parametric EQ that generates headphone-correction filters from
+frequency-response measurements.
 
 **Algorithm** — greedy iterative peak-finding:
 
-1. Normalize measurement against target over the 250–2500 Hz midrange window
-2. Scan 20 Hz–16 kHz for the worst deviation (sub-50 Hz weighted 1.2×)
-3. Invert deviation as gain (clamped ±12 dB, ±8 dB above 8 kHz), estimate Q from bandwidth
-4. Subtract the new filter's biquad response from the remaining error
-5. Repeat up to 10 bands, or stop early if max error < 0.05 dB
+1. Normalize measurement against target over the 250–2500 Hz midrange window.
+2. Scan 20 Hz–16 kHz for the worst deviation (sub-50 Hz weighted 1.2×).
+3. Invert the deviation as gain (clamped ±12 dB, ±8 dB above 8 kHz),
+   estimate Q from the bandwidth.
+4. Subtract the new filter's biquad response from the remaining error.
+5. Repeat up to 10 bands, or stop early if max error < 0.05 dB.
 
-**Target curves:** Harman Over-Ear 2018 · Harman In-Ear 2019 · Diffuse Field · Knowles · Moondrop VDSF · Hi-Fi Endgame 2026 · PEQdB Ultra · SEAP · SEAP Bass · Flat
+**Target curves:** Harman Over-Ear 2018 · Harman In-Ear 2019 · Diffuse Field
+· Knowles · Moondrop VDSF · Hi-Fi Endgame 2026 · PEQdB Ultra · SEAP · SEAP
+Bass · Flat.
 
-Bundled against 4,000+ measurements, with case-insensitive name resolution and optional custom measurement upload. Preamp is clamped against the peak band gain so the cascade stays inside safe headroom. EQ updates in real time via an atomic snapshot read on each audio block — no clicks during live tweaking.
+### Measurement sources
+
+Twelve **squig.link** instances are queried in parallel on first fetch; the
+existing AutoEq GitHub catalog is also bundled. Per-source failures are
+silent so one dead host doesn't poison the list. Cache TTL is 24 h, matching
+the AutoEq path. Sources currently include Super\* Review, Precogvision,
+DHRME, Aftersound, Elise Audio, Jaytiss, CSI-Zone, Acho Reviews, kr0mka, and
+others; the full list lives in `SquiglinkApi.kt`.
+
+### Rig taxonomy
+
+Each measurement is tagged with the rig it was captured on:
+
+`Uploaded` (the user's own files, pinned leftmost) · `B&K 5128` ·
+`GRAS 43AG-7` · `GRAS 43AC-10` · `GRAS 45CA-10` · `IEC 711 clone` ·
+`MiniDSP EARS` · `Unknown`.
+
+The HeadphoneSelectScreen shows a chip row of rigs across the top with
+per-source rows below; switching rig instantly re-filters without a
+network round-trip. User uploads support long-press delete and have the
+headphone name auto-filled from the picked filename so saved profiles
+keep their identity.
+
+### Custom measurements
+
+CSV / TXT with auto-detected delimiter (comma, semicolon, tab, whitespace),
+header row detection, and European decimal format conversion. The picked
+file's frequency response is cached so the curve survives across sessions
+without re-import.
+
+### Audio integration
+
+The EQ processor wraps Android's system `Equalizer` AudioEffect, bound to
+the ExoPlayer audio session id. Parametric bands are mapped to the device's
+fixed system bands using a Gaussian gain estimation model — for each system
+band frequency, the contribution of every parametric band is summed based
+on its distance in octaves from the band centre, shaped by Q. Gains clamp
+to the device's hardware limits (in millibels). Preamp clamps against peak
+band gain so the cascade can't exceed safe headroom. EQ updates in real
+time via an atomic snapshot read on each audio block — no clicks during
+live tweaking.
+
+---
+
+## USB DAC bit-perfect bypass
+
+A libusb-backed Audio Class driver that takes the streaming interface from
+the kernel and writes PCM directly to the DAC's isochronous endpoint,
+bypassing the Android audio HAL.
+
+**Owns:**
+- One process-wide libusb context, lazily created.
+- Device handle wrapping a Java-supplied `UsbDeviceConnection` fd.
+- Streaming-interface alt-setting selection + claim, with an
+  AudioControl-interface claim so `SET_CUR` requests can reach the device.
+- A fixed pool of preallocated isochronous transfers.
+- An SPSC ring buffer the audio thread writes into and the iso completion
+  callback drains from.
+- An event-handling thread driving `libusb_handle_events`.
+
+**Negotiates:**
+- UAC1 *and* UAC2 — auto-detected from the descriptors. UAC1 path supports
+  devices like the Focal Bathys that don't speak UAC2.
+- Sample rate via UAC2 clock entity + `GET_RANGE`, walking
+  Selector → Source units when needed; UAC1 has its own `SET_CUR`
+  handling. Brute-forces every clock candidate before failing.
+- Iso `bInterval` is honoured; alts whose maxPacketSize can't fit the
+  configured rate are rejected up-front.
+
+**Pacing:** UAC2 asynchronous feedback endpoint reader for sample-accurate
+iso scheduling. UAC1 falls back to fixed-rate iso pacing.
+
+**Sink integration:** `LibusbAudioSink` is a Media3 `ForwardingAudioSink`
+wrapping a `DefaultAudioSink`. When bypass is hot, it runs the same
+`AudioProcessor` chain `DefaultAudioSink` would (mixer DSP, AutoEQ,
+parametric EQ, FFT spectrum, ProjectM tap), then writes the post-DSP PCM
+to libusb. Software volume is applied on the bypass path and follows the
+hardware volume keys; pause silences the DAC instantly. A watchdog with a
+brief grace window falls back to the delegate sink if the iso pump wedges.
+
+**Failure surfacing:** start failures are categorised (no-device, no
+matching alt, claim failed, set-alt failed, sample-rate failed, iso pump
+alloc / submit failed) and surfaced to Settings as actionable text instead
+of one boilerplate error string.
 
 ---
 
 ## Themes
 
-Sixteen built-in palettes (Monochrome, Ocean, Midnight, Crimson, Forest, Sunset, Cyberpunk, Nord, Gruvbox, Dracula, Solarized, Lavender, Gold, Rosewater, Mint, White, Clear), plus:
+Sixteen built-in palettes (Monochrome, Ocean, Midnight, Crimson, Forest,
+Sunset, Cyberpunk, Nord, Gruvbox, Dracula, Solarized, Lavender, Gold,
+Rosewater, Mint, White, Clear), plus:
 
-- **System** — follows the OS dark-mode setting live
-- **Dynamic colors** — primary / secondary slots extracted from the current track's album art via AndroidX Palette and cached in memory
-- **Material You hook** — SDK-gated helper ready for a future Android 12+ wallpaper-based scheme
+- **System** — follows the OS dark-mode setting live.
+- **Dynamic colors** — primary / secondary slots extracted from the current
+  track's album art via AndroidX Palette and cached in memory.
+- **Material You hook** — SDK-gated helper ready for a future Android 12+
+  wallpaper-based scheme.
 
-Status- and navigation-bar styles are bound to the resolved theme background, so icons stay legible when switching palettes or track art.
+Status- and navigation-bar styles are bound to the resolved theme background,
+so icons stay legible when switching palettes or track art.
 
 ---
 
 ## Architecture
 
-Single-module app, package `tf.monochrome.android`.
+Single-module app, package `tf.monochrome.android`, application id
+`tf.monotrypt.android` (kept stable through the Tryptify rebrand so existing
+installs upgrade in place).
 
 ```
 tf.monochrome.android/
 ├── audio/
 │   ├── dsp/           # MixBusProcessor (JNI), DspEngineManager, SnapinType
-│   └── eq/            # AutoEqEngine, EqProcessor, FrequencyTargets
+│   │   └── oxford/    # Oxford / Seap Inflator + Compressor
+│   ├── eq/            # AutoEqEngine, EqProcessor, FrequencyTargets
+│   └── usb/           # LibusbUacDriver, LibusbAudioSink, exclusive controller
 ├── auto/              # Android Auto media browser service
 ├── data/
-│   ├── api/           # TIDAL HiFi client + instance failover
+│   ├── api/           # TIDAL HiFi client, Qobuz (HiFiApiClient), squig.link, instance failover
 │   ├── auth/          # Google Sign-In + Appwrite OAuth
+│   ├── cache/         # QobuzStreamCacheManager
 │   ├── collections/   # Encrypted collection manifests (AES-256-GCM)
-│   ├── db/            # Room v4, 22 tables
+│   ├── db/            # Room v8, 11 tables
 │   ├── downloads/     # WorkManager offline downloader
 │   ├── local/         # MediaStore scanner + tag reader + fs watcher
-│   ├── preferences/   # DataStore settings
+│   ├── preferences/   # DataStore settings (incl. SourceMode, Qobuz endpoint)
 │   ├── scrobbling/    # Last.fm + ListenBrainz
-│   └── sync/          # Appwrite / PocketBase cloud sync
+│   └── sync/          # Supabase cloud sync
 ├── di/                # Hilt modules
-├── domain/            # Models + use cases
+├── domain/            # Models + use cases (incl. MeasurementRig)
 ├── player/            # Media3 PlaybackService, QueueManager, StreamResolver, ReplayGain
+├── share/             # TrackShareHelper (download-on-demand share-to-FLAC)
 ├── ui/
 │   ├── mixer/         # BusStrip, PluginSlot, PluginPicker, PluginEditor, DspCanvas
-│   ├── eq/            # Parametric + AutoEQ screens, FrequencyResponseGraph
+│   ├── eq/            # Parametric + AutoEQ screens, FrequencyResponseGraph, rig chips
+│   ├── oxford/        # Inflator + Compressor screens
 │   ├── theme/         # Color schemes, Dimens, DynamicColorExtractor
 │   └── ...            # Remaining screens (Compose + Material 3)
 ├── visualizer/        # ProjectM OpenGL renderer + JNI audio tap
@@ -150,28 +378,39 @@ tf.monochrome.android/
 
 ```
 app/src/main/cpp/
-├── dsp_engine.h / .cpp    # Bus/plugin routing, metering, state serialization
-├── dsp_jni.cpp            # Kotlin ↔ C++ bridge
-├── plugins/               # 33 processor implementations
-└── util/                  # Shared DSP primitives
+├── dsp/
+│   ├── dsp_engine.{h,cpp}   # Bus / plugin routing, metering, state serialization
+│   ├── dsp_jni.cpp          # Kotlin ↔ C++ bridge
+│   ├── snapins/             # 32 plugin implementations + the AutoEq biquad chains
+│   └── util/                # Shared DSP primitives
+├── usb/
+│   ├── libusb_uac_driver.{h,cpp}   # UAC1 + UAC2 streaming driver
+│   └── usb_jni.cpp                 # Kotlin ↔ libusb bridge
+├── projectm_bridge.{h,cpp}  # ProjectM visualizer wrapper
+├── projectm_jni.cpp
+└── audio_ring_buffer.{h,cpp}
 ```
 
-Built with `-O3 -ffast-math`, ARM NEON SIMD, denormal flush-to-zero. ABIs: `arm64-v8a`, `armeabi-v7a`, `x86_64`.
+Built with `-O3 -ffast-math`, ARM NEON SIMD, denormal flush-to-zero. ABIs:
+`arm64-v8a`, `armeabi-v7a`, `x86_64`. Explicit `libc++_shared` runtime.
 
 ### Database
 
-Room v4, 22 tables:
+Room v8, 11 tables:
 
-- **Core** — favorites, play history, playlists, downloads, cached lyrics, EQ presets
-- **Local media** — tracks, albums, artists, genres, folders, scan state
-- **Collections** — collection metadata, streaming URLs, artist/album cross-refs
-- **Mixer** — DSP mix presets (JSON-serialized engine state)
+`favorite_tracks` · `favorite_albums` · `favorite_artists` · `history_tracks`
+· `play_events` · `user_playlists` · `playlist_tracks` · `downloaded_tracks`
+· `cached_lyrics` · `eq_presets` · `mix_presets`.
 
 All DAOs expose `Flow<T>` for reactive UI.
 
 ### Networking
 
-Ktor with the OkHttp engine. 200-entry LRU cache, 30-minute TTL. Instance failover pulls live API endpoints from uptime workers, falls back to a hardcoded pool, shuffles per request; 429 responses rotate to the next instance.
+Ktor with the OkHttp engine. 200-entry LRU cache, 30-minute TTL. Instance
+failover pulls live API endpoints from uptime workers, falls back to a
+hardcoded pool, shuffles per request; 429 responses rotate to the next
+instance. Qobuz fan-out has a hard 6 s per-request ceiling so a slow Qobuz
+instance can't block the TIDAL flow.
 
 ---
 
@@ -181,56 +420,9 @@ Ktor with the OkHttp engine. 200-entry LRU cache, 30-minute TTL. Instance failov
 |-----------|---------|
 | Language | Kotlin 2.1.0 |
 | DSP engine | C++17 via JNI (`monochrome_dsp`) |
+| USB driver | libusb 1.0 (UAC1 + UAC2) |
 | UI | Jetpack Compose, Material 3 (BOM 2024.12.01) |
 | Audio | Media3 / ExoPlayer 1.5.1 |
 | Casting | Media3 Cast, Google Cast Framework 22.0.0 |
-| Visualizer | ProjectM (C++17 via JNI) |
+| Visualizer | ProjectM 4.1.6 (C++17 via JNI) |
 | Images | Coil 3.0.4 |
-| Palette extraction | AndroidX Palette |
-| Database | Room 2.7.1 |
-| Preferences | DataStore 1.1.1 |
-| Network | Ktor 3.0.3 (OkHttp engine) |
-| DI | Hilt 2.57.1 |
-| Serialization | Kotlinx Serialization 1.7.3 |
-| Encryption | AES-256-GCM (AndroidX Security Crypto) |
-| Background | WorkManager 2.10.0 |
-| Widgets | Glance 1.1.1 |
-| Build | AGP 9.0.0, KSP 2.1.0-1.0.29, CMake 3.22.1 |
-| Min / target SDK | 26 / 36 |
-
----
-
-## Build
-
-**Requirements:** JDK 17+, Android SDK 36, NDK `28.2.13676358`.
-
-```bash
-git clone --recurse-submodules https://github.com/tryptz/monotrypt.android.git
-cd monotrypt.android
-./gradlew assembleDebug
-```
-
-The `--recurse-submodules` flag pulls the ProjectM v4.1.6 submodule used by the native visualizer.
-
-**Optional — TIDAL streaming:** add credentials to `local.properties`:
-
-```
-TIDAL_CLIENT_ID=...
-TIDAL_CLIENT_SECRET=...
-```
-
-Without these the app still builds and runs; TIDAL content just won't resolve.
-
-**Optional — signed release:** copy `keystore.properties.example` → `keystore.properties`, fill in the signing config, then:
-
-```bash
-./gradlew assembleRelease
-```
-
-**Install to a connected device:**
-
-```bash
-./gradlew installDebug
-```
-
-The NDK is required for the ProjectM visualizer (`third_party/projectm/`) and the native DSP engine (`app/src/main/cpp/`). Install `28.2.13676358` via Android Studio → SDK Manager.
