@@ -3,6 +3,11 @@ package tf.monochrome.android.ui.settings
 import android.content.Intent
 import androidx.core.net.toUri
 import java.util.Locale
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import tf.monochrome.android.R
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.ImeAction
@@ -99,7 +104,7 @@ import tf.monochrome.android.ui.components.liquidGlass
 import tf.monochrome.android.ui.navigation.Screen
 import tf.monochrome.android.ui.theme.themeDisplayNames
 
-private val settingsTabs = listOf("Appearance", "Interface", "Scrobbling", "Audio", "Equalizer", "Library", "Downloads", "Instances", "System")
+private val settingsTabs = listOf("Appearance", "Interface", "Scrobbling", "Audio", "Equalizer", "Library", "Downloads", "Instances", "System", "About")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -154,6 +159,7 @@ fun SettingsScreen(
             6 -> DownloadsTab(viewModel)
             7 -> InstancesTab(viewModel)
             8 -> SystemTab(viewModel, navController)
+            9 -> AboutTab()
         }
     }
 }
@@ -1342,13 +1348,11 @@ private fun InstancesTab(viewModel: SettingsViewModel) {
     val streamingInstances by viewModel.streamingInstances.collectAsState()
     val customEndpoint by viewModel.customEndpoint.collectAsState()
     val qobuzEndpoint by viewModel.qobuzEndpoint.collectAsState()
-    val qobuzCookie by viewModel.qobuzCookie.collectAsState()
     val devModeEnabled by viewModel.devModeEnabled.collectAsState()
     val sourceMode by viewModel.sourceMode.collectAsState()
     val refreshing by viewModel.instancesRefreshing.collectAsState()
     var customInput by remember(customEndpoint) { mutableStateOf(customEndpoint ?: "") }
     var qobuzInput by remember(qobuzEndpoint) { mutableStateOf(qobuzEndpoint ?: "") }
-    var qobuzCookieInput by remember(qobuzCookie) { mutableStateOf(qobuzCookie ?: "") }
 
     SettingsTabContent {
         // Source mode picker — controls which catalogs feed search/discovery.
@@ -1484,52 +1488,6 @@ private fun InstancesTab(viewModel: SettingsViewModel) {
                             val trimmed = latestQobuzInput.value.trim().ifBlank { null }
                             if (trimmed != latestQobuzSaved.value) {
                                 viewModel.setQobuzEndpoint(trimmed)
-                            }
-                        }
-                    }
-            )
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Qobuz Auth Cookie",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = "Optional. Paste the GAESA=… session cookie from the trypt-hifi web app's DevTools → Application → Cookies if the API requires auth.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            val latestCookieInput = rememberUpdatedState(qobuzCookieInput)
-            val latestCookieSaved = rememberUpdatedState(qobuzCookie)
-            OutlinedTextField(
-                value = qobuzCookieInput,
-                onValueChange = { qobuzCookieInput = it },
-                placeholder = {
-                    Text(
-                        "GAESA=…",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = {
-                    viewModel.setQobuzCookie(latestCookieInput.value.trim().ifBlank { null })
-                }),
-                modifier = Modifier
-                    .widthIn(max = 240.dp)
-                    .onFocusChanged { focusState ->
-                        if (!focusState.isFocused) {
-                            val trimmed = latestCookieInput.value.trim().ifBlank { null }
-                            if (trimmed != latestCookieSaved.value) {
-                                viewModel.setQobuzCookie(trimmed)
                             }
                         }
                     }
@@ -1752,20 +1710,67 @@ private fun SystemTab(viewModel: SettingsViewModel, navController: NavController
             subtitle = "Live logcat stream for this process — copy or export as a file for bug reports",
             onClick = { navController.navigate(Screen.DebugLog.route) },
         )
+    }
+}
 
-        Spacer(modifier = Modifier.height(20.dp))
-        SettingsGroupHeader("About")
-        Text(
-            text = "Monochrome for Android v1.0.0",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = "Open-source, ad-free music streaming",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+// ─── Tab 9: About ──────────────────────────────────────────────────────
+@Composable
+private fun AboutTab() {
+    val context = LocalContext.current
+    SettingsTabContent {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Spacer(modifier = Modifier.height(16.dp))
+            Image(
+                painter = painterResource(id = R.drawable.trypt_pfp),
+                contentDescription = "trypt avatar",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(140.dp)
+                    .clip(CircleShape)
+            )
+            Spacer(modifier = Modifier.height(20.dp))
+            Text(
+                text = "Support the app",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "Tryptify is built and maintained by trypt. If it's "
+                    + "earned a place in your day, a tip on Ko-fi keeps the "
+                    + "lights on and the next features shipping.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 8.dp)
+            )
+            Spacer(modifier = Modifier.height(24.dp))
+            Button(
+                onClick = {
+                    context.startActivity(
+                        Intent(Intent.ACTION_VIEW, "https://ko-fi.com/trypt".toUri())
+                    )
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Support on Ko-fi")
+            }
+            Spacer(modifier = Modifier.height(32.dp))
+            Text(
+                text = "Tryptify version 1.5.0 · 2026",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Open-source, ad-free music streaming",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 

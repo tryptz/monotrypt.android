@@ -1,6 +1,7 @@
 package tf.monochrome.android.ui.main
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color as AndroidColor
@@ -215,6 +216,7 @@ class MainActivity : ComponentActivity() {
      * ACTION_UP fires on every key release and would double the
      * step otherwise.
      */
+    @SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.action == KeyEvent.ACTION_DOWN) {
             val isVolumeKey = event.keyCode == KeyEvent.KEYCODE_VOLUME_UP ||
@@ -227,7 +229,12 @@ class MainActivity : ComponentActivity() {
                 } else {
                     current - step
                 }
-                val clamped = next.coerceIn(0f, 1f)
+                // Floor at 1/25 so vol-down presses can never drive the
+                // app to total silence — without an in-flow volume
+                // slider the user has no way back from a silenced
+                // state, and a stale 0.0 in preferences silences the
+                // app on every subsequent launch.
+                val clamped = next.coerceIn(step, 1f)
                 bypassVolumeController.setVolume(clamped)
                 lifecycleScope.launch {
                     preferences.setVolume(clamped.toDouble())

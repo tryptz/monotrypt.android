@@ -69,7 +69,9 @@ class DebugLogCollector @Inject constructor(
                 for (line in lines) {
                     if (!kotlin.coroutines.coroutineContext.isActive) break
                     if (line.isEmpty()) continue
-                    buffer.append(parse(line))
+                    val entry = parse(line)
+                    if (isNoise(entry)) continue
+                    buffer.append(entry)
                 }
             }
         } catch (_: IOException) {
@@ -113,6 +115,22 @@ class DebugLogCollector @Inject constructor(
         )
     }
 
+    /**
+     * Filter out framework-internal chatter that floods the in-app debug log
+     * without telling us anything we'd act on. PipelineWatcher's
+     * "pipelineFull: too many frames in pipeline (N)" is normal Media3
+     * codec back-pressure during buffering and prebuffering — not an error.
+     * Same idea for the other entries: pure plumbing noise from system
+     * components, never our app's behavior.
+     */
+    private fun isNoise(entry: DebugLogEntry): Boolean {
+        // Drop debug-level lines from these tags entirely.
+        if (entry.level == 'D' && entry.tag in NOISE_DEBUG_TAGS) return true
+        // Some tags spam at info level too — drop those regardless of level.
+        if (entry.tag in NOISE_TAGS_ALL_LEVELS) return true
+        return false
+    }
+
     private companion object {
         /**
          * threadtime format from AOSP's `logcat.cpp`:
@@ -120,6 +138,23 @@ class DebugLogCollector @Inject constructor(
          */
         private val THREADTIME_REGEX = Regex(
             """^(\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})\s+(\d+)\s+(\d+)\s+([VDIWEFS])\s+([^:]+):\s?(.*)$"""
+        )
+
+        private val NOISE_DEBUG_TAGS = setOf(
+            "PipelineWatcher",       // Media3 codec input/output queue depth
+            "AidlBufferPool",        // C2 component buffer pool fetch/transfer
+            "BufferPoolAccessor2.0", // older C2 buffer pool name
+            "C2SoftMP3:DecImpl",     // C2 codec component init logs
+        )
+
+        private val NOISE_TAGS_ALL_LEVELS = setOf(
+            "ViewRootImplExtImpl",        // OnePlus / OPlus skin: focus + motion event chatter
+            "JankManager",                // OPlus skin: per-frame jank stats
+            "[JankManager]",
+            "DynamicFramerate",           // OPlus skin: refresh-rate adaptation
+            "VRR",                        // OPlus skin: variable refresh rate state
+            "OplusScrollToTopManager",    // OPlus skin: focus tracking
+            "CoreBackPreview",            // System: predictive back gesture
         )
     }
 }

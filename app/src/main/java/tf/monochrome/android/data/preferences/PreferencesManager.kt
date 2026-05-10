@@ -71,7 +71,6 @@ class PreferencesManager @Inject constructor(
         // Custom API endpoint
         private val CUSTOM_API_ENDPOINT = stringPreferencesKey("custom_api_endpoint")
         private val QOBUZ_INSTANCE_URL = stringPreferencesKey("qobuz_instance_url")
-        private val QOBUZ_AUTH_COOKIE = stringPreferencesKey("qobuz_auth_cookie")
         private val DEV_MODE_ENABLED = booleanPreferencesKey("dev_mode_enabled")
         private val SOURCE_MODE = stringPreferencesKey("source_mode")
 
@@ -142,6 +141,8 @@ class PreferencesManager @Inject constructor(
         private val EQ_CUSTOM_TARGETS_JSON = stringPreferencesKey("eq_custom_targets_json")
         private val EQ_SELECTED_HEADPHONE_ID = stringPreferencesKey("eq_selected_headphone_id")
         private val EQ_SELECTED_HEADPHONE_NAME = stringPreferencesKey("eq_selected_headphone_name")
+        private val EQ_MEASUREMENT_JSON = stringPreferencesKey("eq_measurement_json")
+        private val EQ_UPLOADED_HEADPHONES_JSON = stringPreferencesKey("eq_uploaded_headphones_json")
 
         // Parametric EQ (independent of AutoEQ)
         private val PARAM_EQ_ENABLED = booleanPreferencesKey("param_eq_enabled")
@@ -233,7 +234,11 @@ class PreferencesManager @Inject constructor(
     }
 
     val volume: Flow<Double> = dataStore.data.map { prefs ->
-        prefs[VOLUME] ?: 1.0
+        // A stored 0.0 silences the app on launch (the slider can't be
+        // grabbed if you can't hear what's playing). Treat exact silence
+        // as a stale/uninitialised state and fall back to full volume.
+        val stored = prefs[VOLUME] ?: 1.0
+        if (stored <= 0.0) 1.0 else stored
     }
 
     suspend fun setShuffleEnabled(enabled: Boolean) {
@@ -360,24 +365,6 @@ class PreferencesManager @Inject constructor(
                 it[QOBUZ_INSTANCE_URL] = endpoint
             } else {
                 it.remove(QOBUZ_INSTANCE_URL)
-            }
-        }
-    }
-
-    // Optional session cookie pinned by the user from their browser. The
-    // trypt-hifi backend issues a session cookie on login and expects it on
-    // every /api/ request; without it the backend returns 401. Stored as the
-    // raw header value (one or more "name=value" pairs separated by "; ").
-    val qobuzAuthCookie: Flow<String?> = dataStore.data.map { prefs ->
-        prefs[QOBUZ_AUTH_COOKIE]
-    }
-
-    suspend fun setQobuzAuthCookie(cookie: String?) {
-        dataStore.edit {
-            if (cookie != null) {
-                it[QOBUZ_AUTH_COOKIE] = cookie
-            } else {
-                it.remove(QOBUZ_AUTH_COOKIE)
             }
         }
     }
@@ -742,6 +729,24 @@ class PreferencesManager @Inject constructor(
             it.remove(EQ_SELECTED_HEADPHONE_ID)
             it.remove(EQ_SELECTED_HEADPHONE_NAME)
         }
+    }
+
+    // Cached parsed FR points from the last loaded measurement, JSON-encoded.
+    // Lets the EQ screen restore the curve on cold start without re-fetching.
+    val eqMeasurementJson: Flow<String?> = dataStore.data.map { it[EQ_MEASUREMENT_JSON] }
+    suspend fun setEqMeasurementJson(json: String?) {
+        dataStore.edit {
+            if (json != null) it[EQ_MEASUREMENT_JSON] = json
+            else it.remove(EQ_MEASUREMENT_JSON)
+        }
+    }
+
+    // User-uploaded headphone measurements, JSON-encoded as List<Headphone>.
+    // Each entry carries its own parsed FR points so it works fully offline.
+    val eqUploadedHeadphonesJson: Flow<String> =
+        dataStore.data.map { it[EQ_UPLOADED_HEADPHONES_JSON] ?: "[]" }
+    suspend fun setEqUploadedHeadphonesJson(json: String) {
+        dataStore.edit { it[EQ_UPLOADED_HEADPHONES_JSON] = json }
     }
 
     // --- Parametric EQ (independent of AutoEQ) ---
