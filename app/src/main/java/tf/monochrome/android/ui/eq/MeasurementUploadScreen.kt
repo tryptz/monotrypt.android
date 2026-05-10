@@ -84,6 +84,24 @@ fun MeasurementUploadScreen(
             val rawData = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
             if (!rawData.isNullOrEmpty()) {
                 measurementData = rawData
+                // Pull the file's display name off the SAF URI and use it as
+                // the headphone name (sans extension). This is what makes
+                // every file-pick upload auto-save under the Uploaded chip
+                // without the user having to type anything. Only fills the
+                // field when blank so a user who typed first isn't clobbered.
+                if (headphoneName.isBlank()) {
+                    val displayName = context.contentResolver.query(
+                        uri,
+                        arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),
+                        null, null, null,
+                    )?.use { c ->
+                        if (c.moveToFirst()) c.getString(0) else null
+                    }
+                    headphoneName = displayName
+                        ?.substringBeforeLast('.')
+                        ?.takeIf { it.isNotBlank() }
+                        ?: headphoneName
+                }
             }
         } catch (_: Exception) { }
     }
