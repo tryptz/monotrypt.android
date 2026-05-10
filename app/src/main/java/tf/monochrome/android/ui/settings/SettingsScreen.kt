@@ -1710,20 +1710,6 @@ private fun SystemTab(viewModel: SettingsViewModel, navController: NavController
             subtitle = "Live logcat stream for this process — copy or export as a file for bug reports",
             onClick = { navController.navigate(Screen.DebugLog.route) },
         )
-
-        Spacer(modifier = Modifier.height(20.dp))
-        SettingsGroupHeader("About")
-        Text(
-            text = "Monochrome for Android v1.0.0",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = "Open-source, ad-free music streaming",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
     }
 }
 
@@ -1772,6 +1758,18 @@ private fun AboutTab() {
             ) {
                 Text("Support on Ko-fi")
             }
+            Spacer(modifier = Modifier.height(32.dp))
+            Text(
+                text = "Tryptify version 1.5.0 · 2026",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Open-source, ad-free music streaming",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
