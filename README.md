@@ -1,6 +1,8 @@
-# MonoTrypT Android
+# Tryptify
 
-A hi-fi music player with TIDAL streaming, local library, encrypted collections, a 33-processor native DSP mixing console, a 10-band AutoEQ driven by 4,000+ headphone measurements, and a real-time ProjectM visualizer.
+**Version 1.5.0 · 2026** — open-source, ad-free hi-fi music streaming for Android.
+
+TIDAL streaming, local library, encrypted collections, a 33-processor native DSP mixing console, a 10-band AutoEQ driven by 4,000+ headphone measurements, and a real-time ProjectM visualizer.
 
 [**Download the latest APK**](https://github.com/tryptz/monotrypt.android/releases/latest) — Android 8.0+ (API 26), sideload or `adb install`.
 
