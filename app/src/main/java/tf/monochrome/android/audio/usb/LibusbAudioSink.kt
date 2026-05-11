@@ -88,6 +88,25 @@ class LibusbAudioSink(
     // to recompute pcmBitsFromEncoding on every handleBuffer.
     private var outBitsPerSample: Int = 0
 
+    // Latched to true by Media3 calling playToEndOfStream() — i.e. the
+    // source has signaled "no more audio buffers". Until then,
+    // hasPendingData() claims pending regardless of ring fill, so a
+    // brief mid-track underrun (JIT compile, GC pause, codec hiccup,
+    // CPU throttling under MIUI Game Turbo, etc.) does NOT make the
+    // renderer conclude playback ended and stop feeding handleBuffer.
+    // Field repro: writes stopped mid-track at ~10 s of decoded audio
+    // even though the track was minutes long; previously hasPendingData
+    // returned false the moment driver.pendingFrames() hit zero, which
+    // is the signal Media3 uses to wrap the renderer up. Reset on
+    // configure / flush so the next track starts in "still got work"
+    // mode.
+    private var sinkEosSignaled: Boolean = false
+
+    // Wall-clock of the most recent successful driver.write. Read by
+    // diagnostics only; the renderer-stall recovery uses sinkEosSignaled
+    // (above), not this clock.
+    private var lastWriteNs: Long = 0L
+
     override fun configure(
         inputFormat: Format,
         specifiedBufferSize: Int,
@@ -158,6 +177,9 @@ class LibusbAudioSink(
             startTimeUs = C.TIME_UNSET
             resetWatchdog()
         }
+        // Fresh track / format → clear the EOS latch so hasPendingData()
+        // re-enters "still got work" mode for this stream.
+        sinkEosSignaled = false
     }
 
     override fun handleBuffer(
@@ -265,6 +287,7 @@ class LibusbAudioSink(
             processed.position(processed.position() + written * pcmBytesPerFrame)
         }
         framesWritten += written
+        lastWriteNs = System.nanoTime()
         if (!firstWriteLogged) {
             firstWriteLogged = true
             Log.i(TAG, "bypass first write succeeded — wrote $written frames " +
@@ -379,22 +402,37 @@ class LibusbAudioSink(
 
     override fun hasPendingData(): Boolean {
         if (!bypassActive) return super.hasPendingData()
-        // Honest answer: we have pending data iff frames are still
-        // queued in the ring waiting for the iso pump to dispatch
-        // them. Returning `false` unconditionally (the previous
-        // impl) made Media3's renderer stop waiting for the sink to
-        // drain at end-of-track, which combined with the inflated
-        // position made ExoPlayer skip to the next track way before
-        // the previous one finished playing.
-        return driver.pendingFrames() > 0
+        // Real pending data in the ring → always true.
+        if (driver.pendingFrames() > 0) return true
+        // Ring is momentarily empty. Until Media3 has signaled
+        // end-of-stream via playToEndOfStream(), we keep claiming
+        // pending so the renderer doesn't wrap up mid-track. Media3
+        // uses hasPendingData()→false as the cue that "the sink has
+        // played everything it'll ever play"; if we honestly answer
+        // false during a transient underrun (codec hiccup, JIT
+        // compile, GC, CPU throttling on Game Turbo, etc.), the
+        // renderer concludes playback finished and stops feeding
+        // handleBuffer — and the audio cuts out for the rest of the
+        // track even though the source has minutes more data.
+        return !sinkEosSignaled
     }
 
     override fun isEnded(): Boolean {
         if (!bypassActive) return super.isEnded()
-        // We're ended only when the iso pump has flushed everything
-        // we pushed AND the renderer has indicated it's not feeding
-        // any more (driver.isStreaming becomes false on stop()).
-        return !hasPendingData() && !driver.isStreaming.value
+        // We're truly ended only when Media3 has told us the source
+        // is done AND the ring has fully drained to the DAC. We can't
+        // gate on driver.isStreaming.value here — the pump stays
+        // alive across track transitions to avoid the EBUSY reclaim
+        // race (see pause()'s comment), so isStreaming is true for
+        // the entire bypass session, not just one track.
+        return sinkEosSignaled && driver.pendingFrames() == 0L
+    }
+
+    override fun playToEndOfStream() {
+        super.playToEndOfStream()
+        if (bypassActive) {
+            sinkEosSignaled = true
+        }
     }
 
     override fun flush() {
@@ -410,6 +448,7 @@ class LibusbAudioSink(
             startTimeUs = C.TIME_UNSET
         }
         lastEngageFailHash = 0
+        sinkEosSignaled = false
         resetWatchdog()
     }
 
@@ -420,6 +459,7 @@ class LibusbAudioSink(
         bypassActive = false
         framesWritten = 0L
         startTimeUs = C.TIME_UNSET
+        sinkEosSignaled = false
         resetWatchdog()
     }
 
