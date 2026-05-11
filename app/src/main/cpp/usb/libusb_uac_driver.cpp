@@ -1334,12 +1334,18 @@ int LibusbUacDriver::drainRing(uint8_t* dst, int bytes) {
         // The DAC hears a click rather than dropping the entire URB.
         std::memset(dst + n, 0, bytes - n);
     }
-    // Frames "played" = frames the pump has dispatched, including the
-    // silence padding (since the device hears those samples too). Used
-    // for accurate position reporting back to ExoPlayer.
+    // Frames "played" = frames of REAL PCM the pump dispatched. Silence
+    // padding (n < bytes) is NOT counted — playedFrames feeds the
+    // renderer's playhead via LibusbAudioSink.getCurrentPositionUs(),
+    // and silence isn't music time. Counting padding caused position
+    // drift across pause/flush: those zero playedFrames_ but leave the
+    // iso pump running on silence, so the playhead jumped gap_duration
+    // ahead of the next buffer's pts and ExoPlayer dropped the live
+    // audio as "late". See LibusbAudioSink.pause/flush for why we
+    // can't stop the pump across these transitions.
     int frameStride = format_.channels * format_.bytesPerSample;
-    if (frameStride > 0) {
-        playedFrames_.fetch_add(bytes / frameStride, std::memory_order_acq_rel);
+    if (frameStride > 0 && n > 0) {
+        playedFrames_.fetch_add(n / frameStride, std::memory_order_acq_rel);
     }
     return n;
 }
