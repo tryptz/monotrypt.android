@@ -524,6 +524,7 @@ enum class MeasurementRig(val label: String) {
     // user's own measurements before any remote source.
     UPLOADED("Uploaded"),
     BK_5128("B&K 5128"),
+    HMS_II_3("HMS II.3"),
     GRAS_43AG_7("GRAS 43AG-7"),
     GRAS_43AC_10("GRAS 43AC-10"),
     GRAS_45CA_10("GRAS 45CA-10"),

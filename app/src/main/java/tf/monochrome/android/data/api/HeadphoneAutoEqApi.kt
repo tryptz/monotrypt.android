@@ -76,8 +76,9 @@ class HeadphoneAutoEqApi {
             data class HeadphoneEntry(
                 val name: String,
                 val type: String,      // over-ear, in-ear, earbud
-                val source: String,    // oratory1990, crinacle, etc.
-                val path: String       // full path in repo
+                val source: String,    // oratory1990, crinacle, Rtings, etc.
+                val path: String,      // full path in repo
+                val rig: MeasurementRig
             )
 
             val entries = mutableListOf<HeadphoneEntry>()
@@ -91,16 +92,20 @@ class HeadphoneAutoEqApi {
                 if (!path.startsWith("results/")) continue
 
                 val parts = path.split("/")
-                // results / source / type / headphone_name
+                // results / source / {[rig ]type} / headphone_name
                 if (parts.size != 4) continue
 
                 val source = parts[1]
-                val hpType = parts[2]
+                // Rtings nests the acoustic rig into the form-factor folder,
+                // e.g. "HMS II.3 over-ear" or "Bruel & Kjaer 5128 over-ear";
+                // other sources use a bare "over-ear"/"in-ear"/"earbud".
+                val (hpType, rigLabel) = parseTypeSegment(parts[2]) ?: continue
                 val hpName = parts[3]
 
-                if (hpType !in KNOWN_TYPES) continue
+                val rig = if (rigLabel.isNotEmpty()) rigFromLabel(rigLabel)
+                          else rigFor(source, hpType)
 
-                entries.add(HeadphoneEntry(hpName, hpType, source, path))
+                entries.add(HeadphoneEntry(hpName, hpType, source, path, rig))
             }
 
             // Group by headphone name → deduplicate, merge measurements
@@ -113,7 +118,7 @@ class HeadphoneAutoEqApi {
                         target = "AutoEq",
                         path = entry.path,
                         fileName = entry.name,
-                        rig = rigFor(entry.source, entry.type),
+                        rig = entry.rig,
                     )
                 }
                 Headphone(
@@ -200,6 +205,30 @@ class HeadphoneAutoEqApi {
             }
         }
 
+    /**
+     * Fetch the measurement CSV for a specific measurement by its repo path.
+     * Unlike [fetchHeadphoneMeasurement] this targets the exact source folder,
+     * so picking a headphone's Rtings entry loads Rtings data even when the
+     * same headphone also carries oratory1990/crinacle measurements.
+     */
+    suspend fun fetchMeasurementByPath(
+        basePath: String,
+        headphoneName: String,
+    ): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val fileNames = listOf("$headphoneName.csv", "raw.csv")
+            for (fileName in fileNames) {
+                try {
+                    val csv = fetchUrl("$RAW_BASE/$basePath/$fileName")
+                    if (csv != null) return@withContext Result.success(csv)
+                } catch (_: Exception) { }
+            }
+            Result.failure(Exception("No measurement data at $basePath"))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     suspend fun searchHeadphones(query: String): Result<List<Headphone>> {
         val all = fetchHeadphones().getOrNull() ?: return Result.success(emptyList())
         return Result.success(all.filter { it.name.contains(query, ignoreCase = true) })
@@ -230,6 +259,36 @@ class HeadphoneAutoEqApi {
         "crinacle" -> if (type == "over-ear") MeasurementRig.GRAS_43AG_7 else MeasurementRig.IEC_711_CLONE
         "innerfidelity" -> MeasurementRig.MINIDSP_EARS
         "headphonecom", "headphones.com" -> MeasurementRig.GRAS_43AG_7
+        else -> MeasurementRig.UNKNOWN
+    }
+
+    /**
+     * Resolve the form-factor folder name. Most sources use a bare
+     * "over-ear"/"in-ear"/"earbud"; Rtings prefixes the acoustic rig, e.g.
+     * "HMS II.3 over-ear". Returns (type, rigLabel) where rigLabel is empty
+     * when the folder carries no rig prefix, or null if the segment is not a
+     * recognised form-factor folder.
+     */
+    private fun parseTypeSegment(segment: String): Pair<String, String>? {
+        val s = segment.trim()
+        for (type in KNOWN_TYPES) {
+            if (s.equals(type, ignoreCase = true)) return type to ""
+            if (s.endsWith(" $type", ignoreCase = true)) {
+                return type to s.dropLast(type.length + 1).trim()
+            }
+        }
+        return null
+    }
+
+    /** Map a Rtings-style rig folder label to the rig enum. */
+    private fun rigFromLabel(label: String): MeasurementRig = when {
+        label.contains("5128") -> MeasurementRig.BK_5128
+        label.contains("HMS", ignoreCase = true) -> MeasurementRig.HMS_II_3
+        label.contains("711") -> MeasurementRig.IEC_711_CLONE
+        label.contains("43AG", ignoreCase = true) -> MeasurementRig.GRAS_43AG_7
+        label.contains("43AC", ignoreCase = true) -> MeasurementRig.GRAS_43AC_10
+        label.contains("45CA", ignoreCase = true) -> MeasurementRig.GRAS_45CA_10
+        label.contains("EARS", ignoreCase = true) -> MeasurementRig.MINIDSP_EARS
         else -> MeasurementRig.UNKNOWN
     }
 
