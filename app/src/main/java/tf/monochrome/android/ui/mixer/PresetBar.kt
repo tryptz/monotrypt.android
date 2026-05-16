@@ -7,7 +7,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -31,7 +33,11 @@ import tf.monochrome.android.audio.dsp.model.MixPreset
 import tf.monochrome.android.ui.theme.MonoDimens
 
 /**
- * Horizontal preset management bar: current name, save, load, delete.
+ * Horizontal preset management bar: current name, save, load, import.
+ *
+ * The load menu groups built-in showcase presets ("Presets") above the user's
+ * own saved presets ("My Presets"). Built-in presets can be loaded and
+ * exported but not deleted.
  */
 @Composable
 fun PresetBar(
@@ -40,11 +46,16 @@ fun PresetBar(
     onSave: (String) -> Unit,
     onLoad: (MixPreset) -> Unit,
     onDelete: (Long) -> Unit,
+    onExport: (MixPreset) -> Unit = {},
+    onImport: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showSaveDialog by remember { mutableStateOf(false) }
     var showLoadMenu by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf<MixPreset?>(null) }
+
+    val builtInPresets = presets.filter { !it.isCustom }
+    val customPresets = presets.filter { it.isCustom }
 
     Row(
         modifier = modifier
@@ -61,6 +72,16 @@ fun PresetBar(
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f)
         )
+
+        // Import from file
+        IconButton(onClick = onImport, modifier = Modifier.size(36.dp)) {
+            Icon(
+                Icons.Default.FileDownload,
+                contentDescription = "Import Preset",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp)
+            )
+        }
 
         // Save
         IconButton(onClick = { showSaveDialog = true }, modifier = Modifier.size(36.dp)) {
@@ -85,33 +106,32 @@ fun PresetBar(
                 expanded = showLoadMenu,
                 onDismissRequest = { showLoadMenu = false }
             ) {
-                if (presets.isEmpty()) {
+                if (builtInPresets.isNotEmpty()) {
+                    PresetMenuHeader("Presets")
+                    builtInPresets.forEach { preset ->
+                        PresetMenuRow(
+                            preset = preset,
+                            onLoad = { onLoad(preset); showLoadMenu = false },
+                            onExport = { onExport(preset); showLoadMenu = false },
+                            onDelete = null
+                        )
+                    }
+                }
+
+                PresetMenuHeader("My Presets")
+                if (customPresets.isEmpty()) {
                     DropdownMenuItem(
                         text = { Text("No presets saved") },
                         onClick = { showLoadMenu = false },
                         enabled = false
                     )
                 } else {
-                    presets.forEach { preset ->
-                        DropdownMenuItem(
-                            text = { Text(preset.name) },
-                            onClick = {
-                                onLoad(preset)
-                                showLoadMenu = false
-                            },
-                            trailingIcon = {
-                                IconButton(
-                                    onClick = { showDeleteConfirm = preset; showLoadMenu = false },
-                                    modifier = Modifier.size(24.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Default.Delete,
-                                        contentDescription = "Delete",
-                                        tint = MaterialTheme.colorScheme.error,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
-                            }
+                    customPresets.forEach { preset ->
+                        PresetMenuRow(
+                            preset = preset,
+                            onLoad = { onLoad(preset); showLoadMenu = false },
+                            onExport = { onExport(preset); showLoadMenu = false },
+                            onDelete = { showDeleteConfirm = preset; showLoadMenu = false }
                         )
                     }
                 }
@@ -166,4 +186,50 @@ fun PresetBar(
             }
         )
     }
+}
+
+@Composable
+private fun PresetMenuHeader(title: String) {
+    Text(
+        text = title,
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(horizontal = MonoDimens.spacingMd, vertical = MonoDimens.spacingXs)
+    )
+}
+
+@Composable
+private fun PresetMenuRow(
+    preset: MixPreset,
+    onLoad: () -> Unit,
+    onExport: () -> Unit,
+    onDelete: (() -> Unit)?
+) {
+    DropdownMenuItem(
+        text = { Text(preset.name) },
+        onClick = onLoad,
+        trailingIcon = {
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                IconButton(onClick = onExport, modifier = Modifier.size(24.dp)) {
+                    Icon(
+                        Icons.Default.IosShare,
+                        contentDescription = "Export",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+                if (onDelete != null) {
+                    IconButton(onClick = onDelete, modifier = Modifier.size(24.dp)) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = "Delete",
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+        }
+    )
 }

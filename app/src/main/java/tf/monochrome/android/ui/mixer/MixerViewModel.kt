@@ -12,11 +12,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
 import tf.monochrome.android.audio.dsp.DspEngineManager
 import tf.monochrome.android.audio.dsp.SnapinType
 import tf.monochrome.android.audio.dsp.model.BusConfig
 import tf.monochrome.android.audio.dsp.model.BusLevels
 import tf.monochrome.android.audio.dsp.model.MixPreset
+import tf.monochrome.android.audio.dsp.model.MixPresetFile
 import tf.monochrome.android.data.repository.MixPresetRepository
 import tf.monochrome.android.ui.mixer.canvas.model.CanvasOffset
 import tf.monochrome.android.ui.mixer.canvas.model.CanvasState
@@ -207,8 +209,8 @@ class MixerViewModel @Inject constructor(
 
     fun savePreset(name: String) {
         viewModelScope.launch {
-            val json = dspManager.getStateJson()
-            presetRepository.savePreset(MixPreset(name = name, stateJson = json))
+            val stateJson = dspManager.getStateJson()
+            presetRepository.savePreset(MixPreset(name = name, stateJson = stateJson))
             _currentPresetName.value = name
         }
     }
@@ -219,11 +221,46 @@ class MixerViewModel @Inject constructor(
     }
 
     fun deletePreset(id: Long) {
+        if (id < 0) return // built-in presets are read-only
         viewModelScope.launch {
             presetRepository.deletePreset(id)
             if (presets.value.find { it.id == id }?.name == _currentPresetName.value) {
                 _currentPresetName.value = null
             }
+        }
+    }
+
+    // ── Preset sharing (export to / import from a .json file) ─────────────
+
+    private val json = Json { ignoreUnknownKeys = true; prettyPrint = true }
+
+    /** Serialize a preset to the shareable on-disk file format. */
+    fun exportPayload(preset: MixPreset): String =
+        json.encodeToString(
+            MixPresetFile.serializer(),
+            MixPresetFile(name = preset.name, stateJson = preset.stateJson)
+        )
+
+    /**
+     * Import preset file [text]: parse the [MixPresetFile] envelope (falling
+     * back to treating the text as raw engine state JSON), persist it as a
+     * custom preset, and apply it live.
+     */
+    fun importPreset(text: String) {
+        viewModelScope.launch {
+            val trimmed = text.trim()
+            val file = runCatching {
+                json.decodeFromString(MixPresetFile.serializer(), trimmed)
+            }.getOrNull()
+
+            val name = file?.name?.takeIf { it.isNotBlank() } ?: "Imported Preset"
+            val stateJson = file?.stateJson?.takeIf { it.isNotBlank() } ?: trimmed
+
+            presetRepository.savePreset(
+                MixPreset(name = name, stateJson = stateJson, isCustom = true)
+            )
+            dspManager.loadStateJson(stateJson)
+            _currentPresetName.value = name
         }
     }
 
