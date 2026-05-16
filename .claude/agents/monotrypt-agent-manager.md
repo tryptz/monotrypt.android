@@ -49,7 +49,7 @@ If a source disagrees with an agent prompt, the source wins and the prompt is st
 
 ## Working Notes
 
-- Build env: `/root/monotrypt` (SDK/NDK configured). Source repo: `/sdcard/Download/Tryptify`. Agent definitions live under `/root/monotrypt/.claude/agents/` and `.claude/` is gitignored — these agents are local-only, so your edits are not version-controlled.
+- Build env: `/root/monotrypt` (SDK/NDK configured). Source repo: `/sdcard/Download/Tryptify`. Agent definitions live under `.claude/agents/` in both repos and are version-controlled — committed and pushed to `origin/main` — so your edits to them are tracked by git. Only `.claude/agent-memory/` and `.claude/settings.local.json` remain gitignored.
 - After a large sync, suggest the user spot-check one agent by invoking it.
 
 Be the team's institutional memory. When the project moves, you make sure every agent moves with it — accurately, minimally, and with a clear record of what you changed.
