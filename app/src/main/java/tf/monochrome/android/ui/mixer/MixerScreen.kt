@@ -1,5 +1,9 @@
 package tf.monochrome.android.ui.mixer
 
+import android.net.Uri
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
@@ -39,9 +43,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import tf.monochrome.android.audio.dsp.model.MixPreset
 import tf.monochrome.android.ui.components.liquidGlass
 import tf.monochrome.android.ui.theme.MonoDimens
 
@@ -66,6 +72,43 @@ fun MixerScreen(
 
     var showInsertRack by remember { mutableStateOf(false) }
     var showCanvas by remember { mutableStateOf(false) }
+
+    // ── Preset import / export (SAF document pickers) ───────────────────
+    val context = LocalContext.current
+    var pendingExport by remember { mutableStateOf<MixPreset?>(null) }
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri: Uri? ->
+        val preset = pendingExport
+        pendingExport = null
+        if (uri != null && preset != null) {
+            runCatching {
+                context.contentResolver.openOutputStream(uri)?.use { out ->
+                    out.write(viewModel.exportPayload(preset).toByteArray())
+                }
+                Toast.makeText(context, "Exported \"${preset.name}\"", Toast.LENGTH_SHORT).show()
+            }.onFailure {
+                Toast.makeText(context, "Export failed: ${it.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            runCatching {
+                val text = context.contentResolver.openInputStream(uri)
+                    ?.bufferedReader()?.use { it.readText() }
+                if (text.isNullOrBlank()) error("Empty file")
+                viewModel.importPreset(text)
+                Toast.makeText(context, "Preset imported", Toast.LENGTH_SHORT).show()
+            }.onFailure {
+                Toast.makeText(context, "Import failed: ${it.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -192,7 +235,15 @@ fun MixerScreen(
                         presets = presets,
                         onSave = { viewModel.savePreset(it) },
                         onLoad = { viewModel.loadPreset(it) },
-                        onDelete = { viewModel.deletePreset(it) }
+                        onDelete = { viewModel.deletePreset(it) },
+                        onExport = { preset ->
+                            pendingExport = preset
+                            val safeName = preset.name
+                                .replace(Regex("[^A-Za-z0-9 _-]"), "_")
+                                .ifBlank { "preset" }
+                            exportLauncher.launch("$safeName.json")
+                        },
+                        onImport = { importLauncher.launch("application/json") }
                     )
 
                     HorizontalDivider(color = FLColors.stripBorder, modifier = Modifier.padding(horizontal = MonoDimens.spacingSm))
