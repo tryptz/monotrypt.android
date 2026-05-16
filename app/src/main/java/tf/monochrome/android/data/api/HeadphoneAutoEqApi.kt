@@ -71,41 +71,47 @@ class HeadphoneAutoEqApi {
                 Exception("No tree in response")
             )
 
-            // Parse: results/{source}/{type}/{headphone_name}
-            // We look for "tree" type entries at depth 4 under results/
             data class HeadphoneEntry(
                 val name: String,
                 val type: String,      // over-ear, in-ear, earbud
                 val source: String,    // oratory1990, crinacle, Rtings, etc.
-                val path: String,      // full path in repo
+                val path: String,      // headphone result folder path in repo
                 val rig: MeasurementRig
             )
 
-            val entries = mutableListOf<HeadphoneEntry>()
-
+            // A headphone result folder is any directory under results/ that
+            // holds a measurement CSV. Keying discovery on the CSV blob — not
+            // an assumed folder depth — means every source is read regardless
+            // of how it nests rig / form-factor folders (oratory1990 uses a
+            // bare "over-ear", Rtings uses "HMS II.3 over-ear", crinacle uses
+            // "GRAS 43AG-7 over-ear", etc.).
+            val headphoneFolders = mutableSetOf<String>()
             for (item in tree) {
                 val obj = item.jsonObject
                 val path = obj["path"]?.jsonPrimitive?.content ?: continue
                 val nodeType = obj["type"]?.jsonPrimitive?.content ?: continue
 
-                if (nodeType != "tree") continue
+                if (nodeType != "blob") continue
                 if (!path.startsWith("results/")) continue
+                if (!path.endsWith(".csv", ignoreCase = true)) continue
 
-                val parts = path.split("/")
-                // results / source / {[rig ]type} / headphone_name
-                if (parts.size != 4) continue
+                headphoneFolders.add(path.substringBeforeLast('/'))
+            }
+
+            val entries = mutableListOf<HeadphoneEntry>()
+            for (folder in headphoneFolders) {
+                val parts = folder.split("/")
+                // results / source / [ ...rig & form-factor folders... ] / name
+                if (parts.size < 3) continue
 
                 val source = parts[1]
-                // Rtings nests the acoustic rig into the form-factor folder,
-                // e.g. "HMS II.3 over-ear" or "Bruel & Kjaer 5128 over-ear";
-                // other sources use a bare "over-ear"/"in-ear"/"earbud".
-                val (hpType, rigLabel) = parseTypeSegment(parts[2]) ?: continue
-                val hpName = parts[3]
+                val hpName = parts.last()
+                val middle = parts.subList(2, parts.size - 1)
 
-                val rig = if (rigLabel.isNotEmpty()) rigFromLabel(rigLabel)
-                          else rigFor(source, hpType)
+                val hpType = detectType(middle) ?: "over-ear"
+                val rig = detectRig(middle) ?: rigFor(source, hpType)
 
-                entries.add(HeadphoneEntry(hpName, hpType, source, path, rig))
+                entries.add(HeadphoneEntry(hpName, hpType, source, folder, rig))
             }
 
             // Group by headphone name → deduplicate, merge measurements
@@ -263,32 +269,46 @@ class HeadphoneAutoEqApi {
     }
 
     /**
-     * Resolve the form-factor folder name. Most sources use a bare
-     * "over-ear"/"in-ear"/"earbud"; Rtings prefixes the acoustic rig, e.g.
-     * "HMS II.3 over-ear". Returns (type, rigLabel) where rigLabel is empty
-     * when the folder carries no rig prefix, or null if the segment is not a
-     * recognised form-factor folder.
+     * Find the form factor among a headphone folder's intermediate path
+     * segments. Sources name this folder either bare ("over-ear") or with the
+     * rig prefixed ("HMS II.3 over-ear", "GRAS 43AG-7 in-ear"), so we match on
+     * a form-factor suffix. Returns null when no segment carries one.
      */
-    private fun parseTypeSegment(segment: String): Pair<String, String>? {
-        val s = segment.trim()
-        for (type in KNOWN_TYPES) {
-            if (s.equals(type, ignoreCase = true)) return type to ""
-            if (s.endsWith(" $type", ignoreCase = true)) {
-                return type to s.dropLast(type.length + 1).trim()
+    private fun detectType(segments: List<String>): String? {
+        for (segment in segments) {
+            val s = segment.trim().lowercase()
+            for (type in KNOWN_TYPES) {
+                if (s == type || s.endsWith(" $type")) return type
             }
         }
         return null
     }
 
-    /** Map a Rtings-style rig folder label to the rig enum. */
+    /**
+     * Find the acoustic rig among a headphone folder's intermediate path
+     * segments (e.g. "HMS II.3 over-ear" → HMS II.3). Returns null when no
+     * segment names a recognised rig, letting the caller fall back to the
+     * per-source default.
+     */
+    private fun detectRig(segments: List<String>): MeasurementRig? {
+        for (segment in segments) {
+            val rig = rigFromLabel(segment)
+            if (rig != MeasurementRig.UNKNOWN) return rig
+        }
+        return null
+    }
+
+    /** Map a rig folder label to the rig enum. */
     private fun rigFromLabel(label: String): MeasurementRig = when {
         label.contains("5128") -> MeasurementRig.BK_5128
+        label.contains("4620") -> MeasurementRig.BK_4620
         label.contains("HMS", ignoreCase = true) -> MeasurementRig.HMS_II_3
-        label.contains("711") -> MeasurementRig.IEC_711_CLONE
         label.contains("43AG", ignoreCase = true) -> MeasurementRig.GRAS_43AG_7
         label.contains("43AC", ignoreCase = true) -> MeasurementRig.GRAS_43AC_10
         label.contains("45CA", ignoreCase = true) -> MeasurementRig.GRAS_45CA_10
+        label.contains("RA0045", ignoreCase = true) -> MeasurementRig.GRAS_RA0045
         label.contains("EARS", ignoreCase = true) -> MeasurementRig.MINIDSP_EARS
+        label.contains("711") -> MeasurementRig.IEC_711_CLONE
         else -> MeasurementRig.UNKNOWN
     }
 
