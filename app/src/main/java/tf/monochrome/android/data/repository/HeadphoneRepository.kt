@@ -40,10 +40,10 @@ class HeadphoneRepository @Inject constructor(
      */
     suspend fun fetchMeasurementText(measurement: AutoEqMeasurement): String? = when (measurement.target) {
         "squiglink" -> squiglinkApi.fetchMeasurementText(measurement.host, measurement.fileName)
-        else -> autoEqApi.fetchHeadphoneMeasurement(
-            measurement.path.substringAfterLast('/').replace(' ', '_').lowercase(),
-            measurement.fileName,
-        ).getOrNull()
+        // Fetch the exact source folder the user picked so a headphone's
+        // Rtings entry loads Rtings data even when oratory1990/crinacle also
+        // measured it.
+        else -> autoEqApi.fetchMeasurementByPath(measurement.path, measurement.fileName).getOrNull()
     }
 
     private fun mergeByName(all: List<Headphone>): List<Headphone> =
