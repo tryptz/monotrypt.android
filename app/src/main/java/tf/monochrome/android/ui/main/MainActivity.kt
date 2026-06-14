@@ -52,6 +52,7 @@ val LocalBlurTarget = compositionLocalOf<BlurTarget?> { null }
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
+    @Inject lateinit var devEditController: tf.monochrome.android.devedit.DevEditController
     @Inject lateinit var preferences: PreferencesManager
     @Inject lateinit var supabaseAuthManager: SupabaseAuthManager
     @Inject lateinit var queueManager: QueueManager
@@ -170,7 +171,9 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.fillMaxSize(),
                         color = MaterialTheme.colorScheme.background
                     ) {
-                        MonochromeNavHost()
+                        tf.monochrome.android.devedit.DevEditRoot(devEditController) {
+                            MonochromeNavHost()
+                        }
                     }
                 }
             }
