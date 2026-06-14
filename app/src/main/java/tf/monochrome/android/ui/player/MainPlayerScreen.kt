@@ -1,7 +1,14 @@
 package tf.monochrome.android.ui.player
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,11 +20,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -31,12 +41,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import tf.monochrome.android.domain.model.NowPlayingViewMode
 import tf.monochrome.android.domain.model.RepeatMode
 import tf.monochrome.android.domain.model.Track
+import tf.monochrome.android.ui.components.liquidGlass
 
 /** Flattened, design-ready snapshot of everything the main player renders. */
 data class MainPlayerUiState(
@@ -59,10 +72,16 @@ data class MainPlayerUiState(
     val albumColors: AlbumColors,
 )
 
+// Vertical drag distance (px) that commits a swipe-up / swipe-down on the
+// audio-tools panel.
+private const val SwipeThresholdPx = 48f
+
 /**
- * Pure, stateless layout for the redesigned main player. All playback state
- * arrives via [state]; the only state owned here is the transient scrubbing
- * position while the user drags the progress slider.
+ * Pure, stateless layout for the redesigned main player. The audio-tools grid
+ * (output / sound / speed / sleep) is hidden by default and revealed as an
+ * animated overlay when the user swipes up from the lower half of the player.
+ * The only state owned here is the transient scrub position and the overlay
+ * expanded flag.
  */
 @Composable
 fun MainPlayerScreen(
@@ -89,6 +108,7 @@ fun MainPlayerScreen(
     hero: @Composable (Modifier) -> Unit,
 ) {
     val accent = state.albumColors.vibrant
+    var statusExpanded by remember { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -98,7 +118,6 @@ fun MainPlayerScreen(
         DynamicAlbumGlow(state.albumColors.dominant)
 
         if (isFullscreen) {
-            // Visualizer fullscreen: hero owns the whole surface.
             hero(Modifier.fillMaxSize())
             return@Box
         }
@@ -172,7 +191,141 @@ fun MainPlayerScreen(
                 onBookmark = onBookmark,
             )
 
-            Spacer(Modifier.weight(0.4f))
+            // Lower swipe zone — a flick upward here reveals the audio-tools
+            // overlay. The handle doubles as a tap affordance for discovery.
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(0.7f)
+                    .pointerInput(Unit) {
+                        var total = 0f
+                        detectVerticalDragGestures(
+                            onDragStart = { total = 0f },
+                            onVerticalDrag = { _, dy -> total += dy },
+                            onDragEnd = { if (total < -SwipeThresholdPx) statusExpanded = true },
+                        )
+                    },
+                contentAlignment = Alignment.BottomCenter,
+            ) {
+                SwipeUpHandle(onClick = { statusExpanded = true })
+            }
+            Spacer(Modifier.height(12.dp))
+        }
+
+        // Scrim behind the overlay.
+        AnimatedVisibility(
+            visible = statusExpanded,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.45f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = { statusExpanded = false },
+                    ),
+            )
+        }
+
+        // Audio-tools overlay panel, sliding up over the player with a shadow.
+        AnimatedVisibility(
+            visible = statusExpanded,
+            enter = slideInVertically(animationSpec = tween(280)) { it } + fadeIn(tween(220)),
+            exit = slideOutVertically(animationSpec = tween(240)) { it } + fadeOut(tween(180)),
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
+            StatusOverlayPanel(
+                state = state,
+                onOutput = onOutput,
+                onSound = onSound,
+                onSpeed = onSpeed,
+                onSleep = onSleep,
+                onDismiss = { statusExpanded = false },
+            )
+        }
+    }
+}
+
+@Composable
+private fun SwipeUpHandle(onClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .padding(bottom = 8.dp)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            ),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .width(40.dp)
+                .height(4.dp)
+                .background(Color.White.copy(alpha = 0.35f), RoundedCornerShape(999.dp)),
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Default.KeyboardArrowUp,
+                contentDescription = null,
+                tint = Color.White.copy(alpha = 0.55f),
+                modifier = Modifier.size(16.dp),
+            )
+            Text(
+                text = "Audio tools",
+                style = MaterialTheme.typography.labelMedium,
+                color = Color.White.copy(alpha = 0.55f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun StatusOverlayPanel(
+    state: MainPlayerUiState,
+    onOutput: () -> Unit,
+    onSound: () -> Unit,
+    onSpeed: () -> Unit,
+    onSleep: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(elevation = 32.dp, shape = shape, clip = false)
+            .liquidGlass(shape = shape, tintAlpha = 0.22f, borderAlpha = 0.10f)
+            .pointerInput(Unit) {
+                var total = 0f
+                detectVerticalDragGestures(
+                    onDragStart = { total = 0f },
+                    onVerticalDrag = { _, dy -> total += dy },
+                    onDragEnd = { if (total > SwipeThresholdPx) onDismiss() },
+                )
+            },
+        shape = shape,
+        color = PlayerDesignTokens.BackgroundBlack.copy(alpha = 0.92f),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = PlayerDesignTokens.ScreenPadding)
+                .padding(top = 12.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(40.dp)
+                    .height(4.dp)
+                    .background(Color.White.copy(alpha = 0.35f), RoundedCornerShape(999.dp)),
+            )
             PlayerStatusGrid(
                 outputLabel = state.outputLabel,
                 soundLabel = state.soundLabel,
@@ -183,7 +336,6 @@ fun MainPlayerScreen(
                 onSpeed = onSpeed,
                 onSleep = onSleep,
             )
-            Spacer(Modifier.height(12.dp))
         }
     }
 }

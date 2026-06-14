@@ -145,6 +145,16 @@ class PlayerViewModel @Inject constructor(
     val playbackSpeed: StateFlow<Float> = preferences.playbackSpeed
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 1.0f)
 
+    // When true, changing speed preserves the original pitch (tempo-only);
+    // when false, pitch shifts with speed (vinyl-style). Applied by
+    // PlaybackService via PlaybackParameters.
+    val preservePitch: StateFlow<Boolean> = preferences.preservePitch
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
+    fun setPreservePitch(enabled: Boolean) {
+        viewModelScope.launch { preferences.setPreservePitch(enabled) }
+    }
+
     // --- Volume ---
     val volume: StateFlow<Float> = preferences.volume
         .map { it.toFloat() }
