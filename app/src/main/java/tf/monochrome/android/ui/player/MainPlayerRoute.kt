@@ -15,6 +15,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -65,6 +66,7 @@ fun MainPlayerRoute(
     val isLyricsLoading by playerViewModel.isLyricsLoading.collectAsState()
     val viewMode by playerViewModel.nowPlayingViewMode.collectAsState()
     val playbackSpeed by playerViewModel.playbackSpeed.collectAsState()
+    val preservePitch by playerViewModel.preservePitch.collectAsState()
 
     val visualizerSensitivity by playerViewModel.visualizerSensitivity.collectAsState()
     val visualizerBrightness by playerViewModel.visualizerBrightness.collectAsState()
@@ -149,7 +151,9 @@ fun MainPlayerRoute(
     if (showSpeedSheet) {
         SpeedSheet(
             speed = playbackSpeed,
+            preservePitch = preservePitch,
             onSpeedChange = playerViewModel::setPlaybackSpeed,
+            onPreservePitchChange = playerViewModel::setPreservePitch,
             onDismiss = { showSpeedSheet = false },
         )
     }
@@ -311,7 +315,9 @@ private fun HandleFullscreenInsets(isFullscreenActive: Boolean) {
 @Composable
 private fun SpeedSheet(
     speed: Float,
+    preservePitch: Boolean,
     onSpeedChange: (Float) -> Unit,
+    onPreservePitchChange: (Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -352,6 +358,28 @@ private fun SpeedSheet(
                         label = { Text(String.format(Locale.US, "%.2gx", preset)) },
                     )
                 }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(text = "Preserve pitch", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        text = if (preservePitch) {
+                            "Tempo changes, pitch stays natural"
+                        } else {
+                            "Pitch shifts with speed (vinyl-style)"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.6f),
+                    )
+                }
+                Switch(
+                    checked = preservePitch,
+                    onCheckedChange = onPreservePitchChange,
+                )
             }
             TextButton(onClick = { onSpeedChange(1.0f) }) { Text("Reset to 1.0x") }
         }
