@@ -12,6 +12,7 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -133,11 +134,15 @@ fun MainPlayerScreen(
             topBar()
 
             Spacer(Modifier.height(12.dp))
-            Box(
+            // Bound the hero to the smaller of the available width/height so a
+            // full-width square can never overflow its slot and collide with the
+            // track info below it.
+            BoxWithConstraints(
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 contentAlignment = Alignment.Center,
             ) {
-                hero(Modifier.fillMaxWidth())
+                val side = minOf(maxWidth, maxHeight)
+                hero(Modifier.size(side))
             }
 
             Spacer(Modifier.height(20.dp))
@@ -196,7 +201,7 @@ fun MainPlayerScreen(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(0.7f)
+                    .weight(0.45f)
                     .pointerInput(Unit) {
                         var total = 0f
                         detectVerticalDragGestures(
@@ -205,11 +210,11 @@ fun MainPlayerScreen(
                             onDragEnd = { if (total < -SwipeThresholdPx) statusExpanded = true },
                         )
                     },
-                contentAlignment = Alignment.BottomCenter,
+                contentAlignment = Alignment.Center,
             ) {
                 SwipeUpHandle(onClick = { statusExpanded = true })
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(8.dp))
         }
 
         // Scrim behind the overlay.
