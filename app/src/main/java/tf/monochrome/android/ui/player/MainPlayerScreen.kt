@@ -49,6 +49,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import tf.monochrome.android.domain.model.NowPlayingViewMode
 import tf.monochrome.android.domain.model.RepeatMode
+import tf.monochrome.android.devedit.DevEditable
 import tf.monochrome.android.domain.model.Track
 import tf.monochrome.android.ui.components.liquidGlass
 
@@ -131,28 +132,32 @@ fun MainPlayerScreen(
                 .padding(horizontal = PlayerDesignTokens.ScreenPadding),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            topBar()
+            DevEditable("topBar", Modifier.fillMaxWidth()) { topBar() }
 
             Spacer(Modifier.height(12.dp))
             // Bound the hero to the smaller of the available width/height so a
             // full-width square can never overflow its slot and collide with the
             // track info below it.
-            BoxWithConstraints(
-                modifier = Modifier.fillMaxWidth().weight(1f),
-                contentAlignment = Alignment.Center,
-            ) {
-                val side = minOf(maxWidth, maxHeight)
-                hero(Modifier.size(side))
+            DevEditable("hero", Modifier.fillMaxWidth().weight(1f)) {
+                BoxWithConstraints(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    val side = minOf(maxWidth, maxHeight)
+                    hero(Modifier.size(side))
+                }
             }
 
             Spacer(Modifier.height(20.dp))
-            PlayerTrackInfo(
-                track = state.track,
-                isLiked = state.isLiked,
-                accent = accent,
-                onToggleLike = onToggleLike,
-                onArtistClick = onArtistClick,
-            )
+            DevEditable("trackInfo", Modifier.fillMaxWidth()) {
+                PlayerTrackInfo(
+                    track = state.track,
+                    isLiked = state.isLiked,
+                    accent = accent,
+                    onToggleLike = onToggleLike,
+                    onArtistClick = onArtistClick,
+                )
+            }
 
             Spacer(Modifier.height(16.dp))
             var isSeeking by remember { mutableStateOf(false) }
@@ -160,41 +165,47 @@ fun MainPlayerScreen(
             val displayFraction = if (isSeeking) seekPosition else state.progress
             val displayPositionMs =
                 if (isSeeking) (seekPosition * state.durationMs).toLong() else state.positionMs
-            PlayerProgress(
-                fraction = displayFraction,
-                elapsedLabel = formatTime(displayPositionMs),
-                totalLabel = formatTime(state.durationMs),
-                centerLabel = state.queueLabel.ifBlank { state.audioQuality.orEmpty() },
-                accent = accent,
-                onSeek = { value ->
-                    isSeeking = true
-                    seekPosition = value
-                },
-                onSeekFinished = { value ->
-                    onSeekCommit(value)
-                    isSeeking = false
-                },
-            )
+            DevEditable("progress", Modifier.fillMaxWidth()) {
+                PlayerProgress(
+                    fraction = displayFraction,
+                    elapsedLabel = formatTime(displayPositionMs),
+                    totalLabel = formatTime(state.durationMs),
+                    centerLabel = state.queueLabel.ifBlank { state.audioQuality.orEmpty() },
+                    accent = accent,
+                    onSeek = { value ->
+                        isSeeking = true
+                        seekPosition = value
+                    },
+                    onSeekFinished = { value ->
+                        onSeekCommit(value)
+                        isSeeking = false
+                    },
+                )
+            }
 
             Spacer(Modifier.height(20.dp))
-            PlayerTransportControls(
-                isPlaying = state.isPlaying,
-                accent = accent,
-                onPrevious = onPrevious,
-                onRewind10 = onRewind10,
-                onPlayPause = onPlayPause,
-                onForward10 = onForward10,
-                onNext = onNext,
-            )
+            DevEditable("transport", Modifier.fillMaxWidth()) {
+                PlayerTransportControls(
+                    isPlaying = state.isPlaying,
+                    accent = accent,
+                    onPrevious = onPrevious,
+                    onRewind10 = onRewind10,
+                    onPlayPause = onPlayPause,
+                    onForward10 = onForward10,
+                    onNext = onNext,
+                )
+            }
 
             Spacer(Modifier.height(20.dp))
-            PlayerActionDock(
-                isBookmarked = state.isLiked,
-                onTimer = onTimer,
-                onChapters = onChapters,
-                onPlaylist = onPlaylist,
-                onBookmark = onBookmark,
-            )
+            DevEditable("actionDock", Modifier.fillMaxWidth()) {
+                PlayerActionDock(
+                    isBookmarked = state.isLiked,
+                    onTimer = onTimer,
+                    onChapters = onChapters,
+                    onPlaylist = onPlaylist,
+                    onBookmark = onBookmark,
+                )
+            }
 
             // Lower swipe zone — a flick upward here reveals the audio-tools
             // overlay. The handle doubles as a tap affordance for discovery.

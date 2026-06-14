@@ -14,8 +14,10 @@ fun NowPlayingScreen(
     navController: NavController,
     playerViewModel: PlayerViewModel,
 ) {
-    MainPlayerRoute(
-        navController = navController,
-        playerViewModel = playerViewModel,
-    )
+    tf.monochrome.android.devedit.DevEditScreen(screenId = "player") {
+        MainPlayerRoute(
+            navController = navController,
+            playerViewModel = playerViewModel,
+        )
+    }
 }
