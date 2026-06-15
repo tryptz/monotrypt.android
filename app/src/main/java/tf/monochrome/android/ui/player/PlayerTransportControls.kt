@@ -50,8 +50,8 @@ fun PlayerTransportControls(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        TransportIcon(Icons.Default.SkipPrevious, "Previous", onPrevious)
-        TransportIcon(Icons.Default.Replay10, "Rewind 10 seconds", onRewind10)
+        TransportIcon(Icons.Default.SkipPrevious, "Previous", accent, onPrevious)
+        TransportIcon(Icons.Default.Replay10, "Rewind 10 seconds", accent, onRewind10)
 
         val interactionSource = remember { MutableInteractionSource() }
         val isPressed by interactionSource.collectIsPressedAsState()
@@ -78,19 +78,19 @@ fun PlayerTransportControls(
             )
         }
 
-        TransportIcon(Icons.Default.Forward10, "Forward 10 seconds", onForward10)
-        TransportIcon(Icons.Default.SkipNext, "Next", onNext)
+        TransportIcon(Icons.Default.Forward10, "Forward 10 seconds", accent, onForward10)
+        TransportIcon(Icons.Default.SkipNext, "Next", accent, onNext)
     }
 }
 
 @Composable
-private fun TransportIcon(icon: ImageVector, description: String, onClick: () -> Unit) {
+private fun TransportIcon(icon: ImageVector, description: String, tint: Color, onClick: () -> Unit) {
     IconButton(onClick = onClick) {
         Icon(
             imageVector = icon,
             contentDescription = description,
             modifier = Modifier.size(PlayerDesignTokens.TransportIconSize),
-            tint = Color.White,
+            tint = tint,
         )
     }
 }
