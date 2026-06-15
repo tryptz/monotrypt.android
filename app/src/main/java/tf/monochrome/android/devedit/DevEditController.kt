@@ -105,6 +105,13 @@ class DevEditController @Inject constructor(
         }
     }
 
+    fun scaleElement(screen: String, element: String, delta: Float) {
+        val k = key(screen, element)
+        val cur = _layout.value.elements[k] ?: ElementOverride()
+        val next = (cur.scale + delta).coerceIn(0.3f, 3f)
+        update { it.copy(elements = it.elements + (k to cur.copy(scale = next))) }
+    }
+
     fun setHidden(screen: String, element: String, hidden: Boolean) {
         val k = key(screen, element)
         val cur = _layout.value.elements[k] ?: ElementOverride()

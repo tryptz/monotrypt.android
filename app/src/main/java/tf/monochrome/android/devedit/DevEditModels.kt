@@ -21,6 +21,7 @@ data class DevEditLayout(
 data class ElementOverride(
     val offsetX: Float = 0f,
     val offsetY: Float = 0f,
+    val scale: Float = 1f,
     val hidden: Boolean = false,
 )
 
