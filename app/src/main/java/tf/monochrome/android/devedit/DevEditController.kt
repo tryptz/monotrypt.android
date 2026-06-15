@@ -61,6 +61,17 @@ class DevEditController @Inject constructor(
         }
     }
 
+    /** Snap an element's scale to fixed steps (no-op when snap off). */
+    fun snapElementScaleToGrid(screen: String, element: String) {
+        val k = key(screen, element)
+        val cur = _layout.value.elements[k] ?: return
+        update { it.copy(elements = it.elements + (k to cur.copy(scale = snapScale(cur.scale)))) }
+    }
+
+    /** Round a scale factor to [SCALE_STEP] increments when snapping is on. */
+    fun snapScale(value: Float): Float =
+        if (_snapToGrid.value) (Math.round(value / SCALE_STEP) * SCALE_STEP).coerceIn(0.3f, 3f) else value
+
     /** Snap a box's stored position and size to the grid (no-op when snap off). */
     fun snapBoxToGrid(screen: String, id: String) {
         val list = (_layout.value.boxes[screen] ?: return).map {
@@ -165,5 +176,9 @@ class DevEditController @Inject constructor(
 
     private inline fun update(block: (DevEditLayout) -> DevEditLayout) {
         _layout.value = block(_layout.value)
+    }
+
+    private companion object {
+        const val SCALE_STEP = 0.1f
     }
 }

@@ -244,8 +244,9 @@ fun DevEditable(
     }
 
     val scaleMod = Modifier.graphicsLayer {
-        scaleX = override.scale
-        scaleY = override.scale
+        val s = if (snapOn) snapToStep(override.scale, 0.1f) else override.scale
+        scaleX = s
+        scaleY = s
     }
 
     if (!active) {
@@ -313,7 +314,9 @@ fun DevEditable(
                 .size(28.dp)
                 .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(999.dp))
                 .pointerInput(elementId) {
-                    detectDragGestures { change, drag ->
+                    detectDragGestures(
+                        onDragEnd = { controller.snapElementScaleToGrid(screen, elementId) },
+                    ) { change, drag ->
                         change.consume()
                         val dx = with(density) { drag.x.toDp().value }
                         val dy = with(density) { drag.y.toDp().value }
