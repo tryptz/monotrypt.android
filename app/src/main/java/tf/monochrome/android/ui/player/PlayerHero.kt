@@ -56,6 +56,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
@@ -183,7 +184,7 @@ private fun SquareArtHero(
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth().aspectRatio(1f),
-        shape = RoundedCornerShape(PlayerDesignTokens.HeroCorner),
+        shape = RectangleShape,
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.62f),
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
