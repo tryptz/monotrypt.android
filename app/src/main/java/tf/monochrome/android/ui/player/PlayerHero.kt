@@ -594,6 +594,7 @@ private fun HeroCoverArt(
             url = track?.coverUrl,
             contentDescription = track?.title ?: "Album Art",
             modifier = Modifier.fillMaxSize(),
+            cornerRadius = 0.dp,
         )
 
         Box(
