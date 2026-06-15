@@ -44,6 +44,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.geometry.Offset
@@ -242,8 +243,13 @@ fun DevEditable(
         IntOffset(ox.dp.roundToPx(), oy.dp.roundToPx())
     }
 
+    val scaleMod = Modifier.graphicsLayer {
+        scaleX = override.scale
+        scaleY = override.scale
+    }
+
     if (!active) {
-        Box(modifier = modifier.then(offsetMod)) { content() }
+        Box(modifier = modifier.then(offsetMod).then(scaleMod)) { content() }
         return
     }
 
@@ -258,6 +264,7 @@ fun DevEditable(
     Box(
         modifier = modifier
             .then(offsetMod)
+            .then(scaleMod)
             .background(DevAccent.copy(alpha = glow * 0.10f), RoundedCornerShape(6.dp))
             .border(2.dp, DevAccent.copy(alpha = glow), RoundedCornerShape(6.dp))
             .pointerInput(elementId) {
@@ -297,6 +304,30 @@ fun DevEditable(
                     )
                 }
             }
+        }
+        // Resize handle — drag to scale the element (e.g. the album art).
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(4.dp)
+                .size(28.dp)
+                .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(999.dp))
+                .pointerInput(elementId) {
+                    detectDragGestures { change, drag ->
+                        change.consume()
+                        val dx = with(density) { drag.x.toDp().value }
+                        val dy = with(density) { drag.y.toDp().value }
+                        controller.scaleElement(screen, elementId, (dx + dy) / 500f)
+                    }
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Default.OpenInFull,
+                contentDescription = "Resize",
+                tint = DevAccent,
+                modifier = Modifier.size(16.dp),
+            )
         }
     }
 }
