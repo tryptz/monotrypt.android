@@ -15,10 +15,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.BookmarkBorder
-import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -35,17 +33,15 @@ import androidx.compose.ui.unit.dp
 import tf.monochrome.android.ui.components.liquidGlass
 
 /**
- * Compact tool row beneath the transport controls: Timer · Chapters ·
- * Playlist · Bookmark. Replaces the old five-pill mode selector.
+ * Compact tool row beneath the transport controls: Timer · Mixer/FX · Playlist.
+ * (Monitoring + effect controls live in the pull-up "Audio tools" panel.)
  */
 @Composable
 fun PlayerActionDock(
     accent: Color,
-    isBookmarked: Boolean,
     onTimer: () -> Unit,
-    onChapters: () -> Unit,
+    onMixer: () -> Unit,
     onPlaylist: () -> Unit,
-    onBookmark: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -60,15 +56,8 @@ fun PlayerActionDock(
         horizontalArrangement = Arrangement.SpaceEvenly,
     ) {
         DockAction(Icons.Default.Timer, "Timer", accent, false, onTimer)
-        DockAction(Icons.Default.MenuBook, "Chapters", accent, false, onChapters)
+        DockAction(Icons.Default.Tune, "Mixer/FX", accent, false, onMixer)
         DockAction(Icons.AutoMirrored.Filled.QueueMusic, "Playlist", accent, false, onPlaylist)
-        DockAction(
-            icon = if (isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-            label = "Bookmark",
-            accent = accent,
-            selected = isBookmarked,
-            onClick = onBookmark,
-        )
     }
 }
 

@@ -57,6 +57,8 @@ class PlayerViewModel @Inject constructor(
     private val trackShareHelper: tf.monochrome.android.share.TrackShareHelper,
     val spectrumAnalyzer: SpectrumAnalyzerTap,
     private val bypassVolumeController: tf.monochrome.android.audio.usb.BypassVolumeController,
+    private val inflatorEffect: tf.monochrome.android.audio.dsp.oxford.InflatorEffect,
+    private val compressorEffect: tf.monochrome.android.audio.dsp.oxford.CompressorEffect,
 ) : ViewModel() {
 
     /**
@@ -154,6 +156,21 @@ class PlayerViewModel @Inject constructor(
     fun setPreservePitch(enabled: Boolean) {
         viewModelScope.launch { preferences.setPreservePitch(enabled) }
     }
+
+    // --- Oxford DSP effect toggles (compressor / inflator) ---
+    // The effects are @Singleton, so these flows stay in sync with the Oxford
+    // screen. Compressor uses an inverted "bypass" flag; inflator uses "effectIn".
+    val compressorEnabled: StateFlow<Boolean> = compressorEffect.state
+        .map { !it.bypass }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val inflatorEnabled: StateFlow<Boolean> = inflatorEffect.state
+        .map { it.effectIn }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    fun setCompressorEnabled(on: Boolean) = compressorEffect.setBypass(!on)
+
+    fun setInflatorEnabled(on: Boolean) = inflatorEffect.setEffectIn(on)
 
     // --- Volume ---
     val volume: StateFlow<Float> = preferences.volume

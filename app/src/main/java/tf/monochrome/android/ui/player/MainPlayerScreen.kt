@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -26,13 +27,18 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Animation
+import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -42,6 +48,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -72,6 +79,10 @@ data class MainPlayerUiState(
     val sleepTimerLabel: String,
     val queueLabel: String,
     val albumColors: AlbumColors,
+    val visualizerActive: Boolean,
+    val waveformActive: Boolean,
+    val compressorEnabled: Boolean,
+    val inflatorEnabled: Boolean,
 )
 
 // Vertical drag distance (px) that commits a swipe-up / swipe-down on the
@@ -99,13 +110,17 @@ fun MainPlayerScreen(
     onForward10: () -> Unit,
     onNext: () -> Unit,
     onTimer: () -> Unit,
-    onChapters: () -> Unit,
+    onMixer: () -> Unit,
     onPlaylist: () -> Unit,
-    onBookmark: () -> Unit,
     onOutput: () -> Unit,
     onSound: () -> Unit,
     onSpeed: () -> Unit,
     onSleep: () -> Unit,
+    onVisualizer: () -> Unit,
+    onWaveform: () -> Unit,
+    onAutoEq: () -> Unit,
+    onCompressorToggle: (Boolean) -> Unit,
+    onInflatorToggle: (Boolean) -> Unit,
     topBar: @Composable () -> Unit,
     hero: @Composable (Modifier) -> Unit,
 ) {
@@ -200,11 +215,9 @@ fun MainPlayerScreen(
             DevEditable("actionDock", Modifier.fillMaxWidth()) {
                 PlayerActionDock(
                     accent = accent,
-                    isBookmarked = state.isLiked,
                     onTimer = onTimer,
-                    onChapters = onChapters,
+                    onMixer = onMixer,
                     onPlaylist = onPlaylist,
-                    onBookmark = onBookmark,
                 )
             }
 
@@ -271,6 +284,11 @@ fun MainPlayerScreen(
                 onSound = onSound,
                 onSpeed = onSpeed,
                 onSleep = onSleep,
+                onVisualizer = onVisualizer,
+                onWaveform = onWaveform,
+                onAutoEq = onAutoEq,
+                onCompressorToggle = onCompressorToggle,
+                onInflatorToggle = onInflatorToggle,
                 onDismiss = { statusExpanded = false },
             )
         }
@@ -319,8 +337,14 @@ private fun StatusOverlayPanel(
     onSound: () -> Unit,
     onSpeed: () -> Unit,
     onSleep: () -> Unit,
+    onVisualizer: () -> Unit,
+    onWaveform: () -> Unit,
+    onAutoEq: () -> Unit,
+    onCompressorToggle: (Boolean) -> Unit,
+    onInflatorToggle: (Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val accent = state.albumColors.vibrant
     val shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
     Surface(
         modifier = Modifier
@@ -354,7 +378,7 @@ private fun StatusOverlayPanel(
                     .background(Color.White.copy(alpha = 0.35f), RoundedCornerShape(999.dp)),
             )
             PlayerStatusGrid(
-                accent = state.albumColors.vibrant,
+                accent = accent,
                 outputLabel = state.outputLabel,
                 soundLabel = state.soundLabel,
                 speedLabel = state.speedLabel,
@@ -364,7 +388,92 @@ private fun StatusOverlayPanel(
                 onSpeed = onSpeed,
                 onSleep = onSleep,
             )
+
+            // Monitoring row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                OverlayAction(Icons.Default.Animation, "Visualizer", accent, state.visualizerActive, onVisualizer)
+                OverlayAction(Icons.Default.GraphicEq, "Waveform", accent, state.waveformActive, onWaveform)
+                OverlayAction(Icons.Default.Equalizer, "AutoEQ", accent, false, onAutoEq)
+            }
+
+            // Effects toggles
+            ToggleRow("Compressor", "Oxford dynamics", state.compressorEnabled, accent, onCompressorToggle)
+            ToggleRow("Inflator", "Oxford loudness", state.inflatorEnabled, accent, onInflatorToggle)
         }
+    }
+}
+
+@Composable
+private fun RowScope.OverlayAction(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    accent: Color,
+    active: Boolean,
+    onClick: () -> Unit,
+) {
+    val tint = if (active) accent else Color.White.copy(alpha = 0.85f)
+    Column(
+        modifier = Modifier
+            .weight(1f)
+            .clip(RoundedCornerShape(PlayerDesignTokens.GlassCornerSmall))
+            .clickable(onClick = onClick)
+            .liquidGlass(
+                shape = RoundedCornerShape(PlayerDesignTokens.GlassCornerSmall),
+                tintAlpha = if (active) PlayerDesignTokens.GlassTintStrong else PlayerDesignTokens.GlassTintSoft,
+                borderAlpha = PlayerDesignTokens.GlassTintSoft,
+            )
+            .padding(vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            modifier = Modifier.size(PlayerDesignTokens.ActionIconSize),
+            tint = tint,
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = tint,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun ToggleRow(
+    label: String,
+    subtitle: String,
+    checked: Boolean,
+    accent: Color,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = label, style = MaterialTheme.typography.bodyLarge, color = Color.White)
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(alpha = 0.6f),
+            )
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color.Black,
+                checkedTrackColor = accent,
+            ),
+        )
     }
 }
 
