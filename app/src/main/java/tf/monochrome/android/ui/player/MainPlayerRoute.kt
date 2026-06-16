@@ -67,6 +67,8 @@ fun MainPlayerRoute(
     val viewMode by playerViewModel.nowPlayingViewMode.collectAsState()
     val playbackSpeed by playerViewModel.playbackSpeed.collectAsState()
     val preservePitch by playerViewModel.preservePitch.collectAsState()
+    val compressorEnabled by playerViewModel.compressorEnabled.collectAsState()
+    val inflatorEnabled by playerViewModel.inflatorEnabled.collectAsState()
 
     val visualizerSensitivity by playerViewModel.visualizerSensitivity.collectAsState()
     val visualizerBrightness by playerViewModel.visualizerBrightness.collectAsState()
@@ -187,6 +189,10 @@ fun MainPlayerRoute(
         sleepTimerLabel = if (sleepMinutes > 0) "$sleepMinutes min" else "Off",
         queueLabel = queueLabel,
         albumColors = AlbumColors(animatedDominant, albumColors.vibrant),
+        visualizerActive = viewMode == NowPlayingViewMode.VISUALIZER,
+        waveformActive = showNpSpectrum,
+        compressorEnabled = compressorEnabled,
+        inflatorEnabled = inflatorEnabled,
     )
 
     MainPlayerScreen(
@@ -206,13 +212,17 @@ fun MainPlayerRoute(
         onForward10 = playerViewModel::forward10,
         onNext = playerViewModel::skipToNext,
         onTimer = { showSleepSheet = true },
-        onChapters = { showLyricsSheet = true },
+        onMixer = { navController.navigate(Screen.Mixer.route) },
         onPlaylist = { showQueueSheet = true },
-        onBookmark = playerViewModel::toggleLikeCurrentTrack,
         onOutput = { navController.navigate(Screen.Settings.createRoute()) },
         onSound = { navController.navigate(Screen.Mixer.route) },
         onSpeed = { showSpeedSheet = true },
         onSleep = { showSleepSheet = true },
+        onVisualizer = { playerViewModel.setNowPlayingViewMode(NowPlayingViewMode.VISUALIZER) },
+        onWaveform = { playerViewModel.setSpectrumShowOnNowPlaying(!spectrumShowOnNowPlaying) },
+        onAutoEq = { navController.navigate(Screen.Equalizer.route) },
+        onCompressorToggle = playerViewModel::setCompressorEnabled,
+        onInflatorToggle = playerViewModel::setInflatorEnabled,
         topBar = {
             PlayerTopBar(
                 speedLabel = state.speedLabel,
