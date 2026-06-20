@@ -227,13 +227,13 @@ private fun SquareArtHero(
                 }
             }
             BouncePill(
-                modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                modifier = Modifier.align(Alignment.BottomEnd).padding(10.dp),
                 onClick = onEnterVisualizer,
             ) {
                 Text(
                     text = "Visualizer",
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.labelSmall,
                     color = Color.White,
                 )
             }

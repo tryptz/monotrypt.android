@@ -217,9 +217,13 @@ fun MainPlayerRoute(
         onOutput = { navController.navigate(Screen.Settings.createRoute()) },
         onSound = { navController.navigate(Screen.Equalizer.route) },
         onSpeed = { showSpeedSheet = true },
-        onVisualizer = { playerViewModel.setNowPlayingViewMode(NowPlayingViewMode.VISUALIZER) },
+        onVisualizer = {
+            playerViewModel.setNowPlayingViewMode(
+                if (viewMode == NowPlayingViewMode.VISUALIZER) NowPlayingViewMode.COVER_ART
+                else NowPlayingViewMode.VISUALIZER
+            )
+        },
         onWaveform = { playerViewModel.setSpectrumShowOnNowPlaying(!spectrumShowOnNowPlaying) },
-        onAutoEq = { navController.navigate(Screen.Equalizer.route) },
         onCompressorToggle = playerViewModel::setCompressorEnabled,
         onInflatorToggle = playerViewModel::setInflatorEnabled,
         topBar = {

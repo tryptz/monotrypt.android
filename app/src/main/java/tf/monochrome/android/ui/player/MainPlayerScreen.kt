@@ -28,7 +28,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Animation
-import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.GraphicEq
@@ -117,7 +116,6 @@ fun MainPlayerScreen(
     onSpeed: () -> Unit,
     onVisualizer: () -> Unit,
     onWaveform: () -> Unit,
-    onAutoEq: () -> Unit,
     onCompressorToggle: (Boolean) -> Unit,
     onInflatorToggle: (Boolean) -> Unit,
     topBar: @Composable () -> Unit,
@@ -285,7 +283,6 @@ fun MainPlayerScreen(
                 onMixer = onMixer,
                 onVisualizer = onVisualizer,
                 onWaveform = onWaveform,
-                onAutoEq = onAutoEq,
                 onCompressorToggle = onCompressorToggle,
                 onInflatorToggle = onInflatorToggle,
                 onDismiss = { statusExpanded = false },
@@ -338,7 +335,6 @@ private fun StatusOverlayPanel(
     onMixer: () -> Unit,
     onVisualizer: () -> Unit,
     onWaveform: () -> Unit,
-    onAutoEq: () -> Unit,
     onCompressorToggle: (Boolean) -> Unit,
     onInflatorToggle: (Boolean) -> Unit,
     onDismiss: () -> Unit,
@@ -395,7 +391,6 @@ private fun StatusOverlayPanel(
             ) {
                 OverlayAction(Icons.Default.Animation, "Visualizer", accent, state.visualizerActive, onVisualizer)
                 OverlayAction(Icons.Default.GraphicEq, "Waveform", accent, state.waveformActive, onWaveform)
-                OverlayAction(Icons.Default.Equalizer, "AutoEQ", accent, false, onAutoEq)
             }
 
             // Effects toggles
