@@ -131,7 +131,8 @@ class LocalMediaRepository @Inject constructor(
                     sampleRate = sampleRate,
                     bitDepth = bitDepth
                 ),
-                sourceType = SourceType.LOCAL
+                sourceType = SourceType.LOCAL,
+                dateModified = lastModified
             )
         }
 
