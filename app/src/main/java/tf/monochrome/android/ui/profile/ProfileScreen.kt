@@ -213,31 +213,6 @@ private fun SignedInView(
 
     Spacer(modifier = Modifier.height(32.dp))
 
-    tf.monochrome.android.devedit.DevEditable("profile_sync_card", Modifier.fillMaxWidth()) {
-    Card(
-        modifier = Modifier.fillMaxWidth().liquidGlass(shape = RoundedCornerShape(16.dp)),
-        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-        shape = RoundedCornerShape(16.dp)
-    ) {
-        Column(modifier = Modifier.padding(20.dp)) {
-            Text(
-                "Synced with monochrome.tf",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                "Your listening history, favorites, and playlists are synced with your Monochrome account.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-    }
-
-    Spacer(modifier = Modifier.height(16.dp))
-
     ElevatedButton(
         onClick = onSync,
         enabled = !isSyncing,

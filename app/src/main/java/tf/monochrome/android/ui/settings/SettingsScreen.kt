@@ -1346,13 +1346,9 @@ private fun DownloadsTab(viewModel: SettingsViewModel) {
 // ─── Tab 6: Instances ──────────────────────────────────────────────────
 @Composable
 private fun InstancesTab(viewModel: SettingsViewModel) {
-    val apiInstances by viewModel.apiInstances.collectAsState()
-    val streamingInstances by viewModel.streamingInstances.collectAsState()
     val customEndpoint by viewModel.customEndpoint.collectAsState()
     val qobuzEndpoint by viewModel.qobuzEndpoint.collectAsState()
-    val devModeEnabled by viewModel.devModeEnabled.collectAsState()
     val sourceMode by viewModel.sourceMode.collectAsState()
-    val refreshing by viewModel.instancesRefreshing.collectAsState()
     var customInput by remember(customEndpoint) { mutableStateOf(customEndpoint ?: "") }
     var qobuzInput by remember(qobuzEndpoint) { mutableStateOf(qobuzEndpoint ?: "") }
 
@@ -1393,13 +1389,6 @@ private fun InstancesTab(viewModel: SettingsViewModel) {
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        SettingSwitchItem(
-            title = "Dev Mode",
-            subtitle = "Route all Tidal API/streaming requests through your own server. Requires a compatible Tidal HiFi instance at the URL below.",
-            checked = devModeEnabled,
-            onCheckedChange = { viewModel.setDevModeEnabled(it) }
-        )
-
         Row(
             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -1411,7 +1400,7 @@ private fun InstancesTab(viewModel: SettingsViewModel) {
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = "Used for search, browse, and streaming when Dev Mode is on",
+                    text = "Your own Tidal HiFi server — used for search, browse, and streaming.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1432,7 +1421,6 @@ private fun InstancesTab(viewModel: SettingsViewModel) {
                     )
                 },
                 singleLine = true,
-                enabled = devModeEnabled,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = {
                     viewModel.setCustomEndpoint(latestInput.value.trim().ifBlank { null })
@@ -1496,33 +1484,6 @@ private fun InstancesTab(viewModel: SettingsViewModel) {
             )
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            SettingsGroupHeader("API Instances")
-            Spacer(modifier = Modifier.weight(1f))
-            IconButton(onClick = { viewModel.refreshInstances() }) {
-                if (refreshing) CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                else Icon(Icons.Default.Refresh, contentDescription = "Refresh")
-            }
-        }
-
-        if (apiInstances.isEmpty()) {
-            Text("No API instances loaded", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        } else {
-            apiInstances.forEach { instance ->
-                InstanceCard(url = instance.url, version = instance.version)
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-        SettingsGroupHeader("Streaming Instances")
-        if (streamingInstances.isEmpty()) {
-            Text("No streaming instances loaded", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        } else {
-            streamingInstances.forEach { instance ->
-                InstanceCard(url = instance.url, version = instance.version)
-            }
-        }
     }
 }
 
