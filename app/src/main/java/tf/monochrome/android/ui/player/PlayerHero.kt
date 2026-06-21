@@ -196,48 +196,16 @@ private fun SquareArtHero(
         shape = RectangleShape,
         color = Color.Transparent,
     ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            HeroCoverArt(
-                track = track,
-                isPlaying = isPlaying,
-                spectrumBins = spectrumBins,
-                spectrumColor = spectrumColor,
-                showSpectrum = showSpectrum,
-                onToggleShowSpectrum = onToggleShowSpectrum,
-            )
-            track?.audioQuality?.let { quality ->
-                Surface(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(14.dp)
-                        .liquidGlass(
-                            shape = RoundedCornerShape(999.dp),
-                            tintAlpha = 0.18f,
-                            borderAlpha = 0.12f,
-                        ),
-                    shape = RoundedCornerShape(999.dp),
-                    color = Color.Transparent,
-                    contentColor = Color.White,
-                ) {
-                    Text(
-                        text = quality,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        style = MaterialTheme.typography.labelMedium,
-                    )
-                }
-            }
-            BouncePill(
-                modifier = Modifier.align(Alignment.BottomEnd).padding(10.dp),
-                onClick = onEnterVisualizer,
-            ) {
-                Text(
-                    text = "Visualizer",
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.White,
-                )
-            }
-        }
+        HeroCoverArt(
+            track = track,
+            isPlaying = isPlaying,
+            spectrumBins = spectrumBins,
+            spectrumColor = spectrumColor,
+            showSpectrum = showSpectrum,
+            onToggleShowSpectrum = onToggleShowSpectrum,
+            quality = track?.audioQuality,
+            onEnterVisualizer = onEnterVisualizer,
+        )
     }
 }
 
@@ -565,22 +533,27 @@ private fun HeroCoverArt(
     spectrumColor: Color = PlayerGlowBlue,
     showSpectrum: Boolean = true,
     onToggleShowSpectrum: () -> Unit = {},
+    quality: String? = null,
+    onEnterVisualizer: (() -> Unit)? = null,
 ) {
     val spectrumEnabled = showSpectrum
     var spectrumSpeed by remember { mutableStateOf(SpectrumSpeed.NORMAL) }
 
+    // Controls show briefly on tap, then disappear quickly. When idle there are
+    // no tags/labels on the art at all — the buttons are small and icon-only.
     var controlsVisible by remember { mutableStateOf(true) }
     LaunchedEffect(controlsVisible) {
         if (controlsVisible) {
-            delay(3000)
+            delay(1200)
             controlsVisible = false
         }
     }
     val controlsAlpha by animateFloatAsState(
         targetValue = if (controlsVisible) 1f else 0f,
-        animationSpec = tween(durationMillis = 400),
+        animationSpec = tween(durationMillis = 220),
         label = "controlsFade",
     )
+    val interactive = controlsAlpha > 0.5f
 
     Box(
         modifier = Modifier
@@ -627,79 +600,81 @@ private fun HeroCoverArt(
         }
 
         Box(modifier = Modifier.fillMaxSize().graphicsLayer { alpha = controlsAlpha }) {
-            Surface(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(16.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .clickable(enabled = controlsAlpha > 0.5f) {
-                        onToggleShowSpectrum()
-                        controlsVisible = true
-                    }
-                    .liquidGlass(
-                        shape = RoundedCornerShape(999.dp),
-                        tintAlpha = 0.15f,
-                        borderAlpha = 0.12f,
-                    ),
-                shape = RoundedCornerShape(999.dp),
-                color = Color.Transparent,
-                contentColor = Color.White,
+            // Small, icon-only controls (top-left): spectrum toggle + speed.
+            Row(
+                modifier = Modifier.align(Alignment.TopStart).padding(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        imageVector = if (spectrumEnabled) Icons.Default.Equalizer else Icons.Default.Album,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                    )
-                    Text(
-                        text = if (spectrumEnabled) "Spectrum ON" else "Spectrum OFF",
-                        style = MaterialTheme.typography.labelMedium,
+                HeroIconButton(
+                    icon = if (spectrumEnabled) Icons.Default.Equalizer else Icons.Default.Album,
+                    enabled = interactive,
+                    onClick = { onToggleShowSpectrum(); controlsVisible = true },
+                )
+                if (spectrumEnabled) {
+                    HeroIconButton(
+                        icon = Icons.Default.Speed,
+                        enabled = interactive,
+                        onClick = { spectrumSpeed = spectrumSpeed.next(); controlsVisible = true },
                     )
                 }
             }
 
-            if (spectrumEnabled) {
+            // Quality badge (top-right) — also fades out when idle.
+            if (quality != null) {
                 Surface(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(16.dp)
-                        .clip(RoundedCornerShape(999.dp))
-                        .clickable(enabled = controlsAlpha > 0.5f) {
-                            spectrumSpeed = spectrumSpeed.next()
-                            controlsVisible = true
-                        }
+                        .padding(10.dp)
                         .liquidGlass(
                             shape = RoundedCornerShape(999.dp),
-                            tintAlpha = 0.15f,
+                            tintAlpha = 0.18f,
                             borderAlpha = 0.12f,
                         ),
                     shape = RoundedCornerShape(999.dp),
                     color = Color.Transparent,
                     contentColor = Color.White,
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Speed,
-                            contentDescription = null,
-                            modifier = Modifier.size(14.dp),
-                        )
-                        Text(
-                            text = spectrumSpeed.label,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.sp,
-                        )
-                    }
+                    Text(
+                        text = quality,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                    )
                 }
             }
+
+            // Visualizer entry (bottom-right) — small, icon-only.
+            if (onEnterVisualizer != null) {
+                HeroIconButton(
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(10.dp),
+                    icon = Icons.Default.GraphicEq,
+                    enabled = interactive,
+                    onClick = { onEnterVisualizer(); controlsVisible = true },
+                )
+            }
+        }
+    }
+}
+
+/** Small circular glass icon button used for the album-art overlay controls. */
+@Composable
+private fun HeroIconButton(
+    icon: ImageVector,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier
+            .size(32.dp)
+            .clip(CircleShape)
+            .clickable(enabled = enabled, onClick = onClick)
+            .liquidGlass(shape = CircleShape, tintAlpha = 0.18f, borderAlpha = 0.12f),
+        shape = CircleShape,
+        color = Color.Transparent,
+        contentColor = Color.White,
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(16.dp))
         }
     }
 }
