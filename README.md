@@ -18,6 +18,7 @@ visualizer.
 
 <p align="center">
   <img src="docs/screenshots/player-now-playing.jpg" width="220" alt="Now Playing — album art, HD playback, and controls" />
+  <img src="docs/screenshots/player-audio-tools.jpg" width="220" alt="Audio tools — output, AutoEQ, speed, mixer, visualizer, Oxford effects" />
   <img src="https://github.com/user-attachments/assets/359bf19e-1a79-4372-a7a0-1d841cc03387" width="220" alt="DSP Mixer — bus strips with gain, pan, mute, solo, and plugin chains" />
   <img src="https://github.com/user-attachments/assets/2670b38b-18cf-4aba-a71f-b3c1390761ec" width="220" alt="Plugin picker — categorized browser for all 32 audio processors" />
   <img src="https://github.com/user-attachments/assets/2a36210f-bd54-4bf7-98d1-aee0e556569b" width="220" alt="Plugin editor — per-effect parameter controls" />
