@@ -186,7 +186,7 @@ private fun SquareArtHero(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(1f)
+            .aspectRatio(PlayerDesignTokens.AlbumArtAspectRatio)
             .shadow(
                 elevation = 14.dp,
                 shape = RectangleShape,
@@ -299,7 +299,9 @@ private fun VisualizerHero(
         }
     }
     Surface(
-        modifier = if (isFullscreen) modifier else modifier.aspectRatio(1f),
+        // Outside fullscreen the visualizer is locked to the album-art aspect
+        // ratio so its dimensions match the cover artwork exactly.
+        modifier = if (isFullscreen) modifier else modifier.aspectRatio(PlayerDesignTokens.AlbumArtAspectRatio),
         shape = if (isFullscreen) RoundedCornerShape(0.dp) else RoundedCornerShape(PlayerDesignTokens.HeroCorner),
         color = Color.Black,
     ) {
