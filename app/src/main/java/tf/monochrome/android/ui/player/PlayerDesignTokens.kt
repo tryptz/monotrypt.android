@@ -33,6 +33,11 @@ object PlayerDesignTokens {
     val TopBarHeight = 56.dp
 
     val HeroCorner = 28.dp
+    // Aspect ratio shared by the album-art hero and the projectM visualizer so
+    // the two always occupy identically proportioned slots (1:1, matching the
+    // square cover art). Routing both through one constant guarantees the
+    // visualizer's dimensions match the artwork exactly.
+    const val AlbumArtAspectRatio = 1f
     val GlassCornerLarge = 28.dp
     val GlassCornerMedium = 22.dp
     val GlassCornerSmall = 16.dp
