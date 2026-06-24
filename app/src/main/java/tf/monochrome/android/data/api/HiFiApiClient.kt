@@ -652,6 +652,12 @@ class HiFiApiClient @Inject constructor(
     // --- Lyrics ---
 
     suspend fun getLyrics(trackId: Long, convertToRomaji: Boolean = false): Lyrics? {
+        // The /lyrics endpoint is keyed by TIDAL track id. Qobuz ids live in a
+        // separate namespace, so querying TIDAL with one either 404s or — worse
+        // — returns a *different* track's synced lyrics: right-looking text that
+        // is never in sync. Skip TIDAL for known Qobuz ids; callers fall back to
+        // the metadata-based LRCLib lookup instead.
+        if (qobuzIdRegistry.isQobuzTrack(trackId)) return null
         return try {
             val body = fetchWithRetry("/lyrics/?id=$trackId")
             val response = json.decodeFromString<LyricsResponse>(unwrapResponse(body))
