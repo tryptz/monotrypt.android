@@ -158,11 +158,16 @@ class MusicRepository @Inject constructor(
 
     // --- Lyrics ---
 
-    suspend fun getLyrics(trackId: Long, track: Track? = null): Result<Lyrics?> = runCatching {
+    suspend fun getLyrics(
+        trackId: Long,
+        track: Track? = null,
+        skipTidal: Boolean = false,
+    ): Result<Lyrics?> = runCatching {
         val romajiEnabled = preferences.romajiLyrics.first()
         // TIDAL first — when it has the lyrics this is the highest-quality
-        // path (LRC + word-level timing on Tidal Hi-Fi).
-        val tidalLyrics = apiClient.getLyrics(trackId, romajiEnabled)
+        // path (LRC + word-level timing on Tidal Hi-Fi). Skipped for Qobuz
+        // tracks, whose ids would resolve to the wrong song on TIDAL.
+        val tidalLyrics = if (skipTidal) null else apiClient.getLyrics(trackId, romajiEnabled)
         if (tidalLyrics != null) return@runCatching tidalLyrics
         // Tidal returned 404 / empty — fall back to LRCLib (open API,
         // no auth) using the track's metadata. Skip when we don't have
