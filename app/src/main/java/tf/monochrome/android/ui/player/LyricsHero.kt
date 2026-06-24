@@ -21,10 +21,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -42,7 +41,6 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.SubcomposeAsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import tf.monochrome.android.domain.model.LyricLine
 import tf.monochrome.android.domain.model.Lyrics
@@ -141,8 +139,6 @@ internal fun LyricsHeroBox(
     isLoading: Boolean,
     albumColors: AlbumColors,
     positionMs: StateFlow<Long>,
-    isPlaying: Boolean,
-    speed: Float,
     onSeekTo: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -191,8 +187,6 @@ internal fun LyricsHeroBox(
                 positionMs = positionMs,
                 accent = albumColors.vibrant,
                 onSeekTo = onSeekTo,
-                isPlaying = isPlaying,
-                speed = speed,
             )
             else -> UnsyncedLyricsView(lines = lyrics.lines)
         }
@@ -205,52 +199,31 @@ internal fun SyncedLyricsView(
     positionMs: StateFlow<Long>,
     accent: Color,
     onSeekTo: (Long) -> Unit,
-    isPlaying: Boolean = true,
-    speed: Float = 1f,
 ) {
-    val sampled by positionMs.collectAsState()
+    val position by positionMs.collectAsState()
     val listState = rememberLazyListState()
-    var currentLineIndex by remember { mutableStateOf(-1) }
 
-    // The polled position only ticks ~4x/sec and isn't speed-scaled between
-    // ticks, so the highlight can lag the audio by up to a sample (worse at
-    // >1x speed) — which reads as the lyrics drifting out of sync. We smoothly
-    // interpolate here: re-anchor on every fresh sample (so we can never
-    // cumulatively drift away from the real player clock) and advance by real
-    // elapsed time × speed in between.
-    var position by remember { mutableStateOf(sampled) }
-    LaunchedEffect(sampled, isPlaying, speed, lines) {
-        // indexOfLast gives the most recent line whose start has passed —
-        // exactly the karaoke "current line" semantics. Cheap on lists of a
-        // few hundred lines; no need for binary search.
-        fun applyIndex(pos: Long) {
-            val newIndex = lines.indexOfLast { it.timeMs <= pos }
-            if (newIndex != currentLineIndex && newIndex >= 0) currentLineIndex = newIndex
-        }
-        if (!isPlaying) {
-            position = sampled
-            applyIndex(sampled)
-            return@LaunchedEffect
-        }
-        val anchorMs = sampled
-        val anchorNs = System.nanoTime()
-        while (true) {
-            val elapsedMs = (System.nanoTime() - anchorNs) / 1_000_000f
-            position = anchorMs + (elapsedMs * speed).toLong()
-            applyIndex(position)
-            delay(50)
-        }
+    // Active line = the most recent line whose start has passed. derivedStateOf
+    // recomputes when the position sample or the line list changes, but only
+    // notifies readers when the index value actually changes — so the highlight
+    // and the auto-scroll fire exactly once per line, never on every tick. (An
+    // earlier version extrapolated the position between samples, which jittered
+    // the index at line boundaries — the highlight looked stuck and the
+    // constant re-scroll ate taps. The polled position is stable and accurate.)
+    val currentLineIndex by remember(lines) {
+        derivedStateOf { lines.indexOfLast { it.timeMs <= position } }
     }
 
     LaunchedEffect(currentLineIndex) {
-        if (currentLineIndex < 0) return@LaunchedEffect
+        val index = currentLineIndex
+        if (index < 0) return@LaunchedEffect
         val viewport = listState.layoutInfo.viewportSize.height
         // Coarse pass: pull the active line to roughly the vertical centre
         // (and lay it out so the fine pass below can measure it).
-        listState.animateScrollToItem(index = currentLineIndex, scrollOffset = -(viewport / 2))
+        listState.animateScrollToItem(index = index, scrollOffset = -(viewport / 2))
         // Fine pass: nudge the line's midpoint onto the exact viewport centre.
         val info = listState.layoutInfo
-        val target = info.visibleItemsInfo.firstOrNull { it.index == currentLineIndex }
+        val target = info.visibleItemsInfo.firstOrNull { it.index == index }
         if (target != null) {
             val viewportCentre = (info.viewportStartOffset + info.viewportEndOffset) / 2f
             val itemCentre = target.offset + target.size / 2f
