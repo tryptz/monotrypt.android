@@ -57,6 +57,8 @@ import tf.monochrome.android.domain.model.NowPlayingViewMode
 import tf.monochrome.android.domain.model.RepeatMode
 import tf.monochrome.android.devedit.DevEditable
 import tf.monochrome.android.domain.model.Track
+import tf.monochrome.android.domain.usecase.uiArtistRefs
+import tf.monochrome.android.ui.components.ClickableArtists
 import tf.monochrome.android.ui.components.liquidGlass
 
 /** Flattened, design-ready snapshot of everything the main player renders. */
@@ -101,7 +103,7 @@ fun MainPlayerScreen(
     isFullscreen: Boolean,
     formatTime: (Long) -> String,
     onToggleLike: () -> Unit,
-    onArtistClick: () -> Unit,
+    onArtistClick: (Long) -> Unit,
     onSeekCommit: (Float) -> Unit,
     onPrevious: () -> Unit,
     onRewind10: () -> Unit,
@@ -480,7 +482,7 @@ private fun PlayerTrackInfo(
     isLiked: Boolean,
     accent: Color,
     onToggleLike: () -> Unit,
-    onArtistClick: () -> Unit,
+    onArtistClick: (Long) -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -495,19 +497,24 @@ private fun PlayerTrackInfo(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Text(
-                text = track?.displayArtist?.ifBlank { "Unknown" } ?: "Unknown",
-                style = MaterialTheme.typography.bodyLarge,
-                color = Color.White.copy(alpha = 0.6f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.clickable(
-                    enabled = track?.artist?.id != null,
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onArtistClick,
-                ),
-            )
+            if (track != null) {
+                ClickableArtists(
+                    artists = track.uiArtistRefs(),
+                    fallbackName = track.displayArtist.ifBlank { "Unknown" },
+                    onArtistClick = { ref -> ref.id?.let { onArtistClick(it) } },
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = Color.White.copy(alpha = 0.6f),
+                    linkColor = Color.White.copy(alpha = 0.85f),
+                )
+            } else {
+                Text(
+                    text = "Unknown",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = Color.White.copy(alpha = 0.6f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
         IconButton(onClick = onToggleLike) {
             Icon(

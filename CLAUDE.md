@@ -152,8 +152,9 @@ A track credited to several artists wires **each** name to its own profile.
 - **Model** — `UnifiedTrack.artists: List<UnifiedArtistRef(id: Long?, name)>`
   (`domain/model/Models.kt`). `id` is the catalog artist id (null when the source only
   gives a name → shown but not linked). `artistId`/`artistName` remain the single-primary
-  convenience view. `TrackMappers.artistRefs()` derives the list from catalog `Track.artists`
-  (falling back to the primary `artist`).
+  convenience view. `TrackMappers.uiArtistRefs()` (public) derives the list from catalog
+  `Track.artists` (falling back to the primary `artist`); local tracks get their
+  `artistId`/`artists` from `LocalMediaRepository.toUnifiedTrack`.
 - **Source data** — TIDAL tracks already carry a full `artists` list with ids. Qobuz
   **track** payloads carry only a single `performer`; the structured multi-artist credits
   live on the **album**, so `HiFiApiClient.QobuzTrackItem.toDomainTrack` merges the
@@ -165,8 +166,31 @@ A track credited to several artists wires **each** name to its own profile.
   through `getQobuzArtist` instead of mis-routing to the TIDAL pool on a dual-source setup.
 - **UI** — `ui/components/ClickableArtists.kt` is the canonical component: renders each
   credit as a tappable segment (linked when `id != null`, plain label otherwise), falling
-  back to a single `artistName` when there are no structured credits. Reuse it anywhere a
-  track's artist line should route per-artist.
+  back to a single `artistName` when there are no structured credits. `TrackArtistAlbumLine`
+  (same file) is the standard `UnifiedTrack` subtitle: clickable artists + a " • <album>"
+  link. Reuse these anywhere a track's artist/album line should route.
+
+### Universal artist + album linking (every track surface)
+
+Tapping any artist name → that artist's page, and the album art/title → that album's page,
+on **every** surface that shows a track. The interaction model: row body = play, artist =
+artist page, album = album page, long-press = context menu (the discoverable fallback).
+
+- **Central routing** — `ui/navigation/CatalogNav.kt` holds source-aware `NavController`
+  extensions: `openArtist(sourceType, id)` (LOCAL → `LocalArtistDetail`, else `ArtistDetail`),
+  `openAlbum(albumId)` (parses `"local_album_*"` → `LocalAlbumDetail`, bare numeric →
+  `AlbumDetail`, `"col_album_*"`/unknown → no-op), `openCatalogArtist/Album` for domain
+  `Track` rows, and `isNavigableAlbumId()`. Routing **branches on `sourceType`** so taps
+  never cross TIDAL↔Qobuz↔local namespaces.
+- **Shared rows carry it** — `TrackItem` has an `onArtistClick: (Long) -> Unit` and renders
+  its artist line via `ClickableArtists`; bespoke `UnifiedTrack` rows use `TrackArtistAlbumLine`.
+  Wired surfaces: Home/Discover, Search, Playlist, Library (recently/liked), Album & Artist
+  detail, Local songs/album/artist/genre/folder, and the Now-Playing screen (`PlayerTrackInfo`).
+- **Never a dead link** — a credit/album with no resolvable id (collection, Qobuz free-text
+  performer, downloaded-file entities) renders as plain text. **Out of scope** (no target /
+  by design): collection rows (no collection detail screens), the downloads list (entities
+  carry no catalog ids), the queue sheet & mini-player (transient/secondary — the full player
+  links artists), car mode, and the Glance widget.
 
 ## File Locations
 
@@ -182,6 +206,8 @@ A track credited to several artists wires **each** name to its own profile.
 | Home / Discover feed | `ui/home/HomeScreen.kt`, `ui/home/HomeViewModel.kt` |
 | Discovery use case | `domain/usecase/DiscoveryFeedUseCase.kt` |
 | Track→UnifiedTrack mappers | `domain/usecase/TrackMappers.kt` |
+| Per-artist/album nav helpers | `ui/navigation/CatalogNav.kt` |
+| Clickable artists/album line | `ui/components/ClickableArtists.kt` |
 | Qobuz id/slug registry | `data/api/QobuzIdRegistry.kt` |
 | DI setup | `di/AppModule.kt`, `di/DatabaseModule.kt` |
 | DSP C++ engine | `app/src/main/cpp/dsp/dsp_engine.cpp` |

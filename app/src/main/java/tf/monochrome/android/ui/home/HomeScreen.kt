@@ -75,6 +75,7 @@ import tf.monochrome.android.ui.components.TrackContextMenu
 import tf.monochrome.android.ui.components.TrackItem
 import tf.monochrome.android.ui.components.liquidGlass
 import tf.monochrome.android.ui.navigation.Screen
+import tf.monochrome.android.ui.navigation.openCatalogArtist
 import tf.monochrome.android.ui.player.PlayerViewModel
 import tf.monochrome.android.ui.search.SearchQueryField
 import tf.monochrome.android.ui.search.SearchResultsContent
@@ -283,6 +284,7 @@ fun HomeScreen(
                             onClick = { playerViewModel.playTrack(track, recentTracks) },
                             onLongClick = { showContextMenuForTrack = track },
                             onMoreClick = { showContextMenuForTrack = track },
+                            onArtistClick = { artistId -> navController.openCatalogArtist(artistId) },
                             onAlbumClick = track.album?.id?.let { albumId ->
                                 { navController.navigate(Screen.AlbumDetail.createRoute(albumId)) }
                             }

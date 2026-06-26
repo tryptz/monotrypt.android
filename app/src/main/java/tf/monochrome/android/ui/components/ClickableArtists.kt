@@ -11,6 +11,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import tf.monochrome.android.domain.model.UnifiedArtistRef
+import tf.monochrome.android.domain.model.UnifiedTrack
+import tf.monochrome.android.ui.navigation.isNavigableAlbumId
 
 /**
  * Renders a track's credited artists as individually tappable segments — a track
@@ -60,6 +62,48 @@ fun ClickableArtists(
             if (separator.isNotEmpty()) {
                 Text(text = separator, style = style, color = color, maxLines = 1)
             }
+        }
+    }
+}
+
+/**
+ * The standard track subtitle line — credited artists (each linkable via
+ * [ClickableArtists]) followed by " • <album>" where the album title links to its
+ * page when [UnifiedTrack.albumId] resolves to a real screen (catalog or local).
+ * The canonical artist+album line for `UnifiedTrack` rows across the app.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun TrackArtistAlbumLine(
+    track: UnifiedTrack,
+    onArtistClick: (UnifiedArtistRef) -> Unit,
+    onAlbumClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    style: TextStyle = MaterialTheme.typography.bodySmall,
+    color: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    linkColor: Color = MaterialTheme.colorScheme.primary,
+) {
+    val albumTitle = track.albumTitle?.takeIf { it.isNotBlank() }
+    val albumLinkable = albumTitle != null && isNavigableAlbumId(track.albumId)
+    FlowRow(modifier = modifier) {
+        ClickableArtists(
+            artists = track.artists,
+            fallbackName = track.artistName,
+            onArtistClick = onArtistClick,
+            style = style,
+            color = color,
+            linkColor = linkColor,
+        )
+        if (albumTitle != null) {
+            Text(text = " • ", style = style, color = color, maxLines = 1)
+            Text(
+                text = albumTitle,
+                style = style,
+                color = if (albumLinkable) linkColor else color,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = if (albumLinkable) Modifier.clickable { onAlbumClick() } else Modifier,
+            )
         }
     }
 }
