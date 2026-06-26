@@ -135,14 +135,38 @@ only as a new-user/empty fallback.
    "Discover" header; if empty it falls back to `SearchViewModel.recommendations` (the
    static genre seeds from `assets/qobuz_recommendations.json`). "Recently Played" stays
    below. Each card (`RecommendationCard` in `DiscoveryRowSection`): **artwork/title tap
-   → play** (`PlayerViewModel.playUnifiedTrack`); **artist-name tap → artist page**
-   (`Screen.ArtistDetail.createRoute(artistId)`), clickable only when `artistId != null`.
+   → play** (`PlayerViewModel.playUnifiedTrack`); **each credited artist name → that
+   artist's page** (`Screen.ArtistDetail.createRoute(id)`) — see "Multiple artists" below.
 
 **Shared mappers** — `domain/usecase/TrackMappers.kt` holds the catalog `Track → UnifiedTrack`
 conversions (`toUnifiedTrack` = TIDAL/HiFiApi, `toQobuzUnifiedTrack` = QobuzCached, and
 `toUnifiedTrackAuto(registry)` which picks by `QobuzIdRegistry.isQobuzTrack`). Reused by
 both `SearchViewModel` and `DiscoveryFeedUseCase`. `UnifiedTrack.artistId: Long?` carries
-the catalog artist id used for artist-page navigation.
+the primary catalog artist id; `UnifiedTrack.artists: List<UnifiedArtistRef>` carries the
+full per-artist credits (see below).
+
+### Multiple artists (per-artist profile navigation)
+
+A track credited to several artists wires **each** name to its own profile.
+
+- **Model** — `UnifiedTrack.artists: List<UnifiedArtistRef(id: Long?, name)>`
+  (`domain/model/Models.kt`). `id` is the catalog artist id (null when the source only
+  gives a name → shown but not linked). `artistId`/`artistName` remain the single-primary
+  convenience view. `TrackMappers.artistRefs()` derives the list from catalog `Track.artists`
+  (falling back to the primary `artist`).
+- **Source data** — TIDAL tracks already carry a full `artists` list with ids. Qobuz
+  **track** payloads carry only a single `performer`; the structured multi-artist credits
+  live on the **album**, so `HiFiApiClient.QobuzTrackItem.toDomainTrack` merges the
+  performer with the album's *performing* credits (`QobuzArtistRef`, role-filtered via
+  `isPerformingCredit()` to drop composer/producer-only entries), deduped by id. Qobuz
+  free-text `performers` names without ids are **not** resolved (documented limitation).
+- **Routing** — `DiscoveryFeedUseCase` registers **every** credited artist id (not just the
+  primary) via `QobuzIdRegistry.registerArtist`, so a tapped featured artist resolves
+  through `getQobuzArtist` instead of mis-routing to the TIDAL pool on a dual-source setup.
+- **UI** — `ui/components/ClickableArtists.kt` is the canonical component: renders each
+  credit as a tappable segment (linked when `id != null`, plain label otherwise), falling
+  back to a single `artistName` when there are no structured credits. Reuse it anywhere a
+  track's artist line should route per-artist.
 
 ## File Locations
 
