@@ -246,13 +246,11 @@ fun HomeScreen(
                         DiscoveryRowSection(
                             label = row.label,
                             tracks = row.tracks,
-                            onTrackClick = { track ->
-                                // Discovery is a browse surface: tap opens the
-                                // artist page. Falls back to playback for tracks
-                                // without a catalog artist id (local/collection).
+                            onPlay = { track -> playerViewModel.playUnifiedTrack(track, row.tracks) },
+                            onArtistClick = { track ->
                                 track.artistId?.let { artistId ->
                                     navController.navigate(Screen.ArtistDetail.createRoute(artistId))
-                                } ?: playerViewModel.playUnifiedTrack(track, row.tracks)
+                                }
                             }
                         )
                     }
@@ -262,13 +260,11 @@ fun HomeScreen(
                         DiscoveryRowSection(
                             label = row.label,
                             tracks = row.tracks,
-                            onTrackClick = { track ->
-                                // Discovery is a browse surface: tap opens the
-                                // artist page. Falls back to playback for tracks
-                                // without a catalog artist id (local/collection).
+                            onPlay = { track -> playerViewModel.playUnifiedTrack(track, row.tracks) },
+                            onArtistClick = { track ->
                                 track.artistId?.let { artistId ->
                                     navController.navigate(Screen.ArtistDetail.createRoute(artistId))
-                                } ?: playerViewModel.playUnifiedTrack(track, row.tracks)
+                                }
                             }
                         )
                     }
@@ -310,7 +306,8 @@ fun HomeScreen(
 private fun DiscoveryRowSection(
     label: String,
     tracks: List<UnifiedTrack>,
-    onTrackClick: (UnifiedTrack) -> Unit
+    onPlay: (UnifiedTrack) -> Unit,
+    onArtistClick: (UnifiedTrack) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
         Text(
@@ -324,7 +321,11 @@ private fun DiscoveryRowSection(
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             items(tracks, key = { it.id }) { track ->
-                RecommendationCard(track = track, onClick = { onTrackClick(track) })
+                RecommendationCard(
+                    track = track,
+                    onPlay = { onPlay(track) },
+                    onArtistClick = { onArtistClick(track) }
+                )
             }
         }
     }
@@ -332,18 +333,20 @@ private fun DiscoveryRowSection(
 
 
 @androidx.compose.runtime.Composable
-private fun RecommendationCard(track: UnifiedTrack, onClick: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .width(140.dp)
-            .clickable(onClick = onClick)
-            .padding(4.dp)
-    ) {
+private fun RecommendationCard(
+    track: UnifiedTrack,
+    onPlay: () -> Unit,
+    onArtistClick: () -> Unit
+) {
+    Column(modifier = Modifier.width(140.dp).padding(4.dp)) {
+        // Artwork (and title) play the track; the artist name navigates to the
+        // artist page when a catalog artist id is available.
         CoverImage(
             url = track.artworkUri,
             contentDescription = track.title,
             size = 132.dp,
-            cornerRadius = MonoDimens.radiusSm
+            cornerRadius = MonoDimens.radiusSm,
+            modifier = Modifier.clickable(onClick = onPlay)
         )
         Spacer(modifier = Modifier.height(6.dp))
         Text(
@@ -351,14 +354,20 @@ private fun RecommendationCard(track: UnifiedTrack, onClick: () -> Unit) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.clickable(onClick = onPlay)
         )
         Text(
             text = track.artistName,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            overflow = TextOverflow.Ellipsis,
+            modifier = if (track.artistId != null) {
+                Modifier.clickable(onClick = onArtistClick)
+            } else {
+                Modifier
+            }
         )
     }
 }
