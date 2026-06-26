@@ -138,7 +138,11 @@ class LrcLibClient @Inject constructor(
 
     companion object {
         private const val BASE_URL = "https://lrclib.net"
-        private const val REQUEST_TIMEOUT_MS = 6_000L
+        // lrclib.net regularly takes 7-9s to answer a search/get, so a tight
+        // budget here silently dropped every result (→ "No lyrics available",
+        // most visibly for Qobuz tracks, which depend on LRCLib). Give it real
+        // headroom; the fetch is async behind a "Loading lyrics…" state.
+        private const val REQUEST_TIMEOUT_MS = 15_000L
     }
 }
 
