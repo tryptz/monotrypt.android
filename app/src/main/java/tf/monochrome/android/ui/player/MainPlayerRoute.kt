@@ -201,10 +201,8 @@ fun MainPlayerRoute(
         isFullscreen = isFullscreenActive,
         formatTime = playerViewModel::formatTime,
         onToggleLike = playerViewModel::toggleLikeCurrentTrack,
-        onArtistClick = {
-            currentTrack?.artist?.id?.let { artistId ->
-                navController.navigate(Screen.ArtistDetail.createRoute(artistId))
-            }
+        onArtistClick = { artistId ->
+            navController.navigate(Screen.ArtistDetail.createRoute(artistId))
         },
         onSeekCommit = playerViewModel::seekToFraction,
         onPrevious = playerViewModel::skipToPrevious,

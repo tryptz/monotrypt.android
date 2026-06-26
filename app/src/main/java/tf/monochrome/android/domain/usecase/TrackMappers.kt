@@ -18,12 +18,15 @@ import tf.monochrome.android.domain.model.UnifiedTrack
 private const val DEFAULT_ARTIST_NAME = "Unknown Artist"
 
 /**
- * Per-artist credits for a catalog [Track]. Uses the full `artists` list when the
- * source populated it (TIDAL tracks, and Qobuz tracks enriched from album credits),
- * else falls back to the single primary `artist`. A 0/blank id maps to null so the
- * UI treats it as a non-navigable name.
+ * Per-artist credits for a catalog [Track] as [UnifiedArtistRef]s. Uses the full
+ * `artists` list when the source populated it (TIDAL tracks, and Qobuz tracks enriched
+ * from album credits), else falls back to the single primary `artist`. A 0/blank id
+ * maps to null so the UI treats it as a non-navigable name.
+ *
+ * Public so `Track`-based UI rows (e.g. `TrackItem`) can render the same per-artist
+ * links as the `UnifiedTrack` surfaces.
  */
-private fun Track.artistRefs(): List<UnifiedArtistRef> =
+fun Track.uiArtistRefs(): List<UnifiedArtistRef> =
     artists.ifEmpty { listOfNotNull(artist) }
         .map { UnifiedArtistRef(id = it.id.takeIf { id -> id > 0L }, name = it.name) }
         .filter { it.name.isNotBlank() }
@@ -40,7 +43,7 @@ fun Track.toUnifiedTrack(): UnifiedTrack = UnifiedTrack(
     artistNames = artists.map { it.name }.ifEmpty { listOfNotNull(artist?.name) },
     albumArtistName = artist?.name,
     artistId = artist?.id,
-    artists = artistRefs(),
+    artists = uiArtistRefs(),
     albumTitle = album?.title,
     albumId = album?.id?.toString(),
     artworkUri = coverUrl,
@@ -65,7 +68,7 @@ fun Track.toQobuzUnifiedTrack(): UnifiedTrack = UnifiedTrack(
     artistNames = artists.map { it.name }.ifEmpty { listOfNotNull(artist?.name) },
     albumArtistName = artist?.name,
     artistId = artist?.id,
-    artists = artistRefs(),
+    artists = uiArtistRefs(),
     albumTitle = album?.title,
     albumId = album?.id?.toString(),
     artworkUri = coverUrl,
