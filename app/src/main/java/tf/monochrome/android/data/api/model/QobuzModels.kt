@@ -100,6 +100,18 @@ data class QobuzArtistDetail(
     val images: QobuzArtistImages? = null,
     @SerialName("similar_artists") val similarArtists: QobuzSimilarArtists? = null,
     @SerialName("top_tracks") val topTracks: List<QobuzArtistTopTrack> = emptyList(),
+    // The artist's discography, grouped by release type ("album", "epSingle",
+    // "live", "compilation", …). Each group's items share the QobuzAlbumItem
+    // shape, so they map to domain Albums and become browsable on the artist
+    // screen (which is how the full track catalogue is reached for Qobuz).
+    val releases: List<QobuzReleaseGroup> = emptyList(),
+)
+
+@Serializable
+data class QobuzReleaseGroup(
+    val type: String? = null,
+    @SerialName("has_more") val hasMore: Boolean = false,
+    val items: List<QobuzAlbumItem> = emptyList(),
 )
 
 @Serializable
