@@ -361,12 +361,32 @@ class HiFiApiClient @Inject constructor(
         )
         val topTracks = raw.topTracks.mapNotNull { it.toDomainTrack() }
         val similar = raw.similarArtists?.items?.mapNotNull { it.toDomainArtist() } ?: emptyList()
+
+        // Map the artist's full discography (the `releases` groups) into
+        // Albums / EPs / Singles so every release — and therefore every track —
+        // is reachable from the artist screen. Each release item is a
+        // QobuzAlbumItem; register its slug so AlbumDetail can resolve it.
+        val albums = mutableListOf<tf.monochrome.android.domain.model.Album>()
+        val eps = mutableListOf<tf.monochrome.android.domain.model.Album>()
+        val singles = mutableListOf<tf.monochrome.android.domain.model.Album>()
+        raw.releases.forEach { group ->
+            group.items.forEach { item ->
+                registerAlbumWithRegistry(item)
+                val album = item.toDomainAlbum()
+                when (group.type) {
+                    "epSingle" -> if ((item.tracksCount ?: 0) <= 1) singles.add(album) else eps.add(album)
+                    "album", "live", "compilation" -> albums.add(album)
+                    else -> { /* download / awardedRelease / next — skip */ }
+                }
+            }
+        }
+
         return ArtistDetail(
             artist = artist,
             topTracks = topTracks,
-            albums = emptyList(),
-            eps = emptyList(),
-            singles = emptyList(),
+            albums = albums,
+            eps = eps,
+            singles = singles,
             unreleasedTracks = emptyList(),
             similarArtists = similar,
         )
