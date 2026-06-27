@@ -19,8 +19,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -118,11 +120,29 @@ fun ArtistDetailScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
+        val isDownloadingAll by viewModel.isDownloadingAll.collectAsState()
         TopAppBar(
             title = {},
             navigationIcon = {
                 IconButton(onClick = { navController.popBackStack() }) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                }
+            },
+            actions = {
+                if (artistDetail != null) {
+                    IconButton(
+                        onClick = { viewModel.downloadAllReleases() },
+                        enabled = !isDownloadingAll,
+                    ) {
+                        if (isDownloadingAll) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                            )
+                        } else {
+                            Icon(Icons.Default.Download, contentDescription = "Download all releases")
+                        }
+                    }
                 }
             },
             colors = TopAppBarDefaults.topAppBarColors(
