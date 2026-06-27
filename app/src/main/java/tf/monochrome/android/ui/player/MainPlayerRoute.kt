@@ -39,7 +39,9 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.navigation.NavController
 import kotlinx.coroutines.delay
 import tf.monochrome.android.domain.model.NowPlayingViewMode
+import tf.monochrome.android.domain.model.SourceType
 import tf.monochrome.android.ui.navigation.Screen
+import tf.monochrome.android.ui.navigation.openArtist
 import java.util.Locale
 
 /**
@@ -53,6 +55,7 @@ fun MainPlayerRoute(
     playerViewModel: PlayerViewModel,
 ) {
     val currentTrack by playerViewModel.currentTrack.collectAsState()
+    val currentUnified by playerViewModel.currentUnifiedTrack.collectAsState()
     val queue by playerViewModel.queue.collectAsState()
     val currentIndex by playerViewModel.currentIndex.collectAsState()
     val isPlaying by playerViewModel.isPlaying.collectAsState()
@@ -174,6 +177,9 @@ fun MainPlayerRoute(
 
     val state = MainPlayerUiState(
         track = currentTrack,
+        sourceType = currentUnified?.sourceType,
+        artists = currentUnified?.artists ?: emptyList(),
+        qualityBadge = currentUnified?.qualityBadge,
         isPlaying = isPlaying,
         positionMs = positionMs,
         durationMs = durationMs,
@@ -202,7 +208,8 @@ fun MainPlayerRoute(
         formatTime = playerViewModel::formatTime,
         onToggleLike = playerViewModel::toggleLikeCurrentTrack,
         onArtistClick = { artistId ->
-            navController.navigate(Screen.ArtistDetail.createRoute(artistId))
+            // Source-aware so a local song's artist opens the local artist page.
+            navController.openArtist(currentUnified?.sourceType ?: SourceType.API, artistId)
         },
         onSeekCommit = playerViewModel::seekToFraction,
         onPrevious = playerViewModel::skipToPrevious,
