@@ -105,6 +105,93 @@ tf.monochrome.android/
 - `MusicRepository` handles API calls to TIDAL HiFi backend
 - Native DSP state is managed by `DspEngineManager` (Kotlin) ↔ `dsp_engine.cpp` (C++ via JNI)
 
+## Home Discovery Feed (personalized "Discover" dashboard)
+
+The Home tab's recommendation section is a **personalized discovery tool**: rows of
+the newest releases tailored to the user's listening history and hearted songs, fetched
+through the **Qobuz instance**. It replaces the old static genre rows, which now serve
+only as a new-user/empty fallback.
+
+**End-to-end flow:**
+
+1. **Seeds** — `LibraryRepository.getSeedArtistNames(limit)` merges, in priority order,
+   hearted artists (`FavoriteDao.getFavoriteArtistsSnapshot`), artists of hearted tracks
+   (`getFavoriteTracksSnapshot`), and most-played history artists
+   (`HistoryDao.getTopArtists`), de-duped case-insensitively. Seeding by **name** (not id)
+   keeps the whole feed in the Qobuz namespace.
+2. **Build** — `DiscoveryFeedUseCase.build()` (`domain/usecase/`) fans out one
+   `MusicRepository.searchQobuz(name)` per seed in parallel (`async` + `withTimeoutOrNull`,
+   7s budget). For each artist it picks the **newest release** by `Album.releaseDate`,
+   resolves the album slug via `QobuzIdRegistry.albumSlugFor(id)`, fetches tracks with
+   `getQobuzAlbum(slug)`, and falls back to the search's top tracks if no album resolves.
+   Returns `DiscoveryRow(label, tracks: List<UnifiedTrack>)`, label `"New from <artist>"`.
+   It also calls `QobuzIdRegistry.registerArtist(id)` on each row's artist ids so the
+   artist screen routes via `getQobuzArtist` (getQobuzAlbum does **not** tag the album
+   artist — without this a dual-source setup can mis-route to the TIDAL pool).
+3. **ViewModel** — `HomeViewModel` exposes `discoveryRows`, `favoritesRow`
+   ("From your favorites" — hearted tracks mapped via `Track.toUnifiedTrackAuto(registry)`),
+   and `discoveryLoading`. Loaded in `loadHome()` alongside `recentTracks`.
+4. **UI** — `HomeScreen` renders `listOfNotNull(favoritesRow) + discoveryRows` under a
+   "Discover" header; if empty it falls back to `SearchViewModel.recommendations` (the
+   static genre seeds from `assets/qobuz_recommendations.json`). "Recently Played" stays
+   below. Each card (`RecommendationCard` in `DiscoveryRowSection`): **artwork/title tap
+   → play** (`PlayerViewModel.playUnifiedTrack`); **each credited artist name → that
+   artist's page** (`Screen.ArtistDetail.createRoute(id)`) — see "Multiple artists" below.
+
+**Shared mappers** — `domain/usecase/TrackMappers.kt` holds the catalog `Track → UnifiedTrack`
+conversions (`toUnifiedTrack` = TIDAL/HiFiApi, `toQobuzUnifiedTrack` = QobuzCached, and
+`toUnifiedTrackAuto(registry)` which picks by `QobuzIdRegistry.isQobuzTrack`). Reused by
+both `SearchViewModel` and `DiscoveryFeedUseCase`. `UnifiedTrack.artistId: Long?` carries
+the primary catalog artist id; `UnifiedTrack.artists: List<UnifiedArtistRef>` carries the
+full per-artist credits (see below).
+
+### Multiple artists (per-artist profile navigation)
+
+A track credited to several artists wires **each** name to its own profile.
+
+- **Model** — `UnifiedTrack.artists: List<UnifiedArtistRef(id: Long?, name)>`
+  (`domain/model/Models.kt`). `id` is the catalog artist id (null when the source only
+  gives a name → shown but not linked). `artistId`/`artistName` remain the single-primary
+  convenience view. `TrackMappers.uiArtistRefs()` (public) derives the list from catalog
+  `Track.artists` (falling back to the primary `artist`); local tracks get their
+  `artistId`/`artists` from `LocalMediaRepository.toUnifiedTrack`.
+- **Source data** — TIDAL tracks already carry a full `artists` list with ids. Qobuz
+  **track** payloads carry only a single `performer`; the structured multi-artist credits
+  live on the **album**, so `HiFiApiClient.QobuzTrackItem.toDomainTrack` merges the
+  performer with the album's *performing* credits (`QobuzArtistRef`, role-filtered via
+  `isPerformingCredit()` to drop composer/producer-only entries), deduped by id. Qobuz
+  free-text `performers` names without ids are **not** resolved (documented limitation).
+- **Routing** — `DiscoveryFeedUseCase` registers **every** credited artist id (not just the
+  primary) via `QobuzIdRegistry.registerArtist`, so a tapped featured artist resolves
+  through `getQobuzArtist` instead of mis-routing to the TIDAL pool on a dual-source setup.
+- **UI** — `ui/components/ClickableArtists.kt` is the canonical component: renders each
+  credit as a tappable segment (linked when `id != null`, plain label otherwise), falling
+  back to a single `artistName` when there are no structured credits. `TrackArtistAlbumLine`
+  (same file) is the standard `UnifiedTrack` subtitle: clickable artists + a " • <album>"
+  link. Reuse these anywhere a track's artist/album line should route.
+
+### Universal artist + album linking (every track surface)
+
+Tapping any artist name → that artist's page, and the album art/title → that album's page,
+on **every** surface that shows a track. The interaction model: row body = play, artist =
+artist page, album = album page, long-press = context menu (the discoverable fallback).
+
+- **Central routing** — `ui/navigation/CatalogNav.kt` holds source-aware `NavController`
+  extensions: `openArtist(sourceType, id)` (LOCAL → `LocalArtistDetail`, else `ArtistDetail`),
+  `openAlbum(albumId)` (parses `"local_album_*"` → `LocalAlbumDetail`, bare numeric →
+  `AlbumDetail`, `"col_album_*"`/unknown → no-op), `openCatalogArtist/Album` for domain
+  `Track` rows, and `isNavigableAlbumId()`. Routing **branches on `sourceType`** so taps
+  never cross TIDAL↔Qobuz↔local namespaces.
+- **Shared rows carry it** — `TrackItem` has an `onArtistClick: (Long) -> Unit` and renders
+  its artist line via `ClickableArtists`; bespoke `UnifiedTrack` rows use `TrackArtistAlbumLine`.
+  Wired surfaces: Home/Discover, Search, Playlist, Library (recently/liked), Album & Artist
+  detail, Local songs/album/artist/genre/folder, and the Now-Playing screen (`PlayerTrackInfo`).
+- **Never a dead link** — a credit/album with no resolvable id (collection, Qobuz free-text
+  performer, downloaded-file entities) renders as plain text. **Out of scope** (no target /
+  by design): collection rows (no collection detail screens), the downloads list (entities
+  carry no catalog ids), the queue sheet & mini-player (transient/secondary — the full player
+  links artists), car mode, and the Glance widget.
+
 ## File Locations
 
 | What | Where |
@@ -116,6 +203,12 @@ tf.monochrome.android/
 | Database | `data/db/MusicDatabase.kt` |
 | Room entities | `data/db/entity/Entities.kt` |
 | Domain models | `domain/model/Models.kt` |
+| Home / Discover feed | `ui/home/HomeScreen.kt`, `ui/home/HomeViewModel.kt` |
+| Discovery use case | `domain/usecase/DiscoveryFeedUseCase.kt` |
+| Track→UnifiedTrack mappers | `domain/usecase/TrackMappers.kt` |
+| Per-artist/album nav helpers | `ui/navigation/CatalogNav.kt` |
+| Clickable artists/album line | `ui/components/ClickableArtists.kt` |
+| Qobuz id/slug registry | `data/api/QobuzIdRegistry.kt` |
 | DI setup | `di/AppModule.kt`, `di/DatabaseModule.kt` |
 | DSP C++ engine | `app/src/main/cpp/dsp/dsp_engine.cpp` |
 | DSP processors | `app/src/main/cpp/dsp/snapins/*.h` (34 files) |
