@@ -12,6 +12,7 @@ visualizer.
 [**Download the latest APK**](https://github.com/tryptz/monotrypt.android/releases/latest)
 — Android 8.0+ (API 26), sideload or `adb install`.
 
+ON FRESH INSTALL THE APP NEED TO LOAD ALL VISUALIZER ASSETS (USUALLY TAKE LESS THAN 15 SECONDS) Press wait if android thinks the app crashed)
 ---
 
 ## Screenshots
