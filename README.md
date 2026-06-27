@@ -26,7 +26,7 @@ Tryptify is an audiophile-grade music player whose interesting parts live below 
 
 | Compressor | Inflator |
 | :---: | :---: |
-| ![Compressor](docs/screenshots/compressor.jpg) | ![Inflator](docs/screenshots/inflator.jpg)<br>![Inflator alternate](docs/screenshots/inflator-alt.jpg) |
+| ![Compressor](docs/screenshots/compressor.jpg) | ![Inflator](docs/screenshots/inflator.jpg)<br>|
 
 | Settings | ProjectM Visualizer |
 | :---: | :---: |
