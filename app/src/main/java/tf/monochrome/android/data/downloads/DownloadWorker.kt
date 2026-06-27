@@ -89,10 +89,16 @@ class DownloadWorker @AssistedInject constructor(
             }
             val audioData = output.toByteArray()
 
-            // Determine save location
+            // Determine save location + container from the selected quality:
+            // LOW/HIGH download as MP3 (Qobuz code 5); LOSSLESS/HI_RES as FLAC.
+            // Saving the right extension/mime keeps lossy downloads from being
+            // mislabelled as .flac (which breaks MediaStore + other players).
             val customFolderUri = preferences.downloadFolderUri.first()
+            val isLossless = quality == AudioQuality.LOSSLESS || quality == AudioQuality.HI_RES
+            val fileExt = if (isLossless) "flac" else "mp3"
+            val audioMime = if (isLossless) "audio/flac" else "audio/mpeg"
             val sanitizedTitle = "${artistName} - ${trackTitle}".replace(Regex("[\\\\/:*?\"<>|]"), "_")
-            val fileName = "$sanitizedTitle.flac"
+            val fileName = "$sanitizedTitle.$fileExt"
             val filePath: String
 
             if (customFolderUri != null) {
@@ -102,7 +108,7 @@ class DownloadWorker @AssistedInject constructor(
                 if (docFile != null && docFile.canWrite()) {
                     val existing = docFile.findFile(fileName)
                     existing?.delete()
-                    val newFile = docFile.createFile("audio/flac", sanitizedTitle)
+                    val newFile = docFile.createFile(audioMime, sanitizedTitle)
                     if (newFile != null) {
                         context.contentResolver.openOutputStream(newFile.uri)?.use { out ->
                             out.write(audioData)
@@ -110,13 +116,13 @@ class DownloadWorker @AssistedInject constructor(
                         filePath = newFile.uri.toString()
                     } else {
                         // Fallback to internal
-                        filePath = saveToInternal(trackId, fileName, audioData)
+                        filePath = saveToInternal(trackId, fileExt, audioData)
                     }
                 } else {
-                    filePath = saveToInternal(trackId, fileName, audioData)
+                    filePath = saveToInternal(trackId, fileExt, audioData)
                 }
             } else {
-                filePath = saveToInternal(trackId, fileName, audioData)
+                filePath = saveToInternal(trackId, fileExt, audioData)
             }
 
             // Save lyrics if enabled. TIDAL is preferred (best quality
@@ -283,10 +289,10 @@ class DownloadWorker @AssistedInject constructor(
         }
     }
 
-    private fun saveToInternal(trackId: Long, fileName: String, data: ByteArray): String {
+    private fun saveToInternal(trackId: Long, ext: String, data: ByteArray): String {
         val downloadsDir = File(context.getExternalFilesDir(null), "downloads")
         if (!downloadsDir.exists()) downloadsDir.mkdirs()
-        val targetFile = File(downloadsDir, "$trackId.flac")
+        val targetFile = File(downloadsDir, "$trackId.$ext")
         targetFile.writeBytes(data)
         return targetFile.absolutePath
     }
