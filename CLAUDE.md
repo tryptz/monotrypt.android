@@ -7,7 +7,7 @@ Guidance for AI agents (Claude Code) working in this repository. For the full ar
 Tryptify is a deep, audiophile Android music player + visualizer: it streams from self-hosted TIDAL-/Qobuz-style "HiFi" backends, indexes on-device audio, and renders a native projectM (MilkDrop) GL visualizer, with a parametric/AutoEQ equalizer, a node-based DSP mixer, native USB-Audio-Class bit-perfect output, encrypted "collections", cloud sync, and Android Auto / car mode.
 
 - **Brand "Tryptify"; internal name "Monochrome".** Kotlin namespace `tf.monochrome.android`; **applicationId `tf.monotrypt.android`** (intentionally different — see Gotchas). Root Gradle project name is `Monochrome`.
-- Version 1.6.2 (versionCode 162). minSdk 26, compile/targetSdk 36, Java/JVM 17.
+- Version 1.6.4 (versionCode 164). minSdk 26, compile/targetSdk 36, Java/JVM 17.
 - ~57k lines of Kotlin (259 files), single module, plus three native C++ engines over JNI. **No tests.**
 
 ## Build & run
