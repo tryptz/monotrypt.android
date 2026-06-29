@@ -186,9 +186,7 @@ fun MainPlayerRoute(
 
     val state = MainPlayerUiState(
         track = currentTrack,
-        sourceType = currentUnified?.sourceType,
         artists = currentUnified?.artists ?: emptyList(),
-        qualityBadge = currentUnified?.qualityBadge,
         isPlaying = isPlaying,
         positionMs = positionMs,
         durationMs = durationMs,

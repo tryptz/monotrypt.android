@@ -48,15 +48,21 @@ class AesGcmDecryptor @Inject constructor() {
 
     /**
      * Decrypt a URL - returns the decrypted URL as a string.
-     * The URL itself may be encrypted in the manifest.
+     * Plaintext URLs are accepted, but encrypted-looking values must decrypt
+     * successfully so AES-GCM authentication failures are not masked.
      */
     fun decryptUrl(encryptedUrl: String, key: String): String {
-        return try {
-            val decrypted = decryptBase64(encryptedUrl, key)
-            String(decrypted, Charsets.UTF_8)
-        } catch (_: Exception) {
-            // URL might not be encrypted - return as-is
-            encryptedUrl
-        }
+        if (encryptedUrl.looksLikePlainUrl()) return encryptedUrl
+
+        val decrypted = decryptBase64(encryptedUrl, key)
+        return String(decrypted, Charsets.UTF_8)
+    }
+
+    private fun String.looksLikePlainUrl(): Boolean {
+        val lower = trimStart().lowercase()
+        return lower.startsWith("https://") ||
+            lower.startsWith("http://") ||
+            lower.startsWith("content://") ||
+            lower.startsWith("file://")
     }
 }

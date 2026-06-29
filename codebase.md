@@ -2,23 +2,23 @@
 
 > A deep, audiophile-grade Android music player and visualizer. Streams from self-hosted TIDAL-/Qobuz-style "HiFi" backends, indexes on-device audio, and renders a native projectM (MilkDrop) GL visualizer. Includes a parametric/AutoEQ equalizer, a node-based DSP mixer, native USB-Audio-Class bit-perfect output, encrypted "collections", cloud sync, and Android Auto / car mode.
 
-**Document status:** Generated 2026-06-28 by a multi-agent codebase audit. Subsystems marked **[deep audit]** received a full agent deep-read of their source; subsystems marked **[focused pass]** were documented from a single targeted read (the multi-agent run was interrupted by a session usage cap before those agents and the four cross-cutting agents finished). Every claim below is grounded in files actually read; `file:line` citations are from the audited reads. Re-run the deep audit on the [focused pass] subsystems to reach full depth.
+**Document status:** Generated 2026-06-28 by a multi-agent codebase audit, then updated by the remediation pass on 2026-06-28. Subsystems marked **[deep audit]** received a full agent deep-read of their source; subsystems marked **[focused pass]** were documented from a single targeted read (the multi-agent run was interrupted by a session usage cap before those agents and the four cross-cutting agents finished). Every original claim was grounded in files actually read; the risk-register status table reflects the current worktree after fixes. Re-run the deep audit on the [focused pass] subsystems to reach full depth.
 
 ---
 
 ## Executive summary
 
-Tryptify (internal name **Monochrome**, applicationId `tf.monotrypt.android`, Kotlin namespace `tf.monochrome.android`, v1.6.2 / versionCode 162) is a single-module Android app of ~57,000 lines of Kotlin across 259 files, plus three native C++ engines reached over JNI. It is unusually deep for an Android app: it ships its own **SIMD DSP engine**, a **libusb USB-Audio-Class isochronous driver**, and the **projectM** MilkDrop visualizer, all built from source via CMake/NDK alongside a modern Compose/MVVM/Hilt Kotlin layer.
+Tryptify (internal name **Monochrome**, applicationId `tf.monotrypt.android`, Kotlin namespace `tf.monochrome.android`, v1.6.4 / versionCode 164) is a single-module Android app of ~57,000 lines of Kotlin across 259 files, plus three native C++ engines reached over JNI. It is unusually deep for an Android app: it ships its own **SIMD DSP engine**, a **libusb USB-Audio-Class isochronous driver**, and the **projectM** MilkDrop visualizer, all built from source via CMake/NDK alongside a modern Compose/MVVM/Hilt Kotlin layer.
 
 Top takeaways:
 
 1. **Engineering ambition is high and the modern Android stack is used well** — Compose + Material3, Hilt, Room, Media3 (+ FFmpeg via NextLib), Coil3, WorkManager, Glance, a performance-tier system that sizes thread pools and caches per device, and a baseline profile. The native integration (three `.so` targets, a custom AudioProcessor chain, a bit-perfect USB path) is genuinely sophisticated.
-2. **There are zero automated tests.** For ~57k lines with native JNI boundaries, real-time audio, and two streaming backends, this is the single largest risk to the codebase's maintainability.
-3. **Several "load-bearing but fragile" couplings exist that an editor will break if unaware** — dual playback drivers that must be hand-synced, same-process singleton sharing between the UI and the playback service, a native `DEBUG_POSTFIX=""` hack so `System.loadLibrary` names match, and unstable Room ids regenerated on every local scan.
-4. **Security is "client-app normal" but has rough edges** — a hardcoded Supabase **anon** JWT in source, a `security-crypto` dependency declared "for collection encryption keys" that is not actually wired (collection keys arrive as server-provided base64), `allowBackup=true` with auth tokens present, and stubbed Last.fm scrobbling.
-5. **A meaningful amount of dead/half-wired code** — an unwired real-time file watcher, an unreachable measurement-upload screen, a non-functional car-mode EQ, two coexisting cloud backends (Supabase + PocketBase) suggesting an in-flight migration, and a removed bottom-nav left as scaffolding.
+2. **Automated tests now exist, but coverage is still thin.** The remediation pass added a JUnit harness and AES-GCM regression tests; playback resolution, Room/local scanning, network parsing, and JNI still need targeted coverage.
+3. **Several "load-bearing but fragile" couplings remain worth documenting** — dual playback drivers that can drift, same-process singleton sharing between the UI and playback service, and a native `DEBUG_POSTFIX=""` hack so `System.loadLibrary` names match.
+4. **The source-level security rough edges were cleaned up.** Supabase and Last.fm secrets now come from build configuration, backup is disabled, the unused `security-crypto` dependency is gone, and encrypted-looking URL decryption failures no longer fall back silently. Supabase RLS/rotation still must be confirmed server-side.
+5. **The original medium/high bug list is now mostly cleared in code.** File watching, measurement upload, Car Mode EQ, search routing, destructive migrations, PocketBase scaffolding, and local-tag population were addressed; remaining work is broader QA, tests, and maintainability cleanup.
 
-Overall health: **a strong, feature-rich app with solid architecture bones, held back by a total absence of tests and a backlog of half-finished/dead features that blur the source of truth in a few subsystems.**
+Overall health: **a strong, feature-rich app with solid architecture bones. The immediate risk-register bugs are now addressed locally, while broader confidence still depends on server-side Supabase verification, manual QA, and more automated coverage.**
 
 ---
 
@@ -109,9 +109,10 @@ git submodule update --init --recursive   # MANDATORY — native build + visuali
 ./gradlew assembleDebug                    # debug APK (signed with committed debug keystore)
 ./gradlew installDebug                     # build + install to device/emulator
 ./gradlew assembleRelease                  # release APK (unsigned unless keystore.properties set)
-./gradlew lint                             # static analysis (no unit/instrumented tests exist)
+./gradlew testDebugUnitTest                # JVM unit tests
+./gradlew lint                             # static analysis
 ```
-There is no meaningful test task — the project has **zero** `test`/`androidTest` sources.
+The current unit-test harness is intentionally small (`AesGcmDecryptorTest`); treat it as a seed, not full project coverage.
 
 **Signing model:**
 - **Debug** uses the committed `app/monotrypt-debug.keystore` (store/key password `monotrypt`, alias `monotrypt-debug`). It is committed *on purpose* so every machine and CI run produce the same signature and `installDebug` upgrades in place instead of failing on a signature mismatch.
@@ -186,7 +187,7 @@ flowchart TD
   PLAYER --> DATA
   DATA --> API[data/api: HiFiApiClient Ktor]
   DATA --> DB[(Room DB)]
-  DATA --> SYNC[data/sync: Supabase + PocketBase]
+  DATA --> SYNC[data/sync: Supabase]
   DATA --> AUTH[data/auth: Supabase auth]
   PLAYER --> AUDIO[audio: dsp/eq/usb → JNI]
   UI --> VIS[visualizer → JNI]
@@ -211,7 +212,7 @@ The app bootstrap and shell: the Hilt `Application` (`MonochromeApp`), the singl
 
 Notable patterns: **static performance bootstrap** — `MonochromeApp` companion `init` sets `kotlinx.coroutines.scheduler.{core,max}.pool.size` via `System.setProperty` during class load (the scheduler reads these exactly once, before first dispatch); changing this ordering silently breaks thread-pool sizing. **Hybrid pager+NavHost** — the two tabs are a HorizontalPager while their NavHost destinations are empty stubs; a single `rememberSaveableStateHolder` keyed by route preserves tab state. **DevEdit wrapping** — every destination is wrapped in `DevEditScreen("<name>")`; adding a screen means adding the wrapper. **Notification channel coupling** — `PLAYBACK_CHANNEL_ID = "default_channel_id"` is hardcoded to match Media3's internal default channel id.
 
-Findings: Room `fallbackToDestructiveMigration` with no migrations (schema bump wipes all local data); cold-start deep links dropped (handled only in `onNewIntent`); Supabase auth initialized twice; `allowBackup=true` with tokens/encrypted collections present; dead bottom-nav scaffolding; DI graph split across packages.
+Remediation notes: destructive Room fallback is removed, cold-start deep links are handled through the same path as `onNewIntent`, and backup is disabled. Remaining watch items: Supabase auth lifecycle should still be kept simple, dead bottom-nav scaffolding can be deleted when safe, and the DI graph is split across packages.
 
 ### playback-engine **[deep audit]**
 
@@ -224,7 +225,7 @@ Wraps a single Media3 ExoPlayer inside `PlaybackService` (a `MediaSessionService
 | `player/QueueManager.kt` | `@Singleton` source-of-truth queue (ExoPlayer holds one item) |
 | `player/QueueForwardingPlayer.kt` | routes notification/lock-screen next/prev back through QueueManager |
 
-Findings: **DASH (TIDAL hi-res) fails on direct in-app selection** (URI-less MediaItem rebuilt only in the service's legacy branch); `updateNowPlaying()` effectively never called; ReplayGain not applied to local/collection/Qobuz; `onPlaybackResumption` batch-resolves the *entire* queue (network + possible full Qobuz downloads); `preloadNextTracks` resolves then discards; two divergent resolution paths; up to 120s hi-res buffered with `targetBufferBytes` unset.
+Remediation notes: the direct DASH playback, now-playing update, ReplayGain coverage, queue-resumption, and preload issues from the original audit have been addressed. Remaining watch items: two playback-driver paths still need discipline to avoid future drift, and the hi-res buffer sizing deserves a separate performance pass.
 
 ### player-ui (Now-Playing + Car Mode) **[deep audit]**
 
@@ -232,7 +233,7 @@ Findings: **DASH (TIDAL hi-res) fails on direct in-app selection** (URI-less Med
 
 Notable patterns: album-derived theming via `androidx.palette` (256×256, hardware-bitmap off, on `Dispatchers.Default`); reference-counted `SpectrumAnalyzerTap.acquire/release` and `ProjectMAudioBus.acquire/release` (forgetting the release leaks the analyzer); per-frame `Canvas` invalidation via `withFrameNanos` + a tick `mutableIntStateOf` with no per-frame allocation; lyrics auto-scroll via `derivedStateOf` firing once per line.
 
-Findings: **Car Mode graphic EQ is non-functional** (never applied to audio); `CarModeScreen` spawns a *second* `PlayerViewModel`; `MediaController` connection has no retry despite a comment claiming one; `PlayerViewModel.progress` is a broken/dead StateFlow; dead pre-redesign composables (`ModePill`, `QueueHero`); two divergent synced-lyrics implementations.
+Remediation notes: Car Mode EQ now reaches the shared EQ path, Car Mode uses the shared player controller, and media-controller reconnect/backoff behavior exists. Remaining cleanup: `PlayerViewModel.progress`, pre-redesign composables (`ModePill`, `QueueHero`), and divergent synced-lyrics implementations should be removed or consolidated.
 
 ### hifi-api-data **[deep audit]**
 
@@ -240,15 +241,15 @@ Talks to **two** user-configured, self-hosted streaming backends — a TIDAL-sty
 
 Notable patterns: **no authentication anywhere** — `HiFiApiClient` attaches no token on any request; security relies entirely on the user-supplied instance URL (a 401 is treated as a generic failure → rotate instance). **Two id namespaces** — any new surface producing Qobuz `Track`s *must* call `registry.registerTrack/registerAlbum` or playback/lyrics/navigation mis-routes to TIDAL. **Qobuz playback is whole-file prefetch** — `/api/download-music` is HMAC-signed (time-bounded `etsp`), so `QobuzStreamCacheManager` downloads the entire FLAC up front. **TIDAL manifest parsing is three-way** (base64 `<MPD>` for DASH, JSON `urls`, or regex scrape).
 
-Findings: negative caching (a transient parse failure caches an empty search for 30 min); no app-level timeout on TIDAL `fetchWithRetry`, four sequential sub-searches; per-key lock removed while waiters remain (double-fetch race); `slug.hashCode().toLong()` id fallback risks 32-bit collisions; Qobuz ReplayGain parsed but never mapped; over-defensive Qobuz envelope parsing because the real field name was never confirmed.
+Remediation notes: negative search caching, request timeout coverage, serialized sub-searches, and Qobuz ReplayGain mapping were addressed. Remaining watch items: per-key lock lifetime, `slug.hashCode().toLong()` collision risk, and over-defensive Qobuz envelope parsing because the real field name was never confirmed.
 
 ### local-library **[deep audit]**
 
-Indexes on-device audio into Room and renders it. `MediaStoreSource` enumerates audio (`IS_MUSIC=1`, duration ≥ 30 s), `TagReader` reads tags + artwork via `MediaMetadataRetriever` (with sidecar/folder-cover fallback), and `MediaScanner` persists `LocalTrackEntity` rows then fully rebuilds album/artist/genre/folder groupings in one Room transaction. Scanning is **manual only** (refresh/add-folder); the `FileObserver` watcher and incremental-scan path exist but are unwired.
+Indexes on-device audio into Room and renders it. `MediaStoreSource` enumerates audio (`IS_MUSIC=1`, duration ≥ 30 s), `TagReader` reads tags + artwork via `MediaMetadataRetriever` (with sidecar/folder-cover fallback plus lightweight FLAC/ID3 extended tags), and `MediaScanner` persists `LocalTrackEntity` rows then rebuilds album/artist/genre/folder groupings in Room. Scanning can be manual (refresh/add-folder) or incremental through the app-wired `FileObserverService`.
 
-Notable patterns: a **single Room DB holds both the HiFi-catalog cache and all local tables**; groupings are fully torn down and rebuilt every scan, so `@PrimaryKey(autoGenerate=true)` album/artist ids are **not stable across scans** (stable identity is the internal `groupingKey`, but navigation uses the volatile id); synthetic "unknown" buckets are refused cover art; rich self-healing re-read triggers (`artworkMissing`, `derivableArtist`) mean the refresh button always uses `fullScan`.
+Notable patterns: a **single Room DB holds both the HiFi-catalog cache and all local tables**; groupings use stable keys for navigation-critical identity; synthetic "unknown" buckets are refused cover art; rich self-healing re-read triggers (`artworkMissing`, `derivableArtist`) mean the refresh button always uses `fullScan`.
 
-Findings: **`deleteTracksNotIn` binds every track path as a SQL variable** → overflows SQLite's variable limit on large libraries (high); album/artist ids regenerated each scan break navigation/saved refs; excluded-paths plumbed end-to-end but never supplied; `FileObserverService` + incremental scan are dead code; ReplayGain/R128/ISRC/MusicBrainz/lyrics/comment never populated for local tracks; `FolderBrowserScreen` creates a fresh `StateFlow` per recomposition.
+Remediation notes: the large-library delete overflow, unstable grouping ids, excluded-path wiring, dead watcher path, local extended tags, and folder-flow recomposition issues from the original audit were addressed. Remaining watch item: local scanning still needs an in-memory Room regression suite.
 
 ### eq-ui **[deep audit]**
 
@@ -256,7 +257,7 @@ The Compose front end for **two distinct equalizer surfaces** plus the Oxford ma
 
 Notable patterns: the **two EQ surfaces have independent state** (`eq*` vs `paramEq*` prefs, separate repositories) and share only the graph + `EqLimits` — edits in one do not reflect in the other. `FrequencyResponseGraph` is multi-mode (measurement vs parametric, different drag clamps `AUTOEQ_MAX_BAND_DB=12` / `PARAMETRIC_MAX_BAND_DB=24`). Restore-on-init deliberately uses `Flow.first()` (the older `stateIn(...).value` raced).
 
-Findings: graph band hit-test position differs from the drawn dot; `saveCustomTargets` still uses the racy `stateIn(...).value`; `MeasurementUploadScreen` ("Advanced Calibration") is unreachable; "Export EQ" is a no-op; `ui/eq/SpectrumAnalyzer.kt` is entirely dead (the real analyzer is `audio.eq.SpectrumAnalyzerTap`); hardcoded ±12 literals instead of `EqLimits` constants; Oxford runs a 60 Hz meter-poll for both effects regardless of visible tab.
+Remediation notes: graph hit testing, custom-target persistence, the advanced calibration trigger, and EQ preset export were fixed. Remaining cleanup: `ui/eq/SpectrumAnalyzer.kt` is still dead (the real analyzer is `audio.eq.SpectrumAnalyzerTap`), some hardcoded gain literals should use `EqLimits`, and Oxford still polls meters at 60 Hz for both effects regardless of visible tab.
 
 ### audio-dsp-native **[focused pass]**
 
@@ -285,7 +286,7 @@ JNI surface: `nativeInit`, `nativeOpen(fd)` (opens the USB device from an Androi
 
 ### auth-sync-cloud-ai **[focused pass]**
 
-Authentication, cloud sync, scrobbling, and AI. **Two cloud backends coexist:** `SupabaseAuthManager`/`AuthRepository` handle auth (Google sign-in via Credential Manager; `SharedPrefsCodeVerifierCache` for PKCE), `SupabaseSyncRepository` uses `postgrest`, while `SyncManager` + `PocketBaseClient` push a JSON blob of library/playlists to PocketBase user fields — a strong sign of an in-flight backend migration. The Supabase row models (`SbFavoriteTrack`, `SbPlaylist`, `SbPlayEvent`, `SbEqPreset`, `SbMixPreset`, …) enumerate what syncs. AI: `GeminiClient` calls Google Gemini using a **user-supplied** API key (from DataStore), with `AudioSnippetFetcher` providing audio context. Scrobbling: `ScrobblingService` targets Last.fm/ListenBrainz but is **stubbed with dummy credentials**.
+Authentication, cloud sync, scrobbling, and AI. Supabase is now the only cloud sync backend in source: `SupabaseAuthManager`/`AuthRepository` handle auth (Google sign-in via Credential Manager; `SharedPrefsCodeVerifierCache` for PKCE), and `SupabaseSyncRepository` uses `postgrest`. The old PocketBase scaffolding was removed. The Supabase row models (`SbFavoriteTrack`, `SbPlaylist`, `SbPlayEvent`, `SbEqPreset`, `SbMixPreset`, …) enumerate what syncs. AI: `GeminiClient` calls Google Gemini using a **user-supplied** API key (from DataStore), with `AudioSnippetFetcher` providing audio context. Scrobbling: `ScrobblingService` targets Last.fm/ListenBrainz and reads Last.fm credentials from build configuration, no-oping Last.fm when they are absent.
 
 ### downloads-collections-share **[focused pass]**
 
@@ -293,7 +294,7 @@ Authentication, cloud sync, scrobbling, and AI. **Two cloud backends coexist:** 
 
 ### settings / preferences / stats / home / search **[focused pass]**
 
-`PreferencesManager` (~948 lines) is the central DataStore wrapper — a very large single preferences surface (audio output mode `SourceMode`, EQ namespaces, Gemini key, sync, performance, theming…). `SettingsScreen` (~1,988 lines, the largest file in the app) + `SettingsViewModel` render it. `StatsViewModel`/`ListeningStatsViewModel` + `StatsScreen` show listening stats over a `StatsRange`. `HomeViewModel`/`HomeScreen` is the discovery dashboard; `SearchViewModel` + `SearchUi` (with `SearchSourceFilter`/`SearchTypeFilter`/`RecommendationRow`) provide multi-source search — though note the app-shell audit found the search route currently unreachable.
+`PreferencesManager` is the central DataStore wrapper — a very large single preferences surface (audio output mode `SourceMode`, EQ namespaces, Gemini key, sync, performance, theming…). `SettingsScreen` (~1,988 lines, the largest file in the app) + `SettingsViewModel` render it. `StatsViewModel`/`ListeningStatsViewModel` + `StatsScreen` show listening stats over a `StatsRange`. `HomeViewModel`/`HomeScreen` is the discovery dashboard; `SearchViewModel` + `SearchUi` (with `SearchSourceFilter`/`SearchTypeFilter`/`RecommendationRow`) provide multi-source search, and the search route is now registered in the navigation graph.
 
 ### platform-integrations (theme, components, widget, auto, devedit, debug, performance, util) **[focused pass]**
 
@@ -307,104 +308,102 @@ The cross-app glue. **Theme:** `DynamicColorExtractor`/`DynamicPalette`/`MonoDim
 
 ### Security & privacy
 
-- **Hardcoded Supabase anon JWT** in `data/auth/SupabaseAuthManager.kt:58` (project ref `lvzorvfhhopillzlwgau`, role `anon`, `exp` 2089). Anon keys are *designed* to be shippable behind Row-Level-Security, so this is acceptable **iff** RLS is enforced server-side — but it is committed to source and effectively un-rotatable without a release. **Action: confirm RLS on every table; plan for key rotation.**
-- **`security-crypto` is declared "for collection encryption keys" but appears unused** — no `MasterKey`/`EncryptedSharedPreferences`/`EncryptedFile` references exist in Kotlin. Collection keys are handled as plain base64 from the server manifest (`AesGcmDecryptor.decryptBase64`, `DecryptingDataSource`). The crypto itself (AES-256-GCM, random IV, 128-bit tag) is textbook-correct, but `decryptUrl` **swallows all exceptions and returns the input as plaintext** on failure, which can mask tampering. **Action: either wire keystore-backed key storage or drop the dependency + comment; reconsider the silent-fallback in `decryptUrl`.**
-- **`android:allowBackup=true`** while auth tokens and encrypted-collection state live in app storage — cloud/adb backup could exfiltrate them. **Action: set `allowBackup=false` or define a `fullBackupContent`/`dataExtractionRules` excluding secrets.**
-- **Last.fm scrobbling is stubbed** with `LASTFM_API_KEY = "dummy_api_key"` / `"dummy_secret"` (`data/scrobbling/ScrobblingService.kt`) — non-functional, not a leak, but misleading.
+- **Supabase configuration moved out of source.** `SupabaseAuthManager` now reads `SUPABASE_URL` and `SUPABASE_ANON_KEY` from Gradle properties, `local.properties`, or environment-backed `BuildConfig`; blank config disables auth/sync calls instead of shipping a baked project URL/JWT. **Action: confirm RLS on every table and rotate the old anon key server-side.**
+- **Collection crypto dependency/comment cleaned up.** The unused `security-crypto` dependency was removed. Collection keys are still handled as plain base64 from the server manifest (`AesGcmDecryptor.decryptBase64`, `DecryptingDataSource`), and encrypted-looking URL decryption failures now fail instead of silently returning plaintext.
+- **Backups are disabled** with `android:allowBackup="false"` because auth tokens and encrypted-collection state live in app storage.
+- **Last.fm scrobbling credentials are build-configured.** `ScrobblingService` reads `LASTFM_API_KEY` / `LASTFM_API_SECRET` from Gradle/local/env `BuildConfig` and no-ops Last.fm when they are absent.
 - **Gemini API key is correctly user-supplied** via DataStore (`GEMINI_API_KEY`), passed as a query param to the Gemini endpoint — no embedded key. Good.
 - **HiFi backends are fully unauthenticated** by design (user supplies the instance URL). Acceptable for a self-hosted model; document it so it isn't "fixed" accidentally.
 - Cleartext is globally disabled (`usesCleartextTraffic="false"`); there is **no** `network_security_config.xml`, so all `http://` is blocked app-wide (verify the self-hosted instances are HTTPS). `FileProvider` is `exported=false` with scoped `file_paths.xml`. Exported components (`MainActivity`, `PlaybackService`, `MonochromeMediaBrowserService`, widget receiver) are the expected media-app set.
 
 ### Performance & concurrency
 
-Strengths: per-device `PerformanceProfile` scales thread pools and Coil cache; a baseline profile AOT-compiles hot Compose paths; spectrum/visualizer overlays render per-frame via `withFrameNanos` with zero per-frame allocation; album-color extraction is off the main thread. Concerns surfaced by the audits: `onPlaybackResumption` batch-resolves the *entire* queue (network + possible full Qobuz file downloads) on a cold play tap; `preloadNextTracks` resolves and discards two tracks; up to 120 s of hi-res audio buffered with `targetBufferBytes` unset; `FolderBrowserScreen` allocates a fresh `StateFlow` per recomposition; Oxford polls meters at 60 Hz for both effects regardless of the visible tab; the HiFi `LruCache` is bounded by entry count, not memory. On the audio thread, the native DSP path is `-O3`/NEON and exception-free, but the audio-thread allocation/locking behavior of the snap-ins and the USB iso pump was not deep-audited — recommend a dedicated pass.
+Strengths: per-device `PerformanceProfile` scales thread pools and Coil cache; a baseline profile AOT-compiles hot Compose paths; spectrum/visualizer overlays render per-frame via `withFrameNanos` with zero per-frame allocation; album-color extraction is off the main thread. The original resumption/preload and folder-flow issues were fixed in the remediation pass. Remaining concerns: up to 120 s of hi-res audio buffered with `targetBufferBytes` unset; Oxford polls meters at 60 Hz for both effects regardless of the visible tab; the HiFi `LruCache` is bounded by entry count, not memory. On the audio thread, the native DSP path is `-O3`/NEON and exception-free, but the audio-thread allocation/locking behavior of the snap-ins and the USB iso pump was not deep-audited — recommend a dedicated pass.
 
 ### Architecture & code quality
 
-Strengths: clean `data`/`domain`/`ui` layering, consistent MVVM with `StateFlow`, a shared unified domain model across two streaming backends, and disciplined `@Singleton` sharing for the audio/queue state. Concerns: **god files** — `SettingsScreen.kt` (1,988), `HiFiApiClient.kt` (1,254, two backends in one class), `EqViewModel.kt` (1,021), `PreferencesManager.kt` (948); **two coexisting cloud backends** (Supabase + PocketBase) with no single documented source of truth; **routing correctness depends on side-effectful registry population** (`QobuzIdRegistry`) with no choke point; **dual playback drivers** that must be hand-synced; and a notable amount of **dead/half-wired code** (file watcher, measurement upload, car-mode EQ, search route, `ReplayGainProcessor.calculateVolumeUnified`). And, overarching everything, **zero tests**.
+Strengths: clean `data`/`domain`/`ui` layering, consistent MVVM with `StateFlow`, a shared unified domain model across two streaming backends, and disciplined `@Singleton` sharing for the audio/queue state. Concerns: **god files** — `SettingsScreen.kt`, `HiFiApiClient.kt`, `EqViewModel.kt`, `PreferencesManager.kt`; **routing correctness depends on side-effectful registry population** (`QobuzIdRegistry`) with no choke point; **dual playback drivers** that must be kept synchronized; and some remaining dead/pre-redesign code. The remediation pass removed PocketBase scaffolding and added a seed unit-test harness, but broader coverage is still needed.
 
 ### Build & dependencies
 
-Mostly current and coherent. Watch items: `credentials 1.5.0-beta01` is a pre-release pin; the native build hard-depends on three submodules and the `DEBUG_POSTFIX` hack; `fallbackToDestructiveMigration` means any Room schema bump is a data-loss event in production; ProGuard/R8 is on for release with `isMinifyEnabled`/`isShrinkResources` — verify keep-rules cover Ktor/kotlinx-serialization/Room/Supabase reflective paths (a deep proguard review was not completed).
+Mostly current and coherent. Watch items: `credentials 1.5.0-beta01` is a pre-release pin; the native build hard-depends on three submodules and the `DEBUG_POSTFIX` hack; destructive Room fallback is gone, so missing future migrations should fail closed during development instead of wiping production data; ProGuard/R8 is on for release with `isMinifyEnabled`/`isShrinkResources` — verify keep-rules cover Ktor/kotlinx-serialization/Room/Supabase reflective paths (a deep proguard review was not completed). JUnit is now present for local unit tests.
 
 ---
 
 ## Risk register
 
-Aggregated medium-and-above findings (deduplicated; sorted by severity). "Area" links to the subsystem section above.
+Status after the remediation pass on 2026-06-28. The table keeps the original issue numbers for traceability. All locally verifiable code items have been addressed; Supabase RLS/rotation remains a server-side follow-up because it cannot be proven from this repository.
 
-| # | Severity | Area | Issue | File(s) | Recommendation |
-|---|---|---|---|---|---|
-| 1 | **High** | local-library | `deleteTracksNotIn` binds every track path as a SQL variable → exceeds SQLite's ~999 var limit, crashes on large libraries | `data/local/db/LocalMediaDao.kt` | Chunk the delete, or delete-by-set-difference in Kotlin / temp table |
-| 2 | **High** | player-ui | Car Mode graphic EQ is a UI shell never applied to audio | `ui/carmode/CarModeViewModel.kt` | Wire to `EqRepository`/DSP or remove the controls |
-| 3 | High→Med | Security | Hardcoded Supabase anon JWT in source (un-rotatable without release) | `data/auth/SupabaseAuthManager.kt:58` | Confirm RLS on all tables; plan rotation; consider remote config |
-| 4 | Medium | playback | DASH (TIDAL hi-res) fails on direct in-app selection (URI-less MediaItem only rebuilt in service legacy branch) | `player/StreamResolver.kt`, `player/PlaybackService.kt` | Rebuild the DASH source in `PlayerViewModel.resolveAndPlay` too |
-| 5 | Medium | playback | ReplayGain not applied to local/collection/Qobuz tracks (impl exists, unused) | `player/ReplayGainProcessor.kt` | Call `calculateVolumeUnified` on those paths |
-| 6 | Medium | playback | `onPlaybackResumption` batch-resolves the entire queue (network + full Qobuz downloads) | `player/PlaybackService.kt` | Resolve only the resumed item; lazy-resolve the rest |
-| 7 | Medium | playback | `updateNowPlaying()` (scrobble now-playing) effectively never called | `player/PlaybackService.kt` | Drive now-playing off `MediaController` state, not `onMediaItemTransition` |
-| 8 | Medium | local-library | Album/artist ids regenerated every scan → broken navigation & saved refs | `data/local/scanner/MediaScanner.kt` | Upsert on stable `groupingKey`/normalized name |
-| 9 | Medium | local-library | `excludedPaths` plumbed end-to-end but never supplied from prefs | `ui/library/LocalLibraryViewModel.kt` | Connect the stored preference |
-| 10 | Medium | local-library | `FileObserverService` + incremental scan are dead → library stale until manual refresh | `data/local/watcher/FileObserverService.kt` | Wire the watcher or remove it |
-| 11 | Medium | local-library | ReplayGain/R128/ISRC/MusicBrainz/lyrics never populated for local tracks | `data/local/tags/TagReader.kt` | Add a richer tag parser (e.g. JAudioTagger) |
-| 12 | Medium | local-library | `FolderBrowserScreen` creates a fresh `StateFlow` per recomposition | `ui/library/FolderBrowserScreen.kt` | `remember` the flow |
-| 13 | Medium | hifi | Negative caching: a transient parse failure caches an empty search for 30 min | `data/api/HiFiApiClient.kt` | Don't cache failures; cache only successful non-empty results |
-| 14 | Medium | hifi | No app-level timeout on TIDAL `fetchWithRetry`; 4 sub-searches run sequentially | `data/api/HiFiApiClient.kt` | Add request timeout; parallelize sub-searches |
-| 15 | Medium | app-shell | Room uses `fallbackToDestructiveMigration` → schema bump wipes all local data | `di/DatabaseModule.kt` | Add real migrations before any schema change |
-| 16 | Medium | app-shell | Cold-start deep links (App Link + OAuth callback) dropped (only `onNewIntent` handled) | `ui/main/MainActivity.kt` | Factor a single handler called from `onCreate` + `onNewIntent` |
-| 17 | Medium | eq-ui | `FrequencyResponseGraph` band hit-test position differs from the drawn dot | `ui/eq/FrequencyResponseGraph.kt` | Use the corrected-curve Y for hit-testing too |
-| 18 | Medium | eq-ui | `saveCustomTargets` uses the documented-racy `stateIn(...).value` read | `ui/eq/EqViewModel.kt` | Switch to `Flow.first()` like the rest of the VM |
-| 19 | Medium | eq-ui | `MeasurementUploadScreen` ("Advanced Calibration") is unreachable | `ui/eq/EqualizerScreen.kt` | Restore the trigger or remove the screen + paste flow |
-| 20 | Medium | player-ui | `CarModeScreen` spawns a second `PlayerViewModel` instance | `ui/carmode/CarModeScreen.kt` | Pass the shared instance down |
-| 21 | Medium | player-ui | `MediaController` connection has no retry despite a comment claiming one | `ui/player/PlayerViewModel.kt` | Add real reconnect/backoff |
-| 22 | Medium | Security | `security-crypto` declared "for collection keys" but unused; `decryptUrl` silently returns plaintext on failure | `data/collections/crypto/AesGcmDecryptor.kt` | Wire keystore-backed key storage or drop the dep; reconsider silent fallback |
-| 23 | Medium | Security | `allowBackup=true` with auth tokens + encrypted-collection state present | `AndroidManifest.xml` | `allowBackup=false` or exclude secrets via backup rules |
-| 24 | Medium | Architecture | Two cloud backends (Supabase + PocketBase) coexist with no documented source of truth | `data/sync/*` | Decide the canonical backend; remove the other |
+| # | Former severity | Area | Status | Verification / note |
+|---|---|---|---|---|
+| 1 | **High** | local-library | **Resolved** | `LocalMediaDao.deleteTracksNotIn` no longer binds an unbounded path list in one statement. |
+| 2 | **High** | player-ui | **Resolved** | Car Mode EQ is wired into the app EQ path instead of being a UI-only shell. |
+| 3 | High→Med | Security | **External follow-up** | Source no longer embeds the Supabase project URL or anon JWT; values come from Gradle/local/env `BuildConfig`. Confirm RLS on every table and rotate the old anon key server-side. |
+| 4 | Medium | playback | **Resolved** | Direct in-app DASH playback uses the same stream resolution behavior as service playback. |
+| 5 | Medium | playback | **Resolved** | ReplayGain is applied for local, collection, and Qobuz playback paths. |
+| 6 | Medium | playback | **Resolved** | Playback resumption resolves only the active item instead of batch-resolving the whole queue. |
+| 7 | Medium | playback | **Resolved** | Now-playing/scrobble updates are driven from active playback state rather than dead `onMediaItemTransition` assumptions. |
+| 8 | Medium | local-library | **Resolved** | Local album/artist grouping uses stable keys instead of scan-regenerated identities for navigation-critical rows. |
+| 9 | Medium | local-library | **Resolved** | Stored excluded paths are supplied to full and incremental local-library scans. |
+| 10 | Medium | local-library | **Resolved** | `FileObserverService` is injected and started from app preferences; watcher events run incremental scans. |
+| 11 | Medium | local-library | **Resolved** | Local tag reads now populate ReplayGain, R128, ISRC, MusicBrainz, lyrics, and comments where present. |
+| 12 | Medium | local-library | **Resolved** | `FolderBrowserScreen` no longer creates a new `StateFlow` on every recomposition. |
+| 13 | Medium | hifi | **Resolved** | Failed/empty parse results are no longer cached as durable negative search results. |
+| 14 | Medium | hifi | **Resolved** | HiFi searches have app-level timeout coverage and no longer serialize all source sub-searches. |
+| 15 | Medium | app-shell | **Resolved** | `fallbackToDestructiveMigration()` was removed; missing future migrations now fail closed instead of wiping data. |
+| 16 | Medium | app-shell | **Resolved** | Deep-link handling is factored through one handler used for both cold start and `onNewIntent`. |
+| 17 | Medium | eq-ui | **Resolved** | Graph hit testing uses the same corrected curve geometry as drawing. |
+| 18 | Medium | eq-ui | **Resolved** | `saveCustomTargets` reads DataStore with `Flow.first()` instead of the racy `stateIn(...).value` pattern. |
+| 19 | Medium | eq-ui | **Resolved** | The advanced measurement upload screen is reachable from the EQ screen. |
+| 20 | Medium | player-ui | **Resolved** | Car Mode uses the shared player controller instead of creating a second `PlayerViewModel`. |
+| 21 | Medium | player-ui | **Resolved** | `PlayerViewModel` now has real media-controller reconnect/backoff behavior. |
+| 22 | Medium | Security | **Resolved** | Unused `security-crypto` dependency was removed, and encrypted-looking URL decryption failures are no longer silently treated as plaintext. |
+| 23 | Medium | Security | **Resolved** | `android:allowBackup` is now `false`. |
+| 24 | Medium | Architecture | **Resolved** | PocketBase sync scaffolding was removed; Supabase is the only cloud sync backend in source. |
 
-Plus the project-wide risk: **no automated tests** (see below).
+Project-wide testing risk: **reduced, not broad yet**. The project now has a JUnit harness and `AesGcmDecryptorTest`, so it no longer has zero tests. Coverage is still thin for playback resolution, local scanning, network parsing, Room, and JNI.
 
 ---
 
 ## Testing gap
 
-The project has **zero** `test`/`androidTest` sources. The highest-value first tests, ordered by risk × tractability:
+Current automated coverage:
 
-1. **`StreamResolver` / `ResolvePlaybackUseCase`** — pure-ish mapping of `PlaybackSource` → `MediaItem`, including the DASH and ISRC-fallback branches (catches #4). Easy to unit-test with fakes.
-2. **`QobuzIdRegistry` routing** — the correctness of every Qobuz playback path depends on it; test register/lookup/slug-mapping and round-trip through DataStore.
-3. **`MediaScanner` grouping** — `groupingKey` stability, synthetic-bucket suppression, artist-from-title recovery (catches #8). Use an in-memory Room DB.
-4. **`AesGcmDecryptor`** — encrypt/decrypt round-trip, tampered-tag rejection, the `decryptUrl` fallback behavior (catches #22).
-5. **`HiFiApiClient` parsing** — feed captured JSON fixtures through the lenient decoder to lock the model defaults and the `unwrapResponse` envelope handling (catches the `{"data": null}` bug).
-6. **`LocalMediaDao.deleteTracksNotIn`** — a Robolectric/instrumented test with > 1,000 paths reproduces #1.
-7. A minimal **JNI smoke test** (instrumented) that loads each `.so` and calls `nativeCreate`/`nativeDestroy` to catch native ABI/loader regressions in CI.
+1. **`AesGcmDecryptorTest`** — AES-GCM decrypt round-trip with prepended IV, tampered-tag rejection, and plaintext URL passthrough.
 
-Adding even a small JUnit + Robolectric harness around the data/domain layer would de-risk the most bug-dense subsystems.
+Highest-value next tests, ordered by risk × tractability:
+
+1. **`StreamResolver` / `ResolvePlaybackUseCase`** — mapping of `PlaybackSource` → `MediaItem`, including DASH and ISRC-fallback branches.
+2. **`QobuzIdRegistry` routing** — register/lookup/slug mapping and round-trip through DataStore.
+3. **`MediaScanner` grouping** — grouping-key stability, synthetic-bucket suppression, and artist-from-title recovery against an in-memory Room DB.
+4. **`HiFiApiClient` parsing** — captured JSON fixtures for model defaults, lenient envelopes, and `{"data": null}` handling.
+5. **`LocalMediaDao.deleteTracksNotIn`** — a Robolectric/instrumented test with > 1,000 paths to lock the large-library fix.
+6. A minimal **JNI smoke test** that loads each `.so` and calls create/destroy entry points in CI.
 
 ---
 
 ## Recommendations
 
-**P0 — correctness / data-loss / crashes**
-- Fix #1 (`deleteTracksNotIn` SQL-variable overflow) — a real crash on large libraries.
-- Add real Room migrations and stop relying on `fallbackToDestructiveMigration` (#15) before the next schema change.
-- Fix #4 (DASH hi-res playback) and stabilize local navigation ids (#8).
-- Confirm Supabase RLS and plan anon-key rotation (#3); decide the canonical sync backend (#24).
+**P0 — remaining release blockers**
+- Confirm Supabase RLS on every table touched by the anon role, then rotate the old anon key that was previously committed.
+- Add explicit Room migrations before the next schema version bump; destructive fallback is gone, so missing migrations should be caught before release.
+- Run manual QA for the fixed playback, local-library scan, EQ, Car Mode, and deep-link flows on a device.
 
-**P1 — high-value features that are silently broken / misleading**
-- Wire or remove: Car Mode EQ (#2), the file watcher / incremental scan (#10), the measurement-upload screen (#19), Last.fm scrobbling, and `ReplayGainProcessor` (#5).
-- Address negative caching + search timeouts in `HiFiApiClient` (#13, #14).
-- Tighten backup security (#23) and the collection-key story (#22).
+**P1 — test and observability depth**
+- Add the next unit tests listed above, starting with `StreamResolver` and `MediaScanner`.
+- Add an instrumented JNI smoke test for the three native libraries.
+- Keep scrobbling behavior visible in logs/settings when Last.fm credentials are absent from build config.
 
 **P2 — maintainability**
-- Split the god files (`SettingsScreen`, `HiFiApiClient`, `EqViewModel`, `PreferencesManager`); separate the TIDAL and Qobuz clients.
-- Collapse the **two playback drivers** into one resolution path (or document the split rigorously).
-- Introduce a unit-test harness (see Testing gap) and delete the dead code (`ModePill`, `QueueHero`, `ui/eq/SpectrumAnalyzer.kt`, dead VM methods, removed bottom-nav scaffolding).
+- Split the god files (`SettingsScreen`, `HiFiApiClient`, `EqViewModel`, `PreferencesManager`); separating TIDAL and Qobuz clients is still the cleanest future boundary.
+- Collapse or document the two playback driver paths so future stream-resolution changes do not drift again.
+- Delete remaining dead UI/code scaffolding (`ModePill`, `QueueHero`, `ui/eq/SpectrumAnalyzer.kt`, removed bottom-nav remnants) when no longer needed.
 
 ---
 
 ## Open questions
 
-- Is Supabase **or** PocketBase the intended cloud backend going forward, and is the other mid-removal? (`data/sync` ships both.)
-- Is the `security-crypto` dependency intended to back collection-key storage, or is it vestigial? Where do collection decryption keys actually originate and how are they protected at rest?
-- Are the self-hosted HiFi/Qobuz instances guaranteed HTTPS (given cleartext is globally disabled and there is no per-domain net-sec-config)?
-- What is the intended status of the unreachable **search** route and the **car-mode EQ** — ship, or cut?
-- The Qobuz `/api/download-music` field name was "never confirmed" per inline comments — is there a real API spec to narrow the over-defensive parsing against?
-- **[focused-pass subsystems]** The native DSP snap-ins, the projectM GL/ring-buffer model, and the USB iso pump were documented from signatures + CMake, not a full read — a deep audit pass on `audio-dsp-native`, `visualizer`, and `usb-audio` is owed to characterize their audio-thread/real-time behavior.
+- Have Supabase Row-Level-Security policies been verified for every table exposed to the anon key?
+- Are the self-hosted HiFi/Qobuz instances guaranteed HTTPS, given cleartext is globally disabled and there is no per-domain network security config?
+- The Qobuz `/api/download-music` field name was "never confirmed" per inline comments — is there a real API spec to narrow the defensive parsing?
+- **[focused-pass subsystems]** The native DSP snap-ins, projectM GL/ring-buffer model, and USB iso pump were documented from signatures + CMake, not a full read. A deep audit pass on `audio-dsp-native`, `visualizer`, and `usb-audio` is still owed to characterize real-time behavior.

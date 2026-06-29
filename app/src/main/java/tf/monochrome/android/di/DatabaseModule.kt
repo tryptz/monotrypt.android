@@ -30,12 +30,11 @@ object DatabaseModule {
             context,
             MusicDatabase::class.java,
             "monochrome_db"
-        ).fallbackToDestructiveMigration().build()
+        ).build()
     }
 
     // Separate DB for measured audio features — kept apart from MusicDatabase
-    // so its schema can evolve without that DB's destructive migration wiping
-    // the user's library.
+    // so this schema can evolve without forcing a MusicDatabase version bump.
     @Provides
     @Singleton
     fun provideAudioFeatureDatabase(@ApplicationContext context: Context): AudioFeatureDatabase {
@@ -43,7 +42,7 @@ object DatabaseModule {
             context,
             AudioFeatureDatabase::class.java,
             "audio_features_db"
-        ).fallbackToDestructiveMigration().build()
+        ).build()
     }
 
     @Provides

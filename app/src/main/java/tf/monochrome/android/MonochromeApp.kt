@@ -24,6 +24,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import tf.monochrome.android.data.auth.SupabaseAuthManager
 import tf.monochrome.android.data.device.DeviceRegistry
+import tf.monochrome.android.data.local.watcher.FileObserverService
+import tf.monochrome.android.data.preferences.PreferencesManager
 import tf.monochrome.android.debug.CrashLogger
 import tf.monochrome.android.debug.DebugLogCollector
 import tf.monochrome.android.performance.DeviceCapabilities
@@ -80,6 +82,12 @@ class MonochromeApp : Application(), Configuration.Provider, SingletonImageLoade
 
     @Inject
     lateinit var crashLogger: CrashLogger
+
+    @Inject
+    lateinit var preferences: PreferencesManager
+
+    @Inject
+    lateinit var fileObserverService: FileObserverService
 
     @Inject
     lateinit var usbExclusiveController: tf.monochrome.android.audio.usb.UsbExclusiveController
@@ -164,6 +172,14 @@ class MonochromeApp : Application(), Configuration.Provider, SingletonImageLoade
         // (tempo/energy/key/…). The worker no-ops when the setting is off and
         // resumes where it left off, so this is safe to call on every launch.
         audioAnalysisManager.ensureScheduled()
+        appScope.launch {
+            preferences.userFolderRoots
+                .distinctUntilChanged()
+                .collect { roots ->
+                    if (roots.isEmpty()) fileObserverService.stopWatching()
+                    else fileObserverService.startWatching(roots.toList())
+                }
+        }
         // Restore auth on app start, then register this device against whichever
         // user is signed in. The collector re-fires on sign-in / sign-out.
         appScope.launch {

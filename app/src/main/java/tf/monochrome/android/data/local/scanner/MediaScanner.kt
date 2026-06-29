@@ -102,8 +102,7 @@ class MediaScanner @Inject constructor(
             // Prune deleted files
             emit(ScanProgress.Grouping("Removing deleted tracks..."))
             val existingPaths = mediaStoreFiles.map { it.absolutePath }.toSet()
-            localMediaDao.deleteTracksNotIn(existingPaths)
-            val removedCount = localMediaDao.getAllTrackPaths().size.let { mediaStoreFiles.size - it }
+            val removedCount = localMediaDao.deleteTracksNotIn(existingPaths)
 
             // Rebuild groupings
             emit(ScanProgress.Grouping("Building album & artist library..."))
@@ -127,13 +126,14 @@ class MediaScanner @Inject constructor(
     }.flowOn(Dispatchers.IO)
 
     fun incrementalScan(
-        minDurationMs: Long = 30_000
+        minDurationMs: Long = 30_000,
+        excludedPaths: Set<String> = emptySet()
     ): Flow<ScanProgress> = flow {
         try {
             val scanState = localMediaDao.getScanState()
             val lastScan = scanState?.lastIncremental ?: scanState?.lastFullScan ?: 0
 
-            val modifiedFiles = mediaStoreSource.queryModifiedSince(lastScan, minDurationMs)
+            val modifiedFiles = mediaStoreSource.queryModifiedSince(lastScan, minDurationMs, excludedPaths)
             if (modifiedFiles.isEmpty()) {
                 // No new tag content to read, but still rebuild groupings so
                 // album-cover-into-track propagation runs and the UI picks up
@@ -164,7 +164,7 @@ class MediaScanner @Inject constructor(
             }
 
             // Check for deleted files
-            val allMediaStorePaths = mediaStoreSource.queryAllAudio(minDurationMs)
+            val allMediaStorePaths = mediaStoreSource.queryAllAudio(minDurationMs, excludedPaths)
                 .map { it.absolutePath }.toSet()
             localMediaDao.deleteTracksNotIn(allMediaStorePaths)
 
@@ -194,7 +194,11 @@ class MediaScanner @Inject constructor(
             discNumber = tags.discNumber ?: 1,
             discTotal = tags.discTotal,
             composer = tags.composer,
+            comment = tags.comment,
             lyrics = tags.lyrics,
+            isrc = tags.isrc,
+            musicbrainzTrack = tags.musicBrainzTrack,
+            musicbrainzAlbum = tags.musicBrainzAlbum,
             codec = tags.codec.name,
             sampleRate = tags.sampleRate,
             bitDepth = tags.bitDepth,
@@ -203,6 +207,8 @@ class MediaScanner @Inject constructor(
             durationSeconds = tags.durationSeconds,
             rgTrackGain = tags.replayGainTrack,
             rgAlbumGain = tags.replayGainAlbum,
+            r128TrackGain = tags.r128TrackGain,
+            r128AlbumGain = tags.r128AlbumGain,
             hasEmbeddedArt = tags.hasEmbeddedArt,
             artworkCacheKey = tags.artworkCacheKey,
             lastScannedAt = System.currentTimeMillis()
@@ -239,8 +245,6 @@ class MediaScanner @Inject constructor(
         // observers (LocalLibraryViewModel's StateFlows) only get one
         // invalidation pass.
         musicDatabase.withTransaction {
-            localMediaDao.clearAllAlbums()
-            localMediaDao.clearAllArtists()
             localMediaDao.clearAllGenres()
 
             val albumIdByTrackPath = HashMap<String, Long>(tracks.size)
@@ -262,7 +266,9 @@ class MediaScanner @Inject constructor(
                 val isSyntheticAlbum = representative.album.isNullOrBlank()
                 val albumArt = if (isSyntheticAlbum) null
                     else albumTracks.firstOrNull { it.hasEmbeddedArt }?.artworkCacheKey
+                val existingAlbum = localMediaDao.findAlbumByGroupingKey(key)
                 val albumEntity = LocalAlbumEntity(
+                    id = existingAlbum?.id ?: 0,
                     title = representative.album ?: "Unknown Album",
                     artist = representative.albumArtist ?: representative.artist ?: "Unknown Artist",
                     year = representative.year,
@@ -275,7 +281,8 @@ class MediaScanner @Inject constructor(
                     },
                     groupingKey = key
                 )
-                val albumId = localMediaDao.upsertAlbum(albumEntity)
+                val insertedAlbumId = localMediaDao.upsertAlbum(albumEntity)
+                val albumId = existingAlbum?.id ?: insertedAlbumId
                 for (track in albumTracks) {
                     albumIdByTrackPath[track.filePath] = albumId
                     albumArtByTrackPath[track.filePath] = albumArt
@@ -296,14 +303,17 @@ class MediaScanner @Inject constructor(
                 val artistArt = if (isSyntheticArtist) null
                     else artistTracks.firstNotNullOfOrNull { it.artworkCacheKey }
                         ?: artistTracks.firstNotNullOfOrNull { albumArtByTrackPath[it.filePath] }
+                val existingArtist = localMediaDao.findArtistByNormalizedName(normalizedName)
                 val artistEntity = LocalArtistEntity(
+                    id = existingArtist?.id ?: 0,
                     name = displayName,
                     normalizedName = normalizedName,
                     albumCount = uniqueAlbums,
                     trackCount = artistTracks.size,
                     artworkCacheKey = artistArt
                 )
-                val artistId = localMediaDao.upsertArtist(artistEntity)
+                val insertedArtistId = localMediaDao.upsertArtist(artistEntity)
+                val artistId = existingArtist?.id ?: insertedArtistId
                 for (track in artistTracks) artistIdByTrackPath[track.filePath] = artistId
             }
 
@@ -329,6 +339,8 @@ class MediaScanner @Inject constructor(
             for ((genre, count) in genreSet) {
                 localMediaDao.upsertGenre(LocalGenreEntity(name = genre, trackCount = count))
             }
+            localMediaDao.pruneOrphanAlbums()
+            localMediaDao.pruneOrphanArtists()
         }
     }
 

@@ -1,10 +1,12 @@
 package tf.monochrome.android.player
 
 import android.net.Uri
+import android.util.Base64
 import androidx.annotation.OptIn
 import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import tf.monochrome.android.data.api.QobuzIdRegistry
 import tf.monochrome.android.data.api.QobuzTrackMatch
@@ -48,6 +50,15 @@ class StreamResolver @Inject constructor(
         return if (parsed.scheme.isNullOrBlank()) Uri.fromFile(File(raw)) else parsed
     }
 
+    private fun dashManifestUri(manifestOrUrl: String): Uri {
+        if (!manifestOrUrl.contains("<MPD")) return manifestOrUrl.toUri()
+        val encoded = Base64.encodeToString(
+            manifestOrUrl.toByteArray(Charsets.UTF_8),
+            Base64.NO_WRAP
+        )
+        return "data:application/dash+xml;base64,$encoded".toUri()
+    }
+
     // Legacy method for existing Track model. Returns (null, null) when the
     // stream couldn't be resolved — callers must skip instead of feeding an
     // empty MediaItem to ExoPlayer.
@@ -55,11 +66,10 @@ class StreamResolver @Inject constructor(
         val streamResult = repository.getTrackStream(track.id)
         val trackStream = streamResult.getOrNull()
 
-        // For non-DASH streams the URL must be non-blank — DASH carries its
-        // payload inline via base64-encoded MPD and the URL is therefore
-        // intentionally empty at this stage; PlaybackService rebuilds the
-        // DashMediaSource separately.
-        if (trackStream != null && (trackStream.isDash || trackStream.streamUrl.isNotBlank())) {
+        // DASH carries its payload inline as MPD XML, so convert it to a
+        // playable data: URI here instead of handing the session a URI-less
+        // MediaItem. Blank manifests are treated as unresolved.
+        if (trackStream != null && trackStream.streamUrl.isNotBlank()) {
             return Pair(buildMediaItem(track, trackStream.streamUrl, trackStream.isDash), trackStream)
         }
 
@@ -203,11 +213,9 @@ class StreamResolver @Inject constructor(
         val streamResult = repository.getTrackStream(source.tidalId)
         val trackStream = streamResult.getOrNull()
 
-        // DASH carries its MPD inline (PlaybackService rebuilds the source),
-        // so an unset URI is fine in that case. Otherwise we need a real URL.
+        // DASH carries its MPD inline, but callers still need a playable URI.
         val isDash = trackStream?.isDash == true
-        val isPlayable = trackStream != null &&
-            (isDash || trackStream.streamUrl.isNotBlank())
+        val isPlayable = trackStream != null && trackStream.streamUrl.isNotBlank()
 
         // TIDAL unavailable — try the same song on Qobuz before giving up.
         if (!isPlayable) {
@@ -246,8 +254,13 @@ class StreamResolver @Inject constructor(
             .setMediaId(track.id)
             .setMediaMetadata(metadata)
             .apply {
-                if (trackStream != null && trackStream.streamUrl.isNotBlank() && !trackStream.isDash) {
-                    setUri(trackStream.streamUrl.toUri())
+                if (trackStream != null && trackStream.streamUrl.isNotBlank()) {
+                    if (trackStream.isDash) {
+                        setUri(dashManifestUri(trackStream.streamUrl))
+                        setMimeType(MimeTypes.APPLICATION_MPD)
+                    } else {
+                        setUri(trackStream.streamUrl.toUri())
+                    }
                 }
             }
             .build()
@@ -395,10 +408,13 @@ class StreamResolver @Inject constructor(
             .setMediaId(track.id.toString())
             .setMediaMetadata(metadata)
 
-        // DASH has no progressive URL — PlaybackService synthesises a
-        // data: URI at play time. For everything else, attach the URL.
-        if (!isDash && streamUrl.isNotBlank()) {
-            builder.setUri(streamUrl.toUri())
+        if (streamUrl.isNotBlank()) {
+            if (isDash) {
+                builder.setUri(dashManifestUri(streamUrl))
+                builder.setMimeType(MimeTypes.APPLICATION_MPD)
+            } else {
+                builder.setUri(streamUrl.toUri())
+            }
         }
 
         return builder.build()

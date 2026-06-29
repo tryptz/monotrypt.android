@@ -15,9 +15,11 @@ import javax.inject.Singleton
  * Owns the measured-feature store and the analysis worklist.
  *
  * "Every song in the user's library" = the local library plus the user's
- * streamed tracks they actually have a relationship with (favourites +
- * history) — NOT the entire streaming catalogue. Everything is deduplicated by
- * [normKey] so a song shared across sources is analysed once.
+ * streamed tracks they actually have a relationship with (playback history and
+ * favourites) — NOT the entire streaming catalogue. The playback-time
+ * coordinator also analyzes newly resolved streams immediately so any played
+ * track can seed radio even before the batch worker catches up. Everything is
+ * deduplicated by [normKey] so a song shared across sources is analysed once.
  */
 @Singleton
 class AudioFeatureRepository @Inject constructor(
@@ -33,6 +35,10 @@ class AudioFeatureRepository @Inject constructor(
     suspend fun featuresFor(track: UnifiedTrack): AudioFeatureEntity? = dao.get(normKeyOf(track))
 
     suspend fun featuresForKey(normKey: String): AudioFeatureEntity? = dao.get(normKey)
+
+    fun observeFeaturesFor(track: UnifiedTrack): Flow<AudioFeatureEntity?> = dao.observe(normKeyOf(track))
+
+    suspend fun allFeatures(): List<AudioFeatureEntity> = dao.all()
 
     suspend fun save(track: UnifiedTrack, f: MeasuredFeatures, analyzedAt: Long) {
         dao.upsert(
@@ -72,5 +78,8 @@ class AudioFeatureRepository @Inject constructor(
     }
 
     fun normKeyOf(track: UnifiedTrack): String =
-        SpotifyFeatureDb.normalize(track.artistName) + "|" + SpotifyFeatureDb.normalize(track.title)
+        normKeyOf(track.artistName, track.title)
+
+    fun normKeyOf(artist: String, title: String): String =
+        SpotifyFeatureDb.normalize(artist) + "|" + SpotifyFeatureDb.normalize(title)
 }

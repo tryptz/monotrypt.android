@@ -12,9 +12,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
 import tf.monochrome.android.data.collections.db.CollectionEntity
 import tf.monochrome.android.data.collections.repository.CollectionRepository
 import tf.monochrome.android.data.local.db.LocalFolderEntity
@@ -39,6 +42,8 @@ class LocalLibraryViewModel @Inject constructor(
     private val backupManager: BackupManager,
     private val preferencesManager: PreferencesManager
 ) : ViewModel() {
+
+    private val json = Json { ignoreUnknownKeys = true }
 
     // ── Local media ─────────────────────────────────────────────────
 
@@ -143,7 +148,9 @@ class LocalLibraryViewModel @Inject constructor(
         if (_isScanning.value) return
         viewModelScope.launch {
             _isScanning.value = true
-            scanLocalMediaUseCase.fullScan().collect { progress ->
+            val minDurationMs = preferencesManager.minTrackDurationMs.first()
+            val excludedPaths = loadExcludedPaths()
+            scanLocalMediaUseCase.fullScan(minDurationMs, excludedPaths).collect { progress ->
                 _scanProgress.value = progress
                 if (progress is ScanProgress.Complete || progress is ScanProgress.Error) {
                     _isScanning.value = false
@@ -156,13 +163,23 @@ class LocalLibraryViewModel @Inject constructor(
         if (_isScanning.value) return
         viewModelScope.launch {
             _isScanning.value = true
-            scanLocalMediaUseCase.incrementalScan().collect { progress ->
+            val minDurationMs = preferencesManager.minTrackDurationMs.first()
+            val excludedPaths = loadExcludedPaths()
+            scanLocalMediaUseCase.incrementalScan(minDurationMs, excludedPaths).collect { progress ->
                 _scanProgress.value = progress
                 if (progress is ScanProgress.Complete || progress is ScanProgress.Error) {
                     _isScanning.value = false
                 }
             }
         }
+    }
+
+    private suspend fun loadExcludedPaths(): Set<String> {
+        val raw = preferencesManager.excludedPathsJson.first()
+        return runCatching { json.decodeFromString<Set<String>>(raw) }
+            .getOrDefault(emptySet())
+            .filter { it.isNotBlank() }
+            .toSet()
     }
 
     // ── Collection import ───────────────────────────────────────────

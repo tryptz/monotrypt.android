@@ -23,6 +23,17 @@ if (localPropertiesFile.exists()) {
     localPropertiesFile.inputStream().use(localProperties::load)
 }
 
+fun configValue(name: String): String =
+    (providers.gradleProperty(name).orNull
+        ?: localProperties.getProperty(name)
+        ?: System.getenv(name)
+        ?: "").trim()
+
+fun buildConfigString(value: String): String =
+    "\"" + value
+        .replace("\\", "\\\\")
+        .replace("\"", "\\\"") + "\""
+
 
 
 val hasCompleteReleaseSigning = requiredSigningKeys.all { key ->
@@ -50,10 +61,14 @@ android {
         applicationId = "tf.monotrypt.android"
         minSdk = 26
         targetSdk = 36
-        versionCode = 164
-        versionName = "1.6.4"
+        versionCode = 165
+        versionName = "1.6.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "SUPABASE_URL", buildConfigString(configValue("SUPABASE_URL")))
+        buildConfigField("String", "SUPABASE_ANON_KEY", buildConfigString(configValue("SUPABASE_ANON_KEY")))
+        buildConfigField("String", "LASTFM_API_KEY", buildConfigString(configValue("LASTFM_API_KEY")))
+        buildConfigField("String", "LASTFM_API_SECRET", buildConfigString(configValue("LASTFM_API_SECRET")))
 
         externalNativeBuild {
             cmake {
@@ -216,9 +231,6 @@ dependencies {
     // Media (Android Auto)
     implementation(libs.media)
 
-    // Security (Keystore for collection encryption keys)
-    implementation(libs.security.crypto)
-
     // Google Sign-In (Credential Manager)
     implementation(libs.credentials)
     implementation(libs.credentials.play.services)
@@ -234,4 +246,6 @@ dependencies {
     // Bundles app/src/main/baseline-prof.txt into the APK so ProfileInstaller
     // AOT-compiles hot Compose code paths on first launch.
     implementation(libs.profileinstaller)
+
+    testImplementation(libs.junit)
 }

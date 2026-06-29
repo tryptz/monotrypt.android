@@ -50,6 +50,12 @@ interface AudioFeatureDao {
     @Query("SELECT * FROM audio_features WHERE normKey = :normKey LIMIT 1")
     suspend fun get(normKey: String): AudioFeatureEntity?
 
+    @Query("SELECT * FROM audio_features WHERE normKey = :normKey LIMIT 1")
+    fun observe(normKey: String): Flow<AudioFeatureEntity?>
+
+    @Query("SELECT * FROM audio_features")
+    suspend fun all(): List<AudioFeatureEntity>
+
     @Query("SELECT normKey FROM audio_features")
     suspend fun allKeys(): List<String>
 
@@ -66,8 +72,7 @@ interface AudioFeatureDao {
 /**
  * Standalone database for measured audio features — deliberately separate from
  * MusicDatabase so adding/evolving this schema never bumps MusicDatabase's
- * version (which is built with fallbackToDestructiveMigration and would wipe
- * the user's library/favourites on a bump).
+ * version or risks the user's library/favourites during migrations.
  */
 @Database(entities = [AudioFeatureEntity::class], version = 1, exportSchema = false)
 abstract class AudioFeatureDatabase : RoomDatabase() {

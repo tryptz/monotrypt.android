@@ -96,6 +96,43 @@ class SpotifyFeatureDb @Inject constructor(
             arrayOf(genre, limit.toString()),
         )
 
+    /**
+     * Broad candidate pool for a measured on-device seed. The bundled Spotify
+     * DB has no spectral-brightness/key fields, so SQL only narrows by energy
+     * and orders by the available comparable dimensions.
+     */
+    fun rowsNearMeasured(
+        energy: Double,
+        tempo: Double?,
+        loudness: Double?,
+        limit: Int = 1500,
+    ): List<FeatureRow> {
+        val clampedEnergy = energy.coerceIn(0.0, 1.0)
+        val whereArgs = mutableListOf(
+            (clampedEnergy - 0.50).coerceAtLeast(0.0).toString(),
+            (clampedEnergy + 0.50).coerceAtMost(1.0).toString(),
+        )
+        val orderTerms = mutableListOf("ABS(energy - ?) * 1.6")
+        val orderArgs = mutableListOf(clampedEnergy.toString())
+
+        tempo?.takeIf { it > 1.0 }?.let {
+            orderTerms += "ABS(tempo - ?) / 250.0"
+            orderArgs += it.toString()
+        }
+        loudness?.takeIf { it < 0.0 }?.let {
+            orderTerms += "ABS(loudness - ?) / 60.0"
+            orderArgs += it.toString()
+        }
+
+        return query(
+            "SELECT $COLS FROM tracks " +
+                "WHERE energy BETWEEN ? AND ? " +
+                "ORDER BY ${orderTerms.joinToString(" + ")}, popularity DESC " +
+                "LIMIT ?",
+            (whereArgs + orderArgs + limit.toString()).toTypedArray(),
+        )
+    }
+
     /** All distinct genres in the dataset (114 of them). */
     fun genres(): List<String> {
         val out = ArrayList<String>(120)

@@ -9,6 +9,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import tf.monochrome.android.domain.model.AudioCodec
 import java.io.File
 import java.io.FileOutputStream
+import java.nio.charset.Charset
 import java.security.MessageDigest
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -30,6 +31,9 @@ data class AudioTags(
     val composer: String? = null,
     val comment: String? = null,
     val lyrics: String? = null,
+    val isrc: String? = null,
+    val musicBrainzTrack: String? = null,
+    val musicBrainzAlbum: String? = null,
 
     // Audio properties
     val codec: AudioCodec = AudioCodec.UNKNOWN,
@@ -42,6 +46,8 @@ data class AudioTags(
     // Replay Gain (parsed from custom tags when available)
     val replayGainTrack: Float? = null,
     val replayGainAlbum: Float? = null,
+    val r128TrackGain: Int? = null,
+    val r128AlbumGain: Int? = null,
 
     // Artwork
     val hasEmbeddedArt: Boolean = false,
@@ -148,7 +154,7 @@ class TagReader @Inject constructor(
         val artworkBytes = retriever.embeddedPicture
         val hasArt = artworkBytes != null
         val artworkCacheKey = when {
-            hasArt && artworkBytes != null -> cacheArtwork(artworkBytes, filePath)
+            artworkBytes != null -> cacheArtwork(artworkBytes, filePath)
             // Per-track sidecar: an image next to the audio file with the
             // same stem (e.g. "song.flac" + "song.jpg"). yt-dlp, Bandcamp,
             // and rip workflows all produce this convention. Checked before
@@ -172,6 +178,7 @@ class TagReader @Inject constructor(
                 finalTitle = derivedTitle
             }
         }
+        val extended = readExtendedTags(filePath)
 
         return AudioTags(
             title = finalTitle,
@@ -185,12 +192,21 @@ class TagReader @Inject constructor(
             discNumber = discNumber,
             discTotal = discTotal,
             composer = composer,
+            comment = extended.comment,
+            lyrics = extended.lyrics,
+            isrc = extended.isrc,
+            musicBrainzTrack = extended.musicBrainzTrack,
+            musicBrainzAlbum = extended.musicBrainzAlbum,
             codec = codec,
             sampleRate = sampleRateStr?.toIntOrNull() ?: 44100,
             bitDepth = bitsPerSample?.toIntOrNull(),
             bitRate = (bitRateStr?.toLongOrNull() ?: 0L).let { (it / 1000).toInt() },
             channels = numChannels?.toIntOrNull() ?: 2,
             durationSeconds = (durationMs / 1000).toInt(),
+            replayGainTrack = extended.replayGainTrack,
+            replayGainAlbum = extended.replayGainAlbum,
+            r128TrackGain = extended.r128TrackGain,
+            r128AlbumGain = extended.r128AlbumGain,
             hasEmbeddedArt = hasArtOrSidecar,
             artworkCacheKey = artworkCacheKey,
             filePath = filePath,
@@ -198,6 +214,253 @@ class TagReader @Inject constructor(
             lastModified = lastModified
         )
     }
+
+    private data class ExtendedAudioTags(
+        val comment: String? = null,
+        val lyrics: String? = null,
+        val isrc: String? = null,
+        val musicBrainzTrack: String? = null,
+        val musicBrainzAlbum: String? = null,
+        val replayGainTrack: Float? = null,
+        val replayGainAlbum: Float? = null,
+        val r128TrackGain: Int? = null,
+        val r128AlbumGain: Int? = null,
+    )
+
+    private fun readExtendedTags(filePath: String): ExtendedAudioTags {
+        val file = File(filePath)
+        if (!file.isFile) return ExtendedAudioTags()
+
+        val values = when (file.extension.lowercase()) {
+            "flac" -> readFlacVorbisComments(file)
+            "mp3" -> readId3v2Tags(file).ifEmpty { readVisibleKeyValueTags(file) }
+            "ogg", "oga", "opus" -> readVisibleKeyValueTags(file)
+            else -> emptyMap()
+        }
+        if (values.isEmpty()) return ExtendedAudioTags()
+
+        return ExtendedAudioTags(
+            comment = values.firstTag("COMMENT", "DESCRIPTION"),
+            lyrics = values.firstTag("LYRICS", "UNSYNCEDLYRICS", "USLT"),
+            isrc = values.firstTag("ISRC", "TSRC"),
+            musicBrainzTrack = values.firstTag(
+                "MUSICBRAINZ_TRACKID",
+                "MUSICBRAINZ_TRACK_ID",
+                "MUSICBRAINZ_RELEASETRACKID",
+                "MUSICBRAINZ_RELEASE_TRACK_ID",
+                "MUSICBRAINZ TRACK ID"
+            ),
+            musicBrainzAlbum = values.firstTag(
+                "MUSICBRAINZ_ALBUMID",
+                "MUSICBRAINZ_ALBUM_ID",
+                "MUSICBRAINZ RELEASE ID",
+                "MUSICBRAINZ_RELEASEID"
+            ),
+            replayGainTrack = values.firstTag("REPLAYGAIN_TRACK_GAIN")
+                ?.parseDbFloat(),
+            replayGainAlbum = values.firstTag("REPLAYGAIN_ALBUM_GAIN")
+                ?.parseDbFloat(),
+            r128TrackGain = values.firstTag("R128_TRACK_GAIN")?.parseIntTag(),
+            r128AlbumGain = values.firstTag("R128_ALBUM_GAIN")?.parseIntTag(),
+        )
+    }
+
+    private fun readFlacVorbisComments(file: File): Map<String, String> = runCatching<Map<String, String>> {
+        file.inputStream().use { input ->
+            val marker = ByteArray(4)
+            if (input.read(marker) != 4 || marker.decodeToString() != "fLaC") {
+                return@use emptyMap<String, String>()
+            }
+
+            val header = ByteArray(4)
+            while (input.read(header) == 4) {
+                val isLast = header[0].toInt() and 0x80 != 0
+                val type = header[0].toInt() and 0x7F
+                val length = ((header[1].toInt() and 0xFF) shl 16) or
+                    ((header[2].toInt() and 0xFF) shl 8) or
+                    (header[3].toInt() and 0xFF)
+                if (length <= 0) {
+                    if (isLast) break
+                    continue
+                }
+
+                if (type == 4) {
+                    val block = input.readNBytes(length)
+                    return@use parseVorbisCommentBlock(block)
+                }
+
+                input.skip(length.toLong())
+                if (isLast) break
+            }
+            emptyMap<String, String>()
+        }
+    }.getOrDefault(emptyMap())
+
+    private fun parseVorbisCommentBlock(block: ByteArray): Map<String, String> {
+        var offset = 0
+        fun readLeInt(): Int? {
+            if (offset + 4 > block.size) return null
+            val value = (block[offset].toInt() and 0xFF) or
+                ((block[offset + 1].toInt() and 0xFF) shl 8) or
+                ((block[offset + 2].toInt() and 0xFF) shl 16) or
+                ((block[offset + 3].toInt() and 0xFF) shl 24)
+            offset += 4
+            return value
+        }
+
+        val vendorLength = readLeInt() ?: return emptyMap()
+        if (vendorLength < 0 || offset + vendorLength > block.size) return emptyMap()
+        offset += vendorLength
+
+        val count = readLeInt() ?: return emptyMap()
+        val values = linkedMapOf<String, String>()
+        repeat(count.coerceAtLeast(0)) {
+            val length = readLeInt() ?: return@repeat
+            if (length < 0 || offset + length > block.size) return@repeat
+            val raw = block.copyOfRange(offset, offset + length).toString(Charsets.UTF_8)
+            offset += length
+            val separator = raw.indexOf('=')
+            if (separator > 0) {
+                values.putIfAbsent(
+                    normalizeTagKey(raw.substring(0, separator)),
+                    raw.substring(separator + 1).trim()
+                )
+            }
+        }
+        return values
+    }
+
+    private fun readId3v2Tags(file: File): Map<String, String> = runCatching<Map<String, String>> {
+        file.inputStream().use { input ->
+            val header = input.readNBytes(10)
+            if (header.size < 10 || header[0] != 'I'.code.toByte() ||
+                header[1] != 'D'.code.toByte() || header[2] != '3'.code.toByte()
+            ) {
+                return@use emptyMap<String, String>()
+            }
+
+            val majorVersion = header[3].toInt() and 0xFF
+            if (majorVersion !in 3..4) return@use emptyMap<String, String>()
+            val tagSize = syncSafeInt(header, 6).coerceAtMost(1_048_576)
+            val data = input.readNBytes(tagSize)
+            parseId3Frames(data, majorVersion)
+        }
+    }.getOrDefault(emptyMap())
+
+    private fun parseId3Frames(data: ByteArray, majorVersion: Int): Map<String, String> {
+        val values = linkedMapOf<String, String>()
+        var offset = 0
+        while (offset + 10 <= data.size) {
+            val frameId = data.copyOfRange(offset, offset + 4).toString(Charsets.ISO_8859_1)
+            if (frameId.any { it.code == 0 }) break
+            val frameSize = if (majorVersion == 4) syncSafeInt(data, offset + 4)
+                else bigEndianInt(data, offset + 4)
+            if (frameSize <= 0 || offset + 10 + frameSize > data.size) break
+
+            val payload = data.copyOfRange(offset + 10, offset + 10 + frameSize)
+            when {
+                frameId == "TXXX" -> parseId3UserText(payload)?.let { (name, value) ->
+                    values.putIfAbsent(normalizeTagKey(name), value)
+                }
+                frameId == "COMM" -> parseId3Comment(payload)?.let {
+                    values.putIfAbsent(normalizeTagKey("COMMENT"), it)
+                }
+                frameId == "USLT" -> parseId3Comment(payload)?.let {
+                    values.putIfAbsent(normalizeTagKey("USLT"), it)
+                }
+                frameId == "TSRC" -> decodeId3Text(payload)?.let {
+                    values.putIfAbsent(normalizeTagKey("TSRC"), it)
+                }
+                frameId.startsWith("T") -> decodeId3Text(payload)?.let {
+                    values.putIfAbsent(normalizeTagKey(frameId), it)
+                }
+            }
+            offset += 10 + frameSize
+        }
+        return values
+    }
+
+    private fun readVisibleKeyValueTags(file: File): Map<String, String> = runCatching {
+        val bytes = file.inputStream().use { it.readNBytes(1_048_576) }
+        val text = bytes.toString(Charsets.ISO_8859_1)
+        val keys = listOf(
+            "REPLAYGAIN_TRACK_GAIN", "REPLAYGAIN_ALBUM_GAIN",
+            "R128_TRACK_GAIN", "R128_ALBUM_GAIN",
+            "ISRC", "MUSICBRAINZ_TRACKID", "MUSICBRAINZ_ALBUMID",
+            "MUSICBRAINZ_RELEASETRACKID", "MUSICBRAINZ_RELEASEID",
+            "LYRICS", "UNSYNCEDLYRICS", "COMMENT", "DESCRIPTION"
+        )
+        val values = linkedMapOf<String, String>()
+        keys.forEach { key ->
+            val pattern = Regex("${Regex.escape(key)}=([^\\u0000\\r\\n]+)", RegexOption.IGNORE_CASE)
+            pattern.find(text)?.groupValues?.getOrNull(1)?.trim()?.let { value ->
+                values.putIfAbsent(normalizeTagKey(key), value)
+            }
+        }
+        values
+    }.getOrDefault(emptyMap())
+
+    private fun parseId3UserText(payload: ByteArray): Pair<String, String>? {
+        val decoded = decodeId3Text(payload) ?: return null
+        val parts = decoded.split('\u0000').map { it.trim() }.filter { it.isNotEmpty() }
+        if (parts.size < 2) return null
+        return parts.first() to parts.drop(1).joinToString(" ").trim()
+    }
+
+    private fun parseId3Comment(payload: ByteArray): String? {
+        if (payload.size < 5) return null
+        val encoding = payload[0]
+        val body = payload.copyOfRange(4, payload.size)
+        val decoded = decodeEncodedText(encoding, body) ?: return null
+        return decoded.split('\u0000').lastOrNull { it.isNotBlank() }?.trim()
+    }
+
+    private fun decodeId3Text(payload: ByteArray): String? {
+        if (payload.isEmpty()) return null
+        return decodeEncodedText(payload[0], payload.copyOfRange(1, payload.size))
+            ?.trim('\u0000', ' ', '\r', '\n')
+            ?.takeIf { it.isNotBlank() }
+    }
+
+    private fun decodeEncodedText(encoding: Byte, data: ByteArray): String? {
+        val charset = when (encoding.toInt()) {
+            0 -> Charsets.ISO_8859_1
+            1 -> Charsets.UTF_16
+            2 -> Charset.forName("UTF-16BE")
+            3 -> Charsets.UTF_8
+            else -> Charsets.UTF_8
+        }
+        return runCatching { data.toString(charset) }.getOrNull()
+    }
+
+    private fun syncSafeInt(bytes: ByteArray, offset: Int): Int =
+        ((bytes[offset].toInt() and 0x7F) shl 21) or
+            ((bytes[offset + 1].toInt() and 0x7F) shl 14) or
+            ((bytes[offset + 2].toInt() and 0x7F) shl 7) or
+            (bytes[offset + 3].toInt() and 0x7F)
+
+    private fun bigEndianInt(bytes: ByteArray, offset: Int): Int =
+        ((bytes[offset].toInt() and 0xFF) shl 24) or
+            ((bytes[offset + 1].toInt() and 0xFF) shl 16) or
+            ((bytes[offset + 2].toInt() and 0xFF) shl 8) or
+            (bytes[offset + 3].toInt() and 0xFF)
+
+    private fun Map<String, String>.firstTag(vararg names: String): String? {
+        for (name in names) {
+            val value = this[normalizeTagKey(name)]?.takeIf { it.isNotBlank() }
+            if (value != null) return value
+        }
+        return null
+    }
+
+    private fun normalizeTagKey(raw: String): String =
+        raw.uppercase().filter { it.isLetterOrDigit() }
+
+    private fun String.parseDbFloat(): Float? =
+        Regex("""[-+]?\d+(?:\.\d+)?""").find(this)?.value?.toFloatOrNull()
+
+    private fun String.parseIntTag(): Int? =
+        Regex("""[-+]?\d+""").find(this)?.value?.toIntOrNull()
 
     /**
      * Recover "Artist" / "Title" from a title formatted as `Artist - Title`,

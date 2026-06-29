@@ -215,7 +215,7 @@ class SettingsViewModel @Inject constructor(
     val visualizerEngineStatus: StateFlow<VisualizerEngineStatus> = projectMEngineRepository.engineStatus
     val visualizerPresets: StateFlow<List<VisualizerPreset>> = projectMEngineRepository.presets
 
-    // --- PocketBase Auth ---
+    // --- Account ---
     val isLoggedIn: StateFlow<Boolean> = authRepository.isLoggedIn
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
     val userEmail: StateFlow<String?> = authRepository.userEmail

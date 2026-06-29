@@ -5,6 +5,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withTimeoutOrNull
 import tf.monochrome.android.data.api.QobuzIdRegistry
+import tf.monochrome.android.data.analysis.AudioFeatureRepository
 import tf.monochrome.android.data.repository.MusicRepository
 import tf.monochrome.android.domain.model.Track
 import tf.monochrome.android.domain.model.UnifiedTrack
@@ -31,6 +32,7 @@ class RecommendationRepository @Inject constructor(
     private val music: MusicRepository,
     private val engine: SpotifyRecommendationEngine,
     private val registry: QobuzIdRegistry,
+    private val audioFeatures: AudioFeatureRepository,
 ) {
     /**
      * Playable "radio" continuation for a seed [Track] — the Spotify-style
@@ -40,16 +42,17 @@ class RecommendationRepository @Inject constructor(
      *
      * Hybrid by design: it blends the backend's own recommendations
      * ([MusicRepository.getRecommendations], which carries the
-     * collaborative/catalog signal the audio-feature dataset lacks) with the
-     * dataset's feature-similarity picks, interleaving so each batch mixes
-     * "people also played" with "sounds like this". The backend half also
-     * needs no name-resolution, so radio still flows even if the dataset
-     * matches miss.
+     * collaborative/catalog signal the audio-feature dataset lacks), measured
+     * on-device feature matches for arbitrary played streams, and exact
+     * Spotify-dataset matches when the seed exists in the bundled DB.
      */
     suspend fun radioTracks(seed: Track, excludeIds: Set<Long>, limit: Int = 20): List<Track> =
         coroutineScope {
             val backendDeferred = async {
                 runCatching { music.getRecommendations(seed.id).getOrNull() }.getOrNull().orEmpty()
+            }
+            val measuredDeferred = async {
+                measuredRadioTracks(seed, limit * 2)
             }
             val datasetDeferred = async {
                 seed.primaryArtistName()?.let { artist ->
@@ -59,19 +62,18 @@ class RecommendationRepository @Inject constructor(
                 }.orEmpty()
             }
             val exclude = excludeIds + seed.id
-            interleave(backendDeferred.await(), datasetDeferred.await())
+            interleave(backendDeferred.await(), measuredDeferred.await(), datasetDeferred.await())
                 .distinctBy { it.id }
                 .filter { it.id !in exclude }
                 .take(limit)
         }
 
-    /** Round-robins two ranked lists so the result alternates their sources. */
-    private fun interleave(a: List<Track>, b: List<Track>): List<Track> {
-        val out = ArrayList<Track>(a.size + b.size)
-        val max = maxOf(a.size, b.size)
+    /** Round-robins ranked lists so the result alternates their sources. */
+    private fun interleave(vararg lists: List<Track>): List<Track> {
+        val out = ArrayList<Track>(lists.sumOf { it.size })
+        val max = lists.maxOfOrNull { it.size } ?: 0
         for (i in 0 until max) {
-            a.getOrNull(i)?.let { out.add(it) }
-            b.getOrNull(i)?.let { out.add(it) }
+            for (list in lists) list.getOrNull(i)?.let { out.add(it) }
         }
         return out
     }
@@ -112,6 +114,14 @@ class RecommendationRepository @Inject constructor(
         recs.map { rec -> async { resolveOne(rec.title, rec.artist) } }
             .awaitAll()
             .filterNotNull()
+    }
+
+    private suspend fun measuredRadioTracks(seed: Track, limit: Int): List<Track> {
+        val artist = seed.primaryArtistName() ?: return emptyList()
+        val key = audioFeatures.normKeyOf(artist, seed.title)
+        val seedFeatures = audioFeatures.featuresForKey(key) ?: return emptyList()
+        val recs = engine.similarToMeasured(seedFeatures, limit)
+        return resolveTracks(recs)
     }
 
     private suspend fun resolveOne(title: String, artist: String): Track? =

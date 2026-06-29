@@ -41,6 +41,7 @@ import tf.monochrome.android.data.repository.LibraryRepository
 import tf.monochrome.android.data.scrobbling.ScrobblingService
 import tf.monochrome.android.domain.model.EqBand
 import tf.monochrome.android.domain.model.ReplayGainValues
+import tf.monochrome.android.domain.model.UnifiedTrack
 import tf.monochrome.android.ui.main.MainActivity
 import tf.monochrome.android.visualizer.ProjectMAudioTapProcessor
 import tf.monochrome.android.visualizer.ProjectMEngineRepository
@@ -66,11 +67,13 @@ class PlaybackService : MediaSessionService() {
     @Inject lateinit var libusbDriver: tf.monochrome.android.audio.usb.LibusbUacDriver
     @Inject lateinit var bypassVolumeController: tf.monochrome.android.audio.usb.BypassVolumeController
     @Inject lateinit var recommendationRepository: tf.monochrome.android.data.recommendations.RecommendationRepository
+    @Inject lateinit var audioFeatureAnalysisCoordinator: tf.monochrome.android.data.analysis.AudioFeatureAnalysisCoordinator
 
     private var mediaSession: MediaSession? = null
     private lateinit var player: ExoPlayer
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var currentReplayGain: ReplayGainValues? = null
+    private var currentUnifiedTrack: UnifiedTrack? = null
 
     private companion object {
         // How many radio tracks to append each time the queue runs dry.
@@ -172,6 +175,14 @@ class PlaybackService : MediaSessionService() {
                                 val unified = unifiedTrackRegistry[trackId]
                                 libraryRepository.addToHistory(track, unified)
                                 scrobblingService.updateNowPlaying(track)
+                                if (unified != null) {
+                                    audioFeatureAnalysisCoordinator.analyzeIfNeeded(
+                                        unified,
+                                        ResolvedMedia(mediaItem = mediaItem),
+                                    )
+                                } else {
+                                    audioFeatureAnalysisCoordinator.analyzeIfNeeded(track, mediaItem)
+                                }
                             }
                         }
                     }
@@ -400,6 +411,7 @@ class PlaybackService : MediaSessionService() {
             try {
                 val (mediaItem, trackStream) = streamResolver.resolveMediaItem(track)
                 currentReplayGain = trackStream?.replayGain
+                currentUnifiedTrack = null
 
                 if (mediaItem == null) {
                     // Stream URL couldn't be resolved (offline / API error /
@@ -415,6 +427,14 @@ class PlaybackService : MediaSessionService() {
                 player.play()
 
                 libraryRepository.addToHistory(track)
+                scrobblingService.updateNowPlaying(track)
+                serviceScope.launch {
+                    audioFeatureAnalysisCoordinator.analyzeIfNeeded(
+                        track = track,
+                        mediaItem = mediaItem,
+                        isDash = trackStream?.isDash == true,
+                    )
+                }
             } catch (e: Exception) {
                 // Skip to next on error
                 onTrackEnded()
@@ -436,6 +456,7 @@ class PlaybackService : MediaSessionService() {
                 if (unifiedTrack != null) {
                     val resolved = streamResolver.resolveUnifiedTrack(unifiedTrack)
                     currentReplayGain = resolved.trackStream?.replayGain
+                    currentUnifiedTrack = unifiedTrack
                     if (!resolved.isPlayable) {
                         onTrackEnded()
                         return@launch
@@ -444,11 +465,16 @@ class PlaybackService : MediaSessionService() {
                     player.prepare()
                     player.play()
                     libraryRepository.addToHistory(currentTrack, unifiedTrack)
+                    scrobblingService.updateNowPlaying(currentTrack)
+                    serviceScope.launch {
+                        audioFeatureAnalysisCoordinator.analyzeIfNeeded(unifiedTrack, resolved)
+                    }
                     return@launch
                 }
 
                 val (mediaItem, trackStream) = streamResolver.resolveMediaItem(currentTrack)
                 currentReplayGain = trackStream?.replayGain
+                currentUnifiedTrack = null
 
                 if (mediaItem == null) {
                     onTrackEnded()
@@ -479,6 +505,14 @@ class PlaybackService : MediaSessionService() {
                 player.play()
 
                 libraryRepository.addToHistory(currentTrack)
+                scrobblingService.updateNowPlaying(currentTrack)
+                serviceScope.launch {
+                    audioFeatureAnalysisCoordinator.analyzeIfNeeded(
+                        track = currentTrack,
+                        mediaItem = mediaItem,
+                        isDash = trackStream?.isDash == true,
+                    )
+                }
 
                 // Preload next tracks
                 preloadNextTracks()
@@ -569,7 +603,9 @@ class PlaybackService : MediaSessionService() {
     private fun applyReplayGain() {
         serviceScope.launch {
             val volume = preferences.volume.first().toFloat()
-            val adjustedVolume = replayGainProcessor.calculateVolume(volume, currentReplayGain)
+            val adjustedVolume = currentUnifiedTrack?.let { unifiedTrack ->
+                replayGainProcessor.calculateVolumeUnified(volume, unifiedTrack, currentReplayGain)
+            } ?: replayGainProcessor.calculateVolume(volume, currentReplayGain)
             player.volume = adjustedVolume
             // Mirror to the libusb bypass path. Player.volume runs
             // inside DefaultAudioSink which we skip when bypass is
@@ -692,33 +728,33 @@ class PlaybackService : MediaSessionService() {
 
             // Media3 1.5.1 hands the returned items straight to
             // PlayerWrapper.setMediaItems → DefaultMediaSourceFactory, which
-            // NPEs on any item without a localConfiguration. Returning bare
-            // mediaId stubs (as we used to) crashed the session on every
-            // BT-remote / lock-screen play tap. Resolve the queue's URIs on
-            // serviceScope and complete the future when ready.
+            // NPEs on any item without a localConfiguration. Resolve only the
+            // item being resumed; the QueueManager remains the queue source of
+            // truth and later skips are lazily resolved through playQueue().
             val future = com.google.common.util.concurrent.SettableFuture
                 .create<MediaSession.MediaItemsWithStartPosition>()
             serviceScope.launch {
-                val resolvedItems = snapshot.mapNotNull { track ->
-                    val unified = unifiedTrackRegistry[track.id]
-                    if (unified != null) {
-                        val r = runCatching { streamResolver.resolveUnifiedTrack(unified) }.getOrNull()
-                        if (r?.isPlayable == true) r.mediaItem else null
-                    } else {
-                        val (mediaItem, _) = runCatching { streamResolver.resolveMediaItem(track) }
-                            .getOrDefault(Pair(null, null))
-                        mediaItem
-                    }
-                }
-                if (resolvedItems.isEmpty()) {
+                val track = snapshot.getOrNull(index) ?: snapshot.firstOrNull()
+                if (track == null) {
                     future.set(MediaSession.MediaItemsWithStartPosition(emptyList(), 0, 0L))
                     return@launch
                 }
-                val safeIndex = index.coerceAtMost(resolvedItems.lastIndex)
+
+                val mediaItem = unifiedTrackRegistry[track.id]?.let { unified ->
+                    val resolved = runCatching { streamResolver.resolveUnifiedTrack(unified) }.getOrNull()
+                    if (resolved?.isPlayable == true) resolved.mediaItem else null
+                } ?: runCatching { streamResolver.resolveMediaItem(track).first }
+                    .getOrNull()
+
+                if (mediaItem == null) {
+                    future.set(MediaSession.MediaItemsWithStartPosition(emptyList(), 0, 0L))
+                    return@launch
+                }
+
                 future.set(
                     MediaSession.MediaItemsWithStartPosition(
-                        resolvedItems,
-                        safeIndex,
+                        listOf(mediaItem),
+                        /* startIndex = */ 0,
                         /* startPositionMs = */ 0L,
                     )
                 )

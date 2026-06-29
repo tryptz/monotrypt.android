@@ -16,6 +16,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.buildJsonArray
 import tf.monochrome.android.data.preferences.PreferencesManager
 import tf.monochrome.android.domain.model.Track
+import tf.monochrome.android.BuildConfig
 import java.security.MessageDigest
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -29,11 +30,8 @@ class ScrobblingService @Inject constructor(
         private const val LASTFM_API_URL = "https://ws.audioscrobbler.com/2.0/"
         private const val LISTENBRAINZ_API_URL = "https://api.listenbrainz.org/1/submit-listens"
         
-        // In a real app, these would be in BuildConfig or secure storage
-        // Since this is a FOSS client, we'll assume they will be injected properly or requested from the user.
-        // For this implementation parity task, we will just simulate success logs if keys are missing.
-        private const val LASTFM_API_KEY = "dummy_api_key"
-        private const val LASTFM_API_SECRET = "dummy_secret"
+        private val LASTFM_API_KEY: String get() = BuildConfig.LASTFM_API_KEY
+        private val LASTFM_API_SECRET: String get() = BuildConfig.LASTFM_API_SECRET
     }
 
     private fun getMd5Hash(input: String): String {
@@ -50,7 +48,7 @@ class ScrobblingService @Inject constructor(
         val lastFmEnabled = preferences.lastFmEnabled.first()
         val listenBrainzEnabled = preferences.listenBrainzEnabled.first()
 
-        if (lastFmEnabled) {
+        if (lastFmEnabled && lastFmConfigured()) {
             updateLastFmNowPlaying(track)
         }
 
@@ -63,7 +61,7 @@ class ScrobblingService @Inject constructor(
         val lastFmEnabled = preferences.lastFmEnabled.first()
         val listenBrainzEnabled = preferences.listenBrainzEnabled.first()
 
-        if (lastFmEnabled) {
+        if (lastFmEnabled && lastFmConfigured()) {
             scrobbleLastFmTrack(track, timestampUnix)
         }
 
@@ -153,4 +151,7 @@ class ScrobblingService @Inject constructor(
         } catch (_: Exception) {
         }
     }
+
+    private fun lastFmConfigured(): Boolean =
+        LASTFM_API_KEY.isNotBlank() && LASTFM_API_SECRET.isNotBlank()
 }

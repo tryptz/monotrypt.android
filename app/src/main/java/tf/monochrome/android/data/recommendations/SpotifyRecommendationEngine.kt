@@ -2,8 +2,10 @@ package tf.monochrome.android.data.recommendations
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import tf.monochrome.android.data.analysis.AudioFeatureEntity
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.math.abs
 import kotlin.math.sqrt
 import kotlin.random.Random
 
@@ -55,6 +57,31 @@ class SpotifyRecommendationEngine @Inject constructor(
         featureDb.rowsByGenre(seed.genre)
             .filter { it.normKey != seed.normKey }
             .map { it to distance(seedVec, it.toVector()) }
+            .sortedBy { it.second }
+            .map { it.first }
+            .diversifyByArtist(maxPerArtist)
+            .take(limit)
+            .map { SpotifyRec(it.title, it.artist, it.genre) }
+    }
+
+    /**
+     * Similar tracks for a seed that is not in the bundled Spotify dataset but
+     * has been measured on-device. This makes radio work for arbitrary streamed
+     * songs after the playback-time analyzer has seen them once.
+     */
+    suspend fun similarToMeasured(
+        seed: AudioFeatureEntity,
+        limit: Int,
+        maxPerArtist: Int = 2,
+    ): List<SpotifyRec> = withContext(Dispatchers.IO) {
+        featureDb.rowsNearMeasured(
+            energy = seed.energy.toDouble(),
+            tempo = seed.tempoBpm.takeIf { it > 1f }?.toDouble(),
+            loudness = seed.loudnessDb.takeIf { it < 0f }?.toDouble(),
+            limit = (limit * 80).coerceIn(400, 3000),
+        )
+            .filter { it.normKey != seed.normKey }
+            .map { it to measuredDistance(seed, it) }
             .sortedBy { it.second }
             .map { it.first }
             .diversifyByArtist(maxPerArtist)
@@ -125,6 +152,35 @@ class SpotifyRecommendationEngine @Inject constructor(
         }
         return sqrt(sum)
     }
+
+    private fun measuredDistance(seed: AudioFeatureEntity, row: FeatureRow): Double {
+        var sum = 0.0
+
+        fun add(weight: Double, delta: Double) {
+            sum += weight * delta * delta
+        }
+
+        add(1.6, seed.energy.toDouble() - row.energy)
+
+        if (seed.tempoBpm > 1f && row.tempo > 1.0) {
+            add(0.9, tempoDelta(seed.tempoBpm.toDouble(), row.tempo) / 250.0)
+        }
+        if (seed.loudnessDb < 0f) {
+            val a = ((seed.loudnessDb + 60.0) / 60.0).coerceIn(0.0, 1.0)
+            val b = ((row.loudness + 60.0) / 60.0).coerceIn(0.0, 1.0)
+            add(0.5, a - b)
+        }
+
+        return sqrt(sum)
+    }
+
+    private fun tempoDelta(a: Double, b: Double): Double = minOf(
+        abs(a - b),
+        abs(a * 2.0 - b),
+        abs(a / 2.0 - b),
+        abs(a - b * 2.0),
+        abs(a - b / 2.0),
+    )
 
     private companion object {
         // danceability, energy, valence carry the "feel"; acousticness /

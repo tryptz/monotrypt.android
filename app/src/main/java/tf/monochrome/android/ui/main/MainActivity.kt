@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import android.media.AudioManager
+import android.net.Uri
 import android.view.KeyEvent
 import android.view.ViewGroup
 import androidx.activity.SystemBarStyle
@@ -37,6 +38,7 @@ import kotlinx.coroutines.launch
 import tf.monochrome.android.data.auth.SupabaseAuthManager
 import tf.monochrome.android.data.preferences.PreferencesManager
 import tf.monochrome.android.player.QueueManager
+import tf.monochrome.android.ui.navigation.AppDeepLinkRouter
 import tf.monochrome.android.ui.navigation.MonochromeNavHost
 import tf.monochrome.android.ui.theme.MonochromeTheme
 import tf.monochrome.android.ui.theme.rememberDynamicPalette
@@ -79,9 +81,11 @@ class MainActivity : ComponentActivity() {
 
         maybeRequestNotificationPermission()
 
-        // Restore existing Supabase session on startup
+        // Restore existing Supabase session on startup, then process a
+        // cold-start OAuth callback if the browser launched the app fresh.
         lifecycleScope.launch {
             supabaseAuthManager.initialize()
+            handleIncomingIntent(intent)
         }
 
         FrequencyTargets.init(applicationContext)
@@ -254,17 +258,33 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Called when the activity is relaunched by the Appwrite OAuth callback.
-     * Since launchMode=singleTop, the activity is not recreated — we must
-     * manually trigger refreshUser() here to pick up the new session.
+     * Called when the activity is relaunched by the Supabase OAuth callback.
+     * Since launchMode=singleTop, the activity is not recreated.
      */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        // Handle Supabase OAuth callback deep-link
-        val uri = intent.data ?: return
-        lifecycleScope.launch {
-            supabaseAuthManager.handleDeepLink(uri)
+        handleIncomingIntent(intent)
+    }
+
+    private fun handleIncomingIntent(intent: Intent?) {
+        val uri = intent?.data ?: return
+        when {
+            isSupabaseAuthCallback(uri) -> lifecycleScope.launch {
+                supabaseAuthManager.handleDeepLink(uri)
+            }
+            isMonochromeAppLink(uri) -> AppDeepLinkRouter.offer(uri)
         }
     }
+
+    private fun isSupabaseAuthCallback(uri: Uri): Boolean {
+        val matchesCallbackRoute = uri.scheme == "tf.monotrypt.android" &&
+            uri.host == "login-callback"
+        return matchesCallbackRoute ||
+            !uri.fragment.isNullOrBlank() ||
+            !uri.getQueryParameter("code").isNullOrBlank()
+    }
+
+    private fun isMonochromeAppLink(uri: Uri): Boolean =
+        uri.scheme == "https" && uri.host == "monochrome.tf"
 }

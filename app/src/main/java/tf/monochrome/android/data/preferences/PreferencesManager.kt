@@ -130,12 +130,6 @@ class PreferencesManager @Inject constructor(
         private val GEMINI_API_KEY = stringPreferencesKey("gemini_api_key")
         private val AI_RADIO_ENABLED = booleanPreferencesKey("ai_radio_enabled")
 
-        // PocketBase
-        private val POCKETBASE_TOKEN = stringPreferencesKey("pocketbase_token")
-        private val POCKETBASE_USER_ID = stringPreferencesKey("pocketbase_user_id")
-        private val POCKETBASE_EMAIL = stringPreferencesKey("pocketbase_email")
-        // Home screen cache
-
         // EQ / AutoEQ
         private val EQ_TUTORIAL_SEEN = booleanPreferencesKey("eq_tutorial_seen")
         private val EQ_ENABLED = booleanPreferencesKey("eq_enabled")
@@ -672,28 +666,6 @@ class PreferencesManager @Inject constructor(
 
     suspend fun setAiRadioEnabled(enabled: Boolean) {
         dataStore.edit { it[AI_RADIO_ENABLED] = enabled }
-    }
-
-
-    // --- PocketBase ---
-    val pocketBaseToken: Flow<String?> = dataStore.data.map { it[POCKETBASE_TOKEN] }
-    val pocketBaseUserId: Flow<String?> = dataStore.data.map { it[POCKETBASE_USER_ID] }
-    val pocketBaseEmail: Flow<String?> = dataStore.data.map { it[POCKETBASE_EMAIL] }
-
-    suspend fun setPocketBaseAuth(token: String, userId: String, email: String) {
-        dataStore.edit {
-            it[POCKETBASE_TOKEN] = token
-            it[POCKETBASE_USER_ID] = userId
-            it[POCKETBASE_EMAIL] = email
-        }
-    }
-
-    suspend fun clearPocketBaseAuth() {
-        dataStore.edit {
-            it.remove(POCKETBASE_TOKEN)
-            it.remove(POCKETBASE_USER_ID)
-            it.remove(POCKETBASE_EMAIL)
-        }
     }
 
     // --- EQ / AutoEQ ---

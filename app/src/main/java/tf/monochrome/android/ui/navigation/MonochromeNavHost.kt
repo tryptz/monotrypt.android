@@ -263,6 +263,11 @@ fun MonochromeNavHost() {
                 // Tab stubs – content is rendered by the pager above
                 composable(Screen.Home.route) { }
                 composable(Screen.Library.route) { }
+                composable(Screen.Search.route) {
+                    tf.monochrome.android.devedit.DevEditScreen("search") {
+                        SearchScreen(navController = navController, playerViewModel = playerViewModel)
+                    }
+                }
 
                 composable(
                     route = Screen.AlbumDetail.route,
@@ -326,7 +331,7 @@ fun MonochromeNavHost() {
                 }
                 composable(Screen.CarMode.route) {
                     tf.monochrome.android.devedit.DevEditScreen("car_mode") {
-                        CarModeScreen(navController = navController)
+                        CarModeScreen(navController = navController, playerViewModel = playerViewModel)
                     }
                 }
                 composable(Screen.DebugLog.route) {
@@ -527,5 +532,49 @@ fun MonochromeNavHost() {
                 onDismiss = { showDownloadsMonitor = false },
             )
         }
+
+        LaunchedEffect(navController) {
+            AppDeepLinkRouter.uris.collect { uri ->
+                routeForAppLink(uri)?.let { route ->
+                    navController.navigate(route) {
+                        launchSingleTop = true
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun routeForAppLink(uri: android.net.Uri): String? {
+    if (uri.scheme != "https" || uri.host != "monochrome.tf") return null
+    val segments = uri.pathSegments.filter { it.isNotBlank() }
+    val head = segments.firstOrNull()?.lowercase() ?: return Screen.Home.route
+    return when (head) {
+        "album" -> segments.getOrNull(1)?.toLongOrNull()?.let(Screen.AlbumDetail::createRoute)
+        "artist" -> segments.getOrNull(1)?.toLongOrNull()?.let(Screen.ArtistDetail::createRoute)
+        "playlist" -> segments.getOrNull(1)?.takeIf { it.isNotBlank() }?.let {
+            Screen.PlaylistDetail.createRoute(java.net.URLEncoder.encode(it, "UTF-8"))
+        }
+        "local-album", "local_album" ->
+            segments.getOrNull(1)?.toLongOrNull()?.let(Screen.LocalAlbumDetail::createRoute)
+        "local-artist", "local_artist" ->
+            segments.getOrNull(1)?.toLongOrNull()?.let(Screen.LocalArtistDetail::createRoute)
+        "local-genre", "local_genre" ->
+            segments.getOrNull(1)?.takeIf { it.isNotBlank() }?.let(Screen.LocalGenreDetail::createRoute)
+        "folder" -> segments.drop(1).joinToString("/").takeIf { it.isNotBlank() }
+            ?.let(Screen.FolderBrowser::createRoute)
+        "search" -> Screen.Search.route
+        "settings" -> uri.getQueryParameter("tab")?.toIntOrNull()
+            ?.let(Screen.Settings::createRoute) ?: Screen.Settings.createRoute()
+        "profile" -> Screen.Profile.route
+        "stats" -> Screen.Stats.route
+        "listening-stats", "listening_stats" -> Screen.ListeningStats.route
+        "now-playing", "now_playing" -> Screen.NowPlaying.route
+        "equalizer", "eq" -> Screen.Equalizer.route
+        "parametric-eq", "parametric_eq" -> Screen.ParametricEq.route
+        "mixer" -> Screen.Mixer.route
+        "car-mode", "car_mode" -> Screen.CarMode.route
+        "downloads" -> Screen.Downloads.route
+        else -> null
     }
 }

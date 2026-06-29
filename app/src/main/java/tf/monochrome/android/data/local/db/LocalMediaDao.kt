@@ -62,8 +62,8 @@ interface LocalMediaDao {
     @Query("DELETE FROM local_tracks WHERE filePath = :path")
     suspend fun deleteTrackByPath(path: String)
 
-    @Query("DELETE FROM local_tracks WHERE filePath NOT IN (:existingPaths)")
-    suspend fun deleteTracksNotIn(existingPaths: Set<String>)
+    @Query("DELETE FROM local_tracks WHERE filePath IN (:paths)")
+    suspend fun deleteTracksByPaths(paths: List<String>): Int
 
     @Query("SELECT filePath FROM local_tracks")
     suspend fun getAllTrackPaths(): List<String>
@@ -165,6 +165,20 @@ interface LocalMediaDao {
         clearAllArtists()
         clearAllGenres()
         clearFolders()
+    }
+
+    @Transaction
+    suspend fun deleteTracksNotIn(existingPaths: Set<String>): Int {
+        val removedPaths = getAllTrackPaths().filterNot { it in existingPaths }
+        var removed = 0
+        removedPaths.chunked(SQLITE_BIND_LIMIT).forEach { chunk ->
+            removed += deleteTracksByPaths(chunk)
+        }
+        return removed
+    }
+
+    companion object {
+        private const val SQLITE_BIND_LIMIT = 900
     }
 }
 
