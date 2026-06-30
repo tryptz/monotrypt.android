@@ -34,7 +34,7 @@
 
     <application
         android:name=".MonochromeApp"
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -57,6 +57,18 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
+
+        <activity
+            android:name=".spotify.auth.SpotifyAuthActivity"
+            android:exported="true"
+            android:launchMode="singleTop">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="tryptify" android:host="spotify-callback" />
+            </intent-filter>
+        </activity>
 
         <activity
             android:name=".ui.main.MainActivity"

@@ -19,6 +19,7 @@ import io.github.jan.supabase.postgrest.Postgrest
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import tf.monochrome.android.BuildConfig
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -53,9 +54,12 @@ data class UserProfile(
 class SupabaseAuthManager @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
+    val isConfigured: Boolean =
+        BuildConfig.SUPABASE_URL.isNotBlank() && BuildConfig.SUPABASE_ANON_KEY.isNotBlank()
+
     val supabase: SupabaseClient = createSupabaseClient(
-        supabaseUrl = "https://lvzorvfhhopillzlwgau.supabase.co",
-        supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx2em9ydmZoaG9waWxsemx3Z2F1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQzNTc0NDQsImV4cCI6MjA4OTkzMzQ0NH0.Y_TN9r19WS96HyVZSQeNa0TyOqyBGuqFARaj8-7Ylow"
+        supabaseUrl = BuildConfig.SUPABASE_URL.ifBlank { "https://localhost" },
+        supabaseKey = BuildConfig.SUPABASE_ANON_KEY.ifBlank { "missing" }
     ) {
         install(Auth) {
             flowType = FlowType.PKCE
@@ -82,6 +86,10 @@ class SupabaseAuthManager @Inject constructor(
 
     /** Restore existing session on app start */
     suspend fun initialize() {
+        if (!isConfigured) {
+            _userProfile.value = null
+            return
+        }
         try {
             auth.awaitInitialization()
             val user = auth.currentUserOrNull()
@@ -101,6 +109,11 @@ class SupabaseAuthManager @Inject constructor(
         _isSigningIn.value = true
         _errorMessage.value = null
         _successMessage.value = null
+        if (!isConfigured) {
+            _errorMessage.value = "Supabase is not configured for this build."
+            _isSigningIn.value = false
+            return
+        }
         try {
             val url = auth.getOAuthUrl(Google)
             Log.d("SupabaseAuth", "OAuth URL: $url")
@@ -120,6 +133,7 @@ class SupabaseAuthManager @Inject constructor(
      * PKCE fallback: code arrives as query param (?code=...)
      */
     suspend fun handleDeepLink(uri: Uri) {
+        if (!isConfigured) return
         Log.d("SupabaseAuth", "Deep-link received: $uri")
         Log.d("SupabaseAuth", "Fragment: ${uri.fragment}")
         try {
@@ -172,6 +186,12 @@ class SupabaseAuthManager @Inject constructor(
         _isSigningIn.value = true
         _errorMessage.value = null
         _successMessage.value = null
+        if (!isConfigured) {
+            _isSigningIn.value = false
+            val error = Exception("Supabase is not configured for this build.")
+            _errorMessage.value = error.message
+            return Result.failure(error)
+        }
         return try {
             auth.signInWith(Email) {
                 this.email = email
@@ -195,6 +215,12 @@ class SupabaseAuthManager @Inject constructor(
         _isSigningIn.value = true
         _errorMessage.value = null
         _successMessage.value = null
+        if (!isConfigured) {
+            _isSigningIn.value = false
+            val error = Exception("Supabase is not configured for this build.")
+            _errorMessage.value = error.message
+            return Result.failure(error)
+        }
         return try {
             auth.signUpWith(Email) {
                 this.email = email
@@ -222,6 +248,11 @@ class SupabaseAuthManager @Inject constructor(
 
     /** Refresh the current user (call after returning from OAuth browser) */
     suspend fun refreshUser() {
+        if (!isConfigured) {
+            _userProfile.value = null
+            _isSigningIn.value = false
+            return
+        }
         try {
             auth.awaitInitialization()
             val user = auth.currentUserOrNull()
@@ -233,9 +264,11 @@ class SupabaseAuthManager @Inject constructor(
 
     /** Sign out and clear session */
     suspend fun signOut() {
-        try {
-            auth.signOut()
-        } catch (_: Exception) { }
+        if (isConfigured) {
+            try {
+                auth.signOut()
+            } catch (_: Exception) { }
+        }
         _userProfile.value = null
         _errorMessage.value = null
     }

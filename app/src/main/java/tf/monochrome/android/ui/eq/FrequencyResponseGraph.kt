@@ -160,17 +160,25 @@ fun FrequencyResponseGraph(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(start = 4.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)
-                .pointerInput(eqBands, minGain, maxGain) {
+                .pointerInput(eqBands, correctedCurve, minGain, maxGain, preamp, sampleRate) {
                     if (onBandDragged == null) return@pointerInput
                     detectTapGestures { offset ->
                         val tapped = findNearestBand(
-                            offset, eqBands, size.width.toFloat(), size.height.toFloat(),
-                            minGain, maxGain, zeroOffset
+                            position = offset,
+                            bands = eqBands,
+                            correctedCurve = correctedCurve,
+                            width = size.width.toFloat(),
+                            height = size.height.toFloat(),
+                            minGain = minGain,
+                            maxGain = maxGain,
+                            zeroOffset = zeroOffset,
+                            preamp = preamp,
+                            sampleRate = sampleRate
                         )
                         selectedBandId = if (tapped == selectedBandId) -1 else tapped
                     }
                 }
-                .pointerInput(eqBands, minGain, maxGain, selectedBandId) {
+                .pointerInput(eqBands, correctedCurve, minGain, maxGain, selectedBandId, preamp, sampleRate) {
                     if (onBandDragged == null) return@pointerInput
                     detectDragGestures(
                         onDragStart = { offset ->
@@ -178,8 +186,16 @@ fun FrequencyResponseGraph(
                             // Otherwise try to grab nearest band directly
                             if (selectedBandId < 0) {
                                 selectedBandId = findNearestBand(
-                                    offset, eqBands, size.width.toFloat(), size.height.toFloat(),
-                                    minGain, maxGain, zeroOffset
+                                    position = offset,
+                                    bands = eqBands,
+                                    correctedCurve = correctedCurve,
+                                    width = size.width.toFloat(),
+                                    height = size.height.toFloat(),
+                                    minGain = minGain,
+                                    maxGain = maxGain,
+                                    zeroOffset = zeroOffset,
+                                    preamp = preamp,
+                                    sampleRate = sampleRate
                                 )
                             }
                             isDragging = selectedBandId >= 0
@@ -246,13 +262,14 @@ fun FrequencyResponseGraph(
                 if (!band.enabled) return@forEach
                 // Find normalized positions
                 val dotX = freqToX(band.freq, w)
-                val bandGain = if (correctedCurve.isNotEmpty()) {
-                    interpolateGain(band.freq, correctedCurve)
-                } else {
-                    var gainAtFreq = preamp + zeroOffset
-                    eqBands.forEach { b -> if (b.enabled) gainAtFreq += AutoEqEngine.calculateBiquadResponse(band.freq, b, sampleRate) }
-                    gainAtFreq
-                }
+                val bandGain = bandDisplayGain(
+                    band = band,
+                    bands = eqBands,
+                    correctedCurve = correctedCurve,
+                    zeroOffset = zeroOffset,
+                    preamp = preamp,
+                    sampleRate = sampleRate
+                )
                 val dotY = gainToY(bandGain, h, minGain, maxGain)
 
                 val isSelected = selectedBandId == band.id
@@ -504,14 +521,36 @@ private fun yToGain(
         .coerceIn(-maxAbsDragGain, maxAbsDragGain)
 }
 
+private fun bandDisplayGain(
+    band: EqBand,
+    bands: List<EqBand>,
+    correctedCurve: List<FrequencyPoint>,
+    zeroOffset: Float,
+    preamp: Float,
+    sampleRate: Float
+): Float {
+    if (correctedCurve.isNotEmpty()) return interpolateGain(band.freq, correctedCurve)
+
+    var gainAtFreq = preamp + zeroOffset
+    bands.forEach { candidate ->
+        if (candidate.enabled) {
+            gainAtFreq += AutoEqEngine.calculateBiquadResponse(band.freq, candidate, sampleRate)
+        }
+    }
+    return gainAtFreq
+}
+
 private fun findNearestBand(
     position: Offset,
     bands: List<EqBand>,
+    correctedCurve: List<FrequencyPoint>,
     width: Float,
     height: Float,
     minGain: Float,
     maxGain: Float,
-    zeroOffset: Float
+    zeroOffset: Float,
+    preamp: Float,
+    sampleRate: Float
 ): Int {
     val threshold = 50f
     var nearest = -1
@@ -519,7 +558,15 @@ private fun findNearestBand(
     bands.forEach { band ->
         if (!band.enabled) return@forEach
         val dotX = freqToX(band.freq, width)
-        val dotY = gainToY(band.gain + zeroOffset, height, minGain, maxGain)
+        val displayGain = bandDisplayGain(
+            band = band,
+            bands = bands,
+            correctedCurve = correctedCurve,
+            zeroOffset = zeroOffset,
+            preamp = preamp,
+            sampleRate = sampleRate
+        )
+        val dotY = gainToY(displayGain, height, minGain, maxGain)
         val dist = sqrt((position.x - dotX).pow(2) + (position.y - dotY).pow(2))
         if (dist < threshold && dist < nearestDist) {
             nearest = band.id

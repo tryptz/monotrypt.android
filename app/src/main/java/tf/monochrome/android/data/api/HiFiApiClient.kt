@@ -8,6 +8,8 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.isSuccess
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
@@ -83,6 +85,7 @@ class HiFiApiClient @Inject constructor(
         // instance can't stall the search UI behind coroutineScope's
         // wait-for-all-children semantics.
         private const val QOBUZ_REQUEST_TIMEOUT_MS = 6_000L
+        private const val API_REQUEST_TIMEOUT_MS = 10_000L
     }
 
     private data class CacheEntry(
@@ -120,7 +123,14 @@ class HiFiApiClient @Inject constructor(
             val url = instance.url.trimEnd('/') + path
 
             try {
-                val response = httpClient.get(url)
+                val response = withTimeoutOrNull(API_REQUEST_TIMEOUT_MS) {
+                    httpClient.get(url)
+                }
+                if (response == null) {
+                    lastError = Exception("Request timed out after ${API_REQUEST_TIMEOUT_MS}ms")
+                    instanceIndex++
+                    return@repeat
+                }
                 when {
                     response.status.value == 429 -> {
                         instanceIndex++
@@ -234,12 +244,17 @@ class HiFiApiClient @Inject constructor(
         return response.items.map { it.toPlaylist() }
     }
 
-    suspend fun search(query: String, offset: Int = 0, limit: Int = 50): SearchResult {
-        return SearchResult(
-            tracks = runCatching { searchTracks(query, offset, limit) }.getOrDefault(emptyList()),
-            albums = runCatching { searchAlbums(query, offset, limit) }.getOrDefault(emptyList()),
-            artists = runCatching { searchArtists(query, offset, limit) }.getOrDefault(emptyList()),
-            playlists = runCatching { searchPlaylists(query, offset, limit) }.getOrDefault(emptyList())
+    suspend fun search(query: String, offset: Int = 0, limit: Int = 50): SearchResult = coroutineScope {
+        val tracks = async { runCatching { searchTracks(query, offset, limit) } }
+        val albums = async { runCatching { searchAlbums(query, offset, limit) } }
+        val artists = async { runCatching { searchArtists(query, offset, limit) } }
+        val playlists = async { runCatching { searchPlaylists(query, offset, limit) } }
+
+        SearchResult(
+            tracks = tracks.await().getOrDefault(emptyList()),
+            albums = albums.await().getOrDefault(emptyList()),
+            artists = artists.await().getOrDefault(emptyList()),
+            playlists = playlists.await().getOrDefault(emptyList())
         )
     }
 
@@ -805,13 +820,15 @@ class HiFiApiClient @Inject constructor(
         val unwrapped = unwrapResponse(body)
         return try {
             json.decodeFromString<SearchResponse>(unwrapped)
-        } catch (_: Exception) {
-            // Try parsing as array
+        } catch (objectError: Exception) {
             try {
                 val items = json.decodeFromString<List<tf.monochrome.android.data.api.model.SearchItem>>(unwrapped)
                 SearchResponse(items = items)
-            } catch (_: Exception) {
-                SearchResponse()
+            } catch (arrayError: Exception) {
+                throw IllegalArgumentException(
+                    "Unable to parse search response",
+                    arrayError.apply { addSuppressed(objectError) }
+                )
             }
         }
     }

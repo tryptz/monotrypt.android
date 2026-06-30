@@ -22,6 +22,7 @@ import tf.monochrome.android.domain.model.AudioQuality
 import tf.monochrome.android.domain.model.NowPlayingViewMode
 import tf.monochrome.android.domain.model.ReplayGainMode
 import tf.monochrome.android.performance.PerformanceProfile
+import tf.monochrome.android.radio.planner.RadioPlannerWeights
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -82,6 +83,12 @@ class PreferencesManager @Inject constructor(
         // Audio extras
         private val NORMALIZATION_ENABLED = booleanPreferencesKey("normalization_enabled")
         private val CROSSFADE_DURATION = intPreferencesKey("crossfade_duration")
+        // Spotify-style autoplay: extend a dry queue with similar tracks.
+        private val AUTOPLAY_SIMILAR = booleanPreferencesKey("autoplay_similar")
+        private val SPOTIFY_SYNC_CURRENT_PLAYING = booleanPreferencesKey("spotify_sync_current_playing")
+        // On-device audio-feature analysis (tempo/energy/key/…) of the library.
+        private val ANALYZE_AUDIO_FEATURES = booleanPreferencesKey("analyze_audio_features")
+        private val AUDIO_ANALYSIS_TARGET = intPreferencesKey("audio_analysis_target")
 
         // Downloads
         private val DOWNLOAD_QUALITY = stringPreferencesKey("download_quality")
@@ -124,12 +131,22 @@ class PreferencesManager @Inject constructor(
         // AI
         private val GEMINI_API_KEY = stringPreferencesKey("gemini_api_key")
         private val AI_RADIO_ENABLED = booleanPreferencesKey("ai_radio_enabled")
-
-        // PocketBase
-        private val POCKETBASE_TOKEN = stringPreferencesKey("pocketbase_token")
-        private val POCKETBASE_USER_ID = stringPreferencesKey("pocketbase_user_id")
-        private val POCKETBASE_EMAIL = stringPreferencesKey("pocketbase_email")
-        // Home screen cache
+        private val LLM_PLAYLIST_RADIO_RECOMMENDATIONS =
+            booleanPreferencesKey("llm_playlist_radio_recommendations")
+        private val RADIO_WEIGHT_LOCAL_LIBRARY = floatPreferencesKey("radio_weight_local_library")
+        private val RADIO_WEIGHT_QOBUZ = floatPreferencesKey("radio_weight_qobuz")
+        private val RADIO_WEIGHT_SPOTIFY_DISCOVERY = floatPreferencesKey("radio_weight_spotify_discovery")
+        private val RADIO_WEIGHT_METABRAINZ_METADATA = floatPreferencesKey("radio_weight_metabrainz_metadata")
+        private val RADIO_WEIGHT_LISTENBRAINZ_GRAPH = floatPreferencesKey("radio_weight_listenbrainz_graph")
+        private val RADIO_WEIGHT_CANONICAL_VERSION_BIAS = floatPreferencesKey("radio_weight_canonical_version_bias")
+        private val RADIO_WEIGHT_NOVELTY = floatPreferencesKey("radio_weight_novelty")
+        private val RADIO_WEIGHT_FAMILIARITY = floatPreferencesKey("radio_weight_familiarity")
+        private val RADIO_WEIGHT_ARTIST_SIMILARITY = floatPreferencesKey("radio_weight_artist_similarity")
+        private val RADIO_WEIGHT_GENRE_TAG_SIMILARITY = floatPreferencesKey("radio_weight_genre_tag_similarity")
+        private val RADIO_WEIGHT_MOOD_CONTINUITY = floatPreferencesKey("radio_weight_mood_continuity")
+        private val RADIO_WEIGHT_ERA_CONSISTENCY = floatPreferencesKey("radio_weight_era_consistency")
+        private val RADIO_WEIGHT_AVOID_RECENTLY_PLAYED = floatPreferencesKey("radio_weight_avoid_recently_played")
+        private val RADIO_WEIGHT_DISCOVERY_DISTANCE = floatPreferencesKey("radio_weight_discovery_distance")
 
         // EQ / AutoEQ
         private val EQ_TUTORIAL_SEEN = booleanPreferencesKey("eq_tutorial_seen")
@@ -462,6 +479,87 @@ class PreferencesManager @Inject constructor(
         dataStore.edit { it[PRESERVE_PITCH] = enabled }
     }
 
+    // Spotify-style autoplay radio; on by default.
+    val autoplaySimilar: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[AUTOPLAY_SIMILAR] ?: true
+    }
+    suspend fun setAutoplaySimilar(enabled: Boolean) {
+        dataStore.edit { it[AUTOPLAY_SIMILAR] = enabled }
+    }
+
+    val spotifySyncCurrentPlaying: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[SPOTIFY_SYNC_CURRENT_PLAYING] ?: false
+    }
+    suspend fun setSpotifySyncCurrentPlaying(enabled: Boolean) {
+        dataStore.edit { it[SPOTIFY_SYNC_CURRENT_PLAYING] = enabled }
+    }
+
+    val llmPlaylistRadioRecommendationsEnabled: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[LLM_PLAYLIST_RADIO_RECOMMENDATIONS] ?: false
+    }
+    suspend fun setLlmPlaylistRadioRecommendationsEnabled(enabled: Boolean) {
+        dataStore.edit { it[LLM_PLAYLIST_RADIO_RECOMMENDATIONS] = enabled }
+    }
+
+    val radioPlannerWeights: Flow<RadioPlannerWeights> = dataStore.data.map { prefs ->
+        val defaults = RadioPlannerWeights()
+        RadioPlannerWeights(
+            localLibrary = prefs[RADIO_WEIGHT_LOCAL_LIBRARY] ?: defaults.localLibrary,
+            qobuz = prefs[RADIO_WEIGHT_QOBUZ] ?: defaults.qobuz,
+            spotifyDiscovery = prefs[RADIO_WEIGHT_SPOTIFY_DISCOVERY] ?: defaults.spotifyDiscovery,
+            metabrainzMetadata = prefs[RADIO_WEIGHT_METABRAINZ_METADATA] ?: defaults.metabrainzMetadata,
+            listenbrainzGraph = prefs[RADIO_WEIGHT_LISTENBRAINZ_GRAPH] ?: defaults.listenbrainzGraph,
+            canonicalVersionBias = prefs[RADIO_WEIGHT_CANONICAL_VERSION_BIAS] ?: defaults.canonicalVersionBias,
+            novelty = prefs[RADIO_WEIGHT_NOVELTY] ?: defaults.novelty,
+            familiarity = prefs[RADIO_WEIGHT_FAMILIARITY] ?: defaults.familiarity,
+            artistSimilarity = prefs[RADIO_WEIGHT_ARTIST_SIMILARITY] ?: defaults.artistSimilarity,
+            genreTagSimilarity = prefs[RADIO_WEIGHT_GENRE_TAG_SIMILARITY] ?: defaults.genreTagSimilarity,
+            moodContinuity = prefs[RADIO_WEIGHT_MOOD_CONTINUITY] ?: defaults.moodContinuity,
+            eraConsistency = prefs[RADIO_WEIGHT_ERA_CONSISTENCY] ?: defaults.eraConsistency,
+            avoidRecentlyPlayed = prefs[RADIO_WEIGHT_AVOID_RECENTLY_PLAYED] ?: defaults.avoidRecentlyPlayed,
+            discoveryDistance = prefs[RADIO_WEIGHT_DISCOVERY_DISTANCE] ?: defaults.discoveryDistance,
+        ).clamped()
+    }
+
+    suspend fun setRadioPlannerWeights(weights: RadioPlannerWeights) {
+        val safeWeights = weights.clamped()
+        dataStore.edit { prefs ->
+            prefs[RADIO_WEIGHT_LOCAL_LIBRARY] = safeWeights.localLibrary
+            prefs[RADIO_WEIGHT_QOBUZ] = safeWeights.qobuz
+            prefs[RADIO_WEIGHT_SPOTIFY_DISCOVERY] = safeWeights.spotifyDiscovery
+            prefs[RADIO_WEIGHT_METABRAINZ_METADATA] = safeWeights.metabrainzMetadata
+            prefs[RADIO_WEIGHT_LISTENBRAINZ_GRAPH] = safeWeights.listenbrainzGraph
+            prefs[RADIO_WEIGHT_CANONICAL_VERSION_BIAS] = safeWeights.canonicalVersionBias
+            prefs[RADIO_WEIGHT_NOVELTY] = safeWeights.novelty
+            prefs[RADIO_WEIGHT_FAMILIARITY] = safeWeights.familiarity
+            prefs[RADIO_WEIGHT_ARTIST_SIMILARITY] = safeWeights.artistSimilarity
+            prefs[RADIO_WEIGHT_GENRE_TAG_SIMILARITY] = safeWeights.genreTagSimilarity
+            prefs[RADIO_WEIGHT_MOOD_CONTINUITY] = safeWeights.moodContinuity
+            prefs[RADIO_WEIGHT_ERA_CONSISTENCY] = safeWeights.eraConsistency
+            prefs[RADIO_WEIGHT_AVOID_RECENTLY_PLAYED] = safeWeights.avoidRecentlyPlayed
+            prefs[RADIO_WEIGHT_DISCOVERY_DISTANCE] = safeWeights.discoveryDistance
+        }
+    }
+
+    suspend fun resetRadioPlannerWeights() {
+        setRadioPlannerWeights(RadioPlannerWeights())
+    }
+
+    // On-device audio-feature analysis of the library; on by default.
+    val analyzeAudioFeatures: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[ANALYZE_AUDIO_FEATURES] ?: true
+    }
+    suspend fun setAnalyzeAudioFeatures(enabled: Boolean) {
+        dataStore.edit { it[ANALYZE_AUDIO_FEATURES] = enabled }
+    }
+    // Total tracks targeted by the current analysis pass (for progress display).
+    val audioAnalysisTarget: Flow<Int> = dataStore.data.map { prefs ->
+        prefs[AUDIO_ANALYSIS_TARGET] ?: 0
+    }
+    suspend fun setAudioAnalysisTarget(total: Int) {
+        dataStore.edit { it[AUDIO_ANALYSIS_TARGET] = total }
+    }
+
     // --- Font scale ---
     val fontScale: Flow<Float> = dataStore.data.map { prefs ->
         prefs[FONT_SCALE] ?: 1.0f
@@ -644,28 +742,6 @@ class PreferencesManager @Inject constructor(
 
     suspend fun setAiRadioEnabled(enabled: Boolean) {
         dataStore.edit { it[AI_RADIO_ENABLED] = enabled }
-    }
-
-
-    // --- PocketBase ---
-    val pocketBaseToken: Flow<String?> = dataStore.data.map { it[POCKETBASE_TOKEN] }
-    val pocketBaseUserId: Flow<String?> = dataStore.data.map { it[POCKETBASE_USER_ID] }
-    val pocketBaseEmail: Flow<String?> = dataStore.data.map { it[POCKETBASE_EMAIL] }
-
-    suspend fun setPocketBaseAuth(token: String, userId: String, email: String) {
-        dataStore.edit {
-            it[POCKETBASE_TOKEN] = token
-            it[POCKETBASE_USER_ID] = userId
-            it[POCKETBASE_EMAIL] = email
-        }
-    }
-
-    suspend fun clearPocketBaseAuth() {
-        dataStore.edit {
-            it.remove(POCKETBASE_TOKEN)
-            it.remove(POCKETBASE_USER_ID)
-            it.remove(POCKETBASE_EMAIL)
-        }
     }
 
     // --- EQ / AutoEQ ---

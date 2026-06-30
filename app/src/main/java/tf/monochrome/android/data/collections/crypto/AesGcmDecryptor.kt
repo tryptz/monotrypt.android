@@ -1,6 +1,6 @@
 package tf.monochrome.android.data.collections.crypto
 
-import android.util.Base64
+import java.util.Base64
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
@@ -41,22 +41,28 @@ class AesGcmDecryptor @Inject constructor() {
      * Decrypt a base64-encoded string.
      */
     fun decryptBase64(base64Data: String, base64Key: String): ByteArray {
-        val encryptedBytes = Base64.decode(base64Data, Base64.DEFAULT)
-        val keyBytes = Base64.decode(base64Key, Base64.DEFAULT)
+        val encryptedBytes = Base64.getMimeDecoder().decode(base64Data)
+        val keyBytes = Base64.getMimeDecoder().decode(base64Key)
         return decrypt(encryptedBytes, keyBytes)
     }
 
     /**
      * Decrypt a URL - returns the decrypted URL as a string.
-     * The URL itself may be encrypted in the manifest.
+     * Plaintext URLs are accepted, but encrypted-looking values must decrypt
+     * successfully so AES-GCM authentication failures are not masked.
      */
     fun decryptUrl(encryptedUrl: String, key: String): String {
-        return try {
-            val decrypted = decryptBase64(encryptedUrl, key)
-            String(decrypted, Charsets.UTF_8)
-        } catch (_: Exception) {
-            // URL might not be encrypted - return as-is
-            encryptedUrl
-        }
+        if (encryptedUrl.looksLikePlainUrl()) return encryptedUrl
+
+        val decrypted = decryptBase64(encryptedUrl, key)
+        return String(decrypted, Charsets.UTF_8)
+    }
+
+    private fun String.looksLikePlainUrl(): Boolean {
+        val lower = trimStart().lowercase()
+        return lower.startsWith("https://") ||
+            lower.startsWith("http://") ||
+            lower.startsWith("content://") ||
+            lower.startsWith("file://")
     }
 }

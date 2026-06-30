@@ -126,7 +126,8 @@ class MediaStoreSource @Inject constructor(
 
     fun queryModifiedSince(
         sinceTimestamp: Long,
-        minDurationMs: Long = 30_000
+        minDurationMs: Long = 30_000,
+        excludedPaths: Set<String> = emptySet()
     ): List<AudioFileInfo> {
         val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
@@ -157,14 +158,20 @@ class MediaStoreSource @Inject constructor(
 
             while (cursor.moveToNext()) {
                 val path = cursor.getString(dataCol) ?: continue
+                val mime = cursor.getString(mimeCol) ?: continue
                 val id = cursor.getLong(idCol)
+
+                if (!isAudioMime(mime)) continue
+                if (isExcludedExtension(path)) continue
+                if (excludedPaths.any { path.startsWith(it) }) continue
+
                 val uri = Uri.withAppendedPath(collection, id.toString())
 
                 results.add(
                     AudioFileInfo(
                         absolutePath = path,
                         displayName = cursor.getString(nameCol) ?: path.substringAfterLast('/'),
-                        mimeType = cursor.getString(mimeCol) ?: "",
+                        mimeType = mime,
                         sizeBytes = cursor.getLong(sizeCol),
                         dateModified = cursor.getLong(dateCol) * 1000,
                         duration = cursor.getLong(durCol),

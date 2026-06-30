@@ -37,8 +37,9 @@ class LocalMediaRepository @Inject constructor(
     ): Flow<ScanProgress> = mediaScanner.fullScan(minDurationMs, excludedPaths)
 
     fun incrementalScan(
-        minDurationMs: Long = 30_000
-    ): Flow<ScanProgress> = mediaScanner.incrementalScan(minDurationMs)
+        minDurationMs: Long = 30_000,
+        excludedPaths: Set<String> = emptySet()
+    ): Flow<ScanProgress> = mediaScanner.incrementalScan(minDurationMs, excludedPaths)
 
     // ── Tracks ──────────────────────────────────────────────────────
 
@@ -62,6 +63,13 @@ class LocalMediaRepository @Inject constructor(
 
     suspend fun findByIsrc(isrc: String): UnifiedTrack? =
         localMediaDao.findByIsrc(isrc)?.toUnifiedTrack()
+
+    suspend fun findByArtistTitle(artist: String, title: String): UnifiedTrack? {
+        if (artist.isBlank() || title.isBlank()) return null
+        return localMediaDao.findByArtistTitle(escapeLike(artist), escapeLike(title))
+            .firstOrNull()
+            ?.toUnifiedTrack()
+    }
 
     // ── Albums ──────────────────────────────────────────────────────
 
@@ -101,7 +109,14 @@ class LocalMediaRepository @Inject constructor(
 
     // ── Conversions ─────────────────────────────────────────────────
 
+    private fun escapeLike(value: String): String = Companion.escapeLike(value)
+
     companion object {
+        internal fun escapeLike(value: String): String = value
+            .replace("\\", "\\\\")
+            .replace("%", "\\%")
+            .replace("_", "\\_")
+
         fun LocalTrackEntity.toUnifiedTrack(): UnifiedTrack {
             val codec = try { AudioCodec.valueOf(codec) } catch (_: Exception) { AudioCodec.UNKNOWN }
             return UnifiedTrack(

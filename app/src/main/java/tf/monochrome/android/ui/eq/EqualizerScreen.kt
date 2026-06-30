@@ -1,5 +1,6 @@
 package tf.monochrome.android.ui.eq
 
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
@@ -52,7 +53,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import android.widget.Toast
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -107,6 +107,7 @@ fun EqualizerScreen(
     var pendingTargetData by remember { mutableStateOf("") }
     var targetName by remember { mutableStateOf("") }
     var presetToDelete by remember { mutableStateOf<tf.monochrome.android.domain.model.EqPreset?>(null) }
+    var pendingEqExport by remember { mutableStateOf<String?>(null) }
 
     val context = LocalContext.current
 
@@ -149,6 +150,24 @@ fun EqualizerScreen(
                 showTargetNameDialog = true
             }
         } catch (_: Exception) { }
+    }
+
+    val exportFilePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        val payload = pendingEqExport
+        pendingEqExport = null
+        if (uri != null && payload != null) {
+            runCatching {
+                context.contentResolver.openOutputStream(uri)?.use { out ->
+                    out.write(payload.toByteArray())
+                } ?: error("Unable to open output stream")
+            }.onSuccess {
+                Toast.makeText(context, "EQ preset exported", Toast.LENGTH_SHORT).show()
+            }.onFailure {
+                Toast.makeText(context, "Export failed: ${it.message}", Toast.LENGTH_LONG).show()
+            }
+        }
     }
 
     // AutoEQ tutorial dialog (first visit)
@@ -232,19 +251,33 @@ fun EqualizerScreen(
                         value = selectedHeadphone?.name ?: "Select headphone...",
                         onClick = { showHeadphoneSelect = true },
                         trailingIcon = {
-                            IconButton(
-                                onClick = { measurementFilePicker.launch("text/*") },
-                                modifier = Modifier
-                                    .size(44.dp)
-                                    .liquidGlass(
-                                        shape = RoundedCornerShape(8.dp)
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                IconButton(
+                                    onClick = { showMeasurementUpload = true },
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .liquidGlass(shape = RoundedCornerShape(8.dp))
+                                ) {
+                                    Icon(
+                                        Icons.Default.Tune,
+                                        contentDescription = "Advanced calibration",
+                                        tint = MaterialTheme.colorScheme.primary
                                     )
-                            ) {
-                                Icon(
-                                    Icons.Default.UploadFile,
-                                    contentDescription = "Import measurement file",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                                }
+                                IconButton(
+                                    onClick = { measurementFilePicker.launch("text/*") },
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .liquidGlass(
+                                            shape = RoundedCornerShape(8.dp)
+                                        )
+                                ) {
+                                    Icon(
+                                        Icons.Default.UploadFile,
+                                        contentDescription = "Import measurement file",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
                         }
                     )
@@ -371,7 +404,16 @@ fun EqualizerScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(
-                        onClick = { /* export EQ preset */ },
+                        onClick = {
+                            val payload = viewModel.exportCurrentPresetPayload()
+                            if (payload == null) {
+                                Toast.makeText(context, "No EQ preset to export", Toast.LENGTH_SHORT).show()
+                                return@IconButton
+                            }
+                            pendingEqExport = payload
+                            exportFilePicker.launch(viewModel.exportCurrentPresetFileName())
+                        },
+                        enabled = currentBands.isNotEmpty(),
                         modifier = Modifier
                             .size(52.dp)
                             .liquidGlass(
@@ -381,7 +423,11 @@ fun EqualizerScreen(
                         Icon(
                             Icons.Default.Download,
                             contentDescription = "Export EQ",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            tint = if (currentBands.isEmpty()) {
+                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            }
                         )
                     }
                     GradientAutoEqButton(

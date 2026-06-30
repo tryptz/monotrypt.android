@@ -112,6 +112,7 @@ class EqViewModel @Inject constructor(
     private val _sampleRate = MutableStateFlow(48000f)
     val sampleRate: StateFlow<Float> = _sampleRate.asStateFlow()
 
+    private val presetExportJson = kotlinx.serialization.json.Json { prettyPrint = true }
 
     // ===== Uploaded user measurements =====
 
@@ -437,6 +438,37 @@ class EqViewModel @Inject constructor(
         }
     }
 
+    fun exportCurrentPresetPayload(): String? {
+        val bands = _currentBands.value
+        if (bands.isEmpty()) return null
+
+        val now = System.currentTimeMillis()
+        val preset = EqPreset(
+            id = _activePreset.value?.id ?: "exported_eq_$now",
+            name = currentExportName(),
+            description = _activePreset.value?.description.orEmpty(),
+            bands = bands,
+            preamp = _currentPreamp.value,
+            targetId = _selectedTarget.value.id,
+            targetName = _selectedTarget.value.label,
+            isCustom = true,
+            createdAt = _activePreset.value?.createdAt ?: now,
+            updatedAt = now,
+        )
+
+        return presetExportJson.encodeToString(EqPreset.serializer(), preset)
+    }
+
+    fun exportCurrentPresetFileName(): String {
+        val slug = currentExportName()
+            .lowercase()
+            .replace(Regex("[^a-z0-9._-]+"), "-")
+            .trim('-', '.', '_')
+            .ifBlank { "eq-preset" }
+
+        return "$slug.json"
+    }
+
     /**
      * Delete a custom preset
      */
@@ -455,6 +487,14 @@ class EqViewModel @Inject constructor(
                 _error.value = "Failed to delete preset: ${e.message}"
             }
         }
+    }
+
+    private fun currentExportName(): String {
+        _activePreset.value?.name?.takeIf { it.isNotBlank() }?.let { return it }
+        _selectedHeadphone.value?.name?.takeIf { it.isNotBlank() }?.let { headphone ->
+            return "$headphone ${_selectedTarget.value.label}"
+        }
+        return _selectedTarget.value.label.ifBlank { "EQ preset" }
     }
 
     /**
@@ -975,9 +1015,7 @@ class EqViewModel @Inject constructor(
             val jsonParser = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
 
             // Load existing stored data to preserve raw strings
-            val existingJson = preferences.eqCustomTargetsJson.stateIn(
-                viewModelScope, SharingStarted.Eagerly, "[]"
-            ).value
+            val existingJson = preferences.eqCustomTargetsJson.first()
             val existingStored = try {
                 jsonParser.decodeFromString<List<StoredCustomTarget>>(existingJson)
             } catch (_: Exception) { emptyList() }

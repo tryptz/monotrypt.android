@@ -1,10 +1,13 @@
 package tf.monochrome.android.player
 
 import android.net.Uri
+import android.os.Bundle
+import android.util.Base64
 import androidx.annotation.OptIn
 import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import tf.monochrome.android.data.api.QobuzIdRegistry
 import tf.monochrome.android.data.api.QobuzTrackMatch
@@ -18,9 +21,14 @@ import tf.monochrome.android.domain.model.TrackStream
 import tf.monochrome.android.domain.model.UnifiedTrack
 import tf.monochrome.android.domain.model.buildCoverUrl
 import tf.monochrome.android.domain.usecase.CrossSourceMatcher
+import tf.monochrome.android.radio.RADIO_QUALITY_TAG
+import tf.monochrome.android.radio.RADIO_SOURCE_EXTRA_KEY
+import tf.monochrome.android.radio.RADIO_SOURCE_SPOTIFY
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
+
+const val MEDIA_METADATA_IS_HI_RES = "tf.monochrome.android.media.IS_HI_RES"
 
 data class ResolvedMedia(
     val mediaItem: MediaItem,
@@ -42,10 +50,37 @@ class StreamResolver @Inject constructor(
     private val qobuzCache: QobuzStreamCacheManager,
     private val qobuzIdRegistry: QobuzIdRegistry,
 ) {
+    private fun MediaMetadata.Builder.applyRadioExtras(track: UnifiedTrack): MediaMetadata.Builder {
+        return setExtras(
+            Bundle().apply {
+                putBoolean(MEDIA_METADATA_IS_HI_RES, track.isHiResTrack())
+                if (track.qualityTags.orEmpty().contains(RADIO_QUALITY_TAG)) {
+                    putString(RADIO_SOURCE_EXTRA_KEY, RADIO_SOURCE_SPOTIFY)
+                }
+            }
+        )
+    }
+
+    private fun UnifiedTrack.isHiResTrack(): Boolean {
+        val tags = qualityTags.orEmpty()
+        return bitDepth?.let { it >= 24 } == true ||
+            sampleRate?.let { it >= 88_200 } == true ||
+            tags.any { it.equals("HI_RES", ignoreCase = true) || it.equals("HI_RES_LOSSLESS", ignoreCase = true) }
+    }
+
     private fun normalizeArtworkUri(raw: String?): Uri? {
         if (raw.isNullOrBlank()) return null
         val parsed = raw.toUri()
         return if (parsed.scheme.isNullOrBlank()) Uri.fromFile(File(raw)) else parsed
+    }
+
+    private fun dashManifestUri(manifestOrUrl: String): Uri {
+        if (!manifestOrUrl.contains("<MPD")) return manifestOrUrl.toUri()
+        val encoded = Base64.encodeToString(
+            manifestOrUrl.toByteArray(Charsets.UTF_8),
+            Base64.NO_WRAP
+        )
+        return "data:application/dash+xml;base64,$encoded".toUri()
     }
 
     // Legacy method for existing Track model. Returns (null, null) when the
@@ -55,11 +90,10 @@ class StreamResolver @Inject constructor(
         val streamResult = repository.getTrackStream(track.id)
         val trackStream = streamResult.getOrNull()
 
-        // For non-DASH streams the URL must be non-blank — DASH carries its
-        // payload inline via base64-encoded MPD and the URL is therefore
-        // intentionally empty at this stage; PlaybackService rebuilds the
-        // DashMediaSource separately.
-        if (trackStream != null && (trackStream.isDash || trackStream.streamUrl.isNotBlank())) {
+        // DASH carries its payload inline as MPD XML, so convert it to a
+        // playable data: URI here instead of handing the session a URI-less
+        // MediaItem. Blank manifests are treated as unresolved.
+        if (trackStream != null && trackStream.streamUrl.isNotBlank()) {
             return Pair(buildMediaItem(track, trackStream.streamUrl, trackStream.isDash), trackStream)
         }
 
@@ -113,6 +147,7 @@ class StreamResolver @Inject constructor(
             .setArtworkUri(normalizeArtworkUri(track.artworkUri))
             .setTrackNumber(track.trackNumber)
             .setDiscNumber(track.discNumber)
+            .applyRadioExtras(track)
             .build()
 
         val mediaItem = MediaItem.Builder()
@@ -153,6 +188,7 @@ class StreamResolver @Inject constructor(
             .setArtworkUri(normalizeArtworkUri(track.artworkUri))
             .setTrackNumber(track.trackNumber)
             .setDiscNumber(track.discNumber)
+            .applyRadioExtras(track)
             .build()
 
         val mediaItem = MediaItem.Builder()
@@ -180,6 +216,7 @@ class StreamResolver @Inject constructor(
             .setArtworkUri(normalizeArtworkUri(track.artworkUri))
             .setTrackNumber(track.trackNumber)
             .setDiscNumber(track.discNumber)
+            .applyRadioExtras(track)
             .build()
 
         val mediaItem = MediaItem.Builder()
@@ -203,11 +240,9 @@ class StreamResolver @Inject constructor(
         val streamResult = repository.getTrackStream(source.tidalId)
         val trackStream = streamResult.getOrNull()
 
-        // DASH carries its MPD inline (PlaybackService rebuilds the source),
-        // so an unset URI is fine in that case. Otherwise we need a real URL.
+        // DASH carries its MPD inline, but callers still need a playable URI.
         val isDash = trackStream?.isDash == true
-        val isPlayable = trackStream != null &&
-            (isDash || trackStream.streamUrl.isNotBlank())
+        val isPlayable = trackStream != null && trackStream.streamUrl.isNotBlank()
 
         // TIDAL unavailable — try the same song on Qobuz before giving up.
         if (!isPlayable) {
@@ -240,14 +275,20 @@ class StreamResolver @Inject constructor(
             .setArtworkUri(normalizeArtworkUri(track.artworkUri))
             .setTrackNumber(track.trackNumber)
             .setDiscNumber(track.discNumber)
+            .applyRadioExtras(track)
             .build()
 
         val mediaItem = MediaItem.Builder()
             .setMediaId(track.id)
             .setMediaMetadata(metadata)
             .apply {
-                if (trackStream != null && trackStream.streamUrl.isNotBlank() && !trackStream.isDash) {
-                    setUri(trackStream.streamUrl.toUri())
+                if (trackStream != null && trackStream.streamUrl.isNotBlank()) {
+                    if (trackStream.isDash) {
+                        setUri(dashManifestUri(trackStream.streamUrl))
+                        setMimeType(MimeTypes.APPLICATION_MPD)
+                    } else {
+                        setUri(trackStream.streamUrl.toUri())
+                    }
                 }
             }
             .build()
@@ -395,10 +436,13 @@ class StreamResolver @Inject constructor(
             .setMediaId(track.id.toString())
             .setMediaMetadata(metadata)
 
-        // DASH has no progressive URL — PlaybackService synthesises a
-        // data: URI at play time. For everything else, attach the URL.
-        if (!isDash && streamUrl.isNotBlank()) {
-            builder.setUri(streamUrl.toUri())
+        if (streamUrl.isNotBlank()) {
+            if (isDash) {
+                builder.setUri(dashManifestUri(streamUrl))
+                builder.setMimeType(MimeTypes.APPLICATION_MPD)
+            } else {
+                builder.setUri(streamUrl.toUri())
+            }
         }
 
         return builder.build()

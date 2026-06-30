@@ -28,6 +28,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -52,8 +53,10 @@ fun FolderBrowserScreen(
     onPlayTrack: (UnifiedTrack, List<UnifiedTrack>) -> Unit,
     onPlayAll: (List<UnifiedTrack>) -> Unit
 ) {
-    val subfolders by viewModel.getSubfolders(folderPath).collectAsState()
-    val tracks by viewModel.getTracksInFolder(folderPath).collectAsState()
+    val subfoldersFlow = remember(viewModel, folderPath) { viewModel.getSubfolders(folderPath) }
+    val tracksFlow = remember(viewModel, folderPath) { viewModel.getTracksInFolder(folderPath) }
+    val subfolders by subfoldersFlow.collectAsState()
+    val tracks by tracksFlow.collectAsState()
 
     val displayName = folderPath.substringAfterLast('/')
 

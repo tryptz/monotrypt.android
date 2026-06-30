@@ -7,11 +7,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import tf.monochrome.android.data.local.scanner.MediaScanner
+import tf.monochrome.android.data.preferences.PreferencesManager
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
 
 /**
  * Watches known music directories for file changes in real time.
@@ -19,22 +23,23 @@ import javax.inject.Singleton
  */
 @Singleton
 class FileObserverService @Inject constructor(
-    private val mediaScanner: MediaScanner
+    private val mediaScanner: MediaScanner,
+    private val preferences: PreferencesManager
 ) {
     private val observers = mutableListOf<FileObserver>()
     // SupervisorJob so one failed incremental scan doesn't cancel the whole
     // scope and silently kill file watching for the rest of the session.
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val json = Json { ignoreUnknownKeys = true }
     private var debounceJob: Job? = null
     private var isRunning = false
 
     @Suppress("NewApi") // FileObserver(File, Int) requires API 29; gracefully skipped on older
     fun startWatching(directories: List<String>) {
-        if (isRunning) return
+        stopWatching()
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
-        isRunning = true
 
-        for (dirPath in directories) {
+        for (dirPath in directories.distinct()) {
             val dir = File(dirPath)
             if (!dir.exists() || !dir.isDirectory) continue
 
@@ -54,7 +59,12 @@ class FileObserverService @Inject constructor(
                     debounceJob = scope.launch {
                         try {
                             delay(500)
-                            mediaScanner.incrementalScan().collect { /* consume flow */ }
+                            val minDurationMs = preferences.minTrackDurationMs.first()
+                            val excludedPaths = runCatching {
+                                json.decodeFromString<Set<String>>(preferences.excludedPathsJson.first())
+                            }.getOrDefault(emptySet())
+                            mediaScanner.incrementalScan(minDurationMs, excludedPaths)
+                                .collect { /* consume flow */ }
                         } catch (cancel: kotlinx.coroutines.CancellationException) {
                             throw cancel
                         } catch (t: Throwable) {
@@ -66,6 +76,7 @@ class FileObserverService @Inject constructor(
             observer.startWatching()
             observers.add(observer)
         }
+        isRunning = observers.isNotEmpty()
     }
 
     fun stopWatching() {

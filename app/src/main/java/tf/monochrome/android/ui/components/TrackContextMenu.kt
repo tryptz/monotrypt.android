@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlaylistAdd
@@ -30,7 +31,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
 import tf.monochrome.android.domain.model.Track
+import tf.monochrome.android.radio.RadioSeed
+import tf.monochrome.android.radio.RadioViewModel
 import tf.monochrome.android.ui.theme.MonoDimens
 
 data class ContextAction(
@@ -56,6 +60,7 @@ fun TrackContextMenu(
     onShowTrackInfo: (() -> Unit)? = null
 ) {
     val sheetState = rememberModalBottomSheetState()
+    val radioViewModel: RadioViewModel = hiltViewModel()
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -113,6 +118,14 @@ fun TrackContextMenu(
                 icon = Icons.Default.QueueMusic,
                 label = "Add to queue",
                 onClick = { onAddToQueue(); onDismiss() }
+            )
+            ContextMenuItem(
+                icon = Icons.Default.GraphicEq,
+                label = "Start Radio",
+                onClick = {
+                    radioViewModel.startRadio(RadioSeed.FromTrack(track))
+                    onDismiss()
+                }
             )
             ContextMenuItem(
                 icon = Icons.Default.Favorite,

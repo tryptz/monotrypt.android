@@ -25,7 +25,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Animation
@@ -65,7 +64,6 @@ import kotlinx.coroutines.launch
 import tf.monochrome.android.domain.model.NowPlayingViewMode
 import tf.monochrome.android.domain.model.RepeatMode
 import tf.monochrome.android.devedit.DevEditable
-import tf.monochrome.android.domain.model.SourceType
 import tf.monochrome.android.domain.model.Track
 import tf.monochrome.android.domain.model.UnifiedArtistRef
 import tf.monochrome.android.domain.usecase.uiArtistRefs
@@ -75,9 +73,7 @@ import tf.monochrome.android.ui.components.liquidGlass
 /** Flattened, design-ready snapshot of everything the main player renders. */
 data class MainPlayerUiState(
     val track: Track?,
-    val sourceType: SourceType? = null,
     val artists: List<UnifiedArtistRef> = emptyList(),
-    val qualityBadge: String? = null,
     val isPlaying: Boolean,
     val positionMs: Long,
     val durationMs: Long,
@@ -87,7 +83,6 @@ data class MainPlayerUiState(
     val shuffleEnabled: Boolean,
     val repeatMode: RepeatMode,
     val viewMode: NowPlayingViewMode,
-    val audioQuality: String?,
     val outputLabel: String,
     val soundLabel: String,
     val speedLabel: String,
@@ -231,16 +226,6 @@ fun MainPlayerScreen(
             }
 
             Spacer(Modifier.height(14.dp))
-            // Source + format tag directly under the album art: which service the
-            // audio streams from (colour-coded) and the codec/bitrate it's playing.
-            DevEditable("sourceTag", Modifier.fillMaxWidth()) {
-                PlayerSourceFormatTag(
-                    sourceType = state.sourceType,
-                    qualityBadge = state.qualityBadge,
-                )
-            }
-
-            Spacer(Modifier.height(14.dp))
             DevEditable("trackInfo", Modifier.fillMaxWidth()) {
                 PlayerTrackInfo(
                     track = state.track,
@@ -263,7 +248,7 @@ fun MainPlayerScreen(
                     fraction = displayFraction,
                     elapsedLabel = formatTime(displayPositionMs),
                     totalLabel = formatTime(state.durationMs),
-                    centerLabel = state.queueLabel.ifBlank { state.audioQuality.orEmpty() },
+                    centerLabel = state.queueLabel,
                     accent = accent,
                     onSeek = { value ->
                         isSeeking = true
@@ -577,78 +562,6 @@ private fun ToggleRow(
             ),
         )
     }
-}
-
-/**
- * Tag shown directly under the album art: a colour-coded chip for the streaming
- * service (Local = green, Qobuz = blue, TIDAL = pink, Collection = purple) plus the
- * codec/bitrate currently playing. Renders nothing when neither is known.
- */
-@Composable
-private fun PlayerSourceFormatTag(
-    sourceType: SourceType?,
-    qualityBadge: String?,
-) {
-    if (sourceType == null && qualityBadge.isNullOrBlank()) return
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (sourceType != null) {
-            val color = sourceTagColor(sourceType)
-            Surface(
-                shape = RoundedCornerShape(percent = 50),
-                color = color.copy(alpha = 0.18f),
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(7.dp)
-                            .clip(CircleShape)
-                            .background(color),
-                    )
-                    Text(
-                        text = sourceTagLabel(sourceType),
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color.White.copy(alpha = 0.92f),
-                    )
-                }
-            }
-        }
-        if (!qualityBadge.isNullOrBlank()) {
-            Surface(
-                shape = RoundedCornerShape(percent = 50),
-                color = Color.White.copy(alpha = 0.12f),
-            ) {
-                Text(
-                    text = qualityBadge,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Color.White.copy(alpha = 0.85f),
-                )
-            }
-        }
-    }
-}
-
-private fun sourceTagColor(sourceType: SourceType): Color = when (sourceType) {
-    SourceType.LOCAL -> Color(0xFF34C759)      // green
-    SourceType.QOBUZ -> Color(0xFF2F80ED)      // blue
-    SourceType.API -> Color(0xFFEC4899)        // pink (TIDAL)
-    SourceType.COLLECTION -> Color(0xFFA855F7)  // purple
-}
-
-private fun sourceTagLabel(sourceType: SourceType): String = when (sourceType) {
-    SourceType.LOCAL -> "Local"
-    SourceType.QOBUZ -> "Qobuz"
-    SourceType.API -> "TIDAL"
-    SourceType.COLLECTION -> "Collection"
 }
 
 @Composable
