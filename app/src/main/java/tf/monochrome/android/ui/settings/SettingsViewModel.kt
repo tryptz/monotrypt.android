@@ -50,6 +50,7 @@ class SettingsViewModel @Inject constructor(
     private val usbExclusiveController: tf.monochrome.android.audio.usb.UsbExclusiveController,
     private val audioFeatureRepository: tf.monochrome.android.data.analysis.AudioFeatureRepository,
     private val audioAnalysisManager: tf.monochrome.android.data.analysis.AudioAnalysisManager,
+    private val spotifyAuthManager: tf.monochrome.android.spotify.auth.SpotifyAuthManager,
     @ApplicationContext private val appContext: Context
 ) : ViewModel() {
 
@@ -120,6 +121,13 @@ class SettingsViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
     val autoplaySimilar: StateFlow<Boolean> = preferences.autoplaySimilar
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+    val spotifySyncCurrentPlaying: StateFlow<Boolean> = preferences.spotifySyncCurrentPlaying
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    val llmPlaylistRadioRecommendationsEnabled: StateFlow<Boolean> =
+        preferences.llmPlaylistRadioRecommendationsEnabled
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    val spotifyAuthState: StateFlow<tf.monochrome.android.spotify.auth.SpotifyAuthState> =
+        spotifyAuthManager.authState
 
     // --- Scrobbling ---
     val lastFmEnabled: StateFlow<Boolean> = preferences.lastFmEnabled
@@ -331,6 +339,14 @@ class SettingsViewModel @Inject constructor(
     // --- Interface actions ---
     fun setGaplessPlayback(enabled: Boolean) { viewModelScope.launch { preferences.setGaplessPlayback(enabled) } }
     fun setAutoplaySimilar(enabled: Boolean) { viewModelScope.launch { preferences.setAutoplaySimilar(enabled) } }
+    fun setSpotifySyncCurrentPlaying(enabled: Boolean) {
+        viewModelScope.launch { preferences.setSpotifySyncCurrentPlaying(enabled) }
+    }
+    fun setLlmPlaylistRadioRecommendationsEnabled(enabled: Boolean) {
+        viewModelScope.launch { preferences.setLlmPlaylistRadioRecommendationsEnabled(enabled) }
+    }
+    fun startSpotifyAuth() = spotifyAuthManager.launchAuthActivity()
+    fun disconnectSpotify() = spotifyAuthManager.disconnect()
     fun setShowExplicitBadges(enabled: Boolean) { viewModelScope.launch { preferences.setShowExplicitBadges(enabled) } }
     fun setConfirmClearQueue(enabled: Boolean) { viewModelScope.launch { preferences.setConfirmClearQueue(enabled) } }
 

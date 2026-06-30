@@ -56,8 +56,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.text.style.TextAlign
-import kotlin.math.roundToInt
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CoroutineScope
@@ -85,7 +83,6 @@ data class MainPlayerUiState(
     val shuffleEnabled: Boolean,
     val repeatMode: RepeatMode,
     val viewMode: NowPlayingViewMode,
-    val audioQuality: String?,
     val outputLabel: String,
     val soundLabel: String,
     val speedLabel: String,
@@ -96,7 +93,6 @@ data class MainPlayerUiState(
     val waveformActive: Boolean,
     val compressorEnabled: Boolean,
     val inflatorEnabled: Boolean,
-    val audioFeatures: tf.monochrome.android.data.analysis.AudioFeatureEntity? = null,
 )
 
 /**
@@ -241,15 +237,6 @@ fun MainPlayerScreen(
                 )
             }
 
-            // Measured audio features (tempo/energy/key/loudness/brightness),
-            // shown once the background analyzer has reached this track.
-            state.audioFeatures?.let { features ->
-                Spacer(Modifier.height(10.dp))
-                DevEditable("audioFeatures", Modifier.fillMaxWidth()) {
-                    AudioFeaturesStrip(features = features, accent = accent)
-                }
-            }
-
             Spacer(Modifier.height(16.dp))
             var isSeeking by remember { mutableStateOf(false) }
             var seekPosition by remember { mutableFloatStateOf(0f) }
@@ -261,7 +248,7 @@ fun MainPlayerScreen(
                     fraction = displayFraction,
                     elapsedLabel = formatTime(displayPositionMs),
                     totalLabel = formatTime(state.durationMs),
-                    centerLabel = state.queueLabel.ifBlank { state.audioQuality.orEmpty() },
+                    centerLabel = state.queueLabel,
                     accent = accent,
                     onSeek = { value ->
                         isSeeking = true
@@ -575,29 +562,6 @@ private fun ToggleRow(
             ),
         )
     }
-}
-
-@Composable
-private fun AudioFeaturesStrip(
-    features: tf.monochrome.android.data.analysis.AudioFeatureEntity,
-    accent: Color,
-) {
-    val parts = buildList {
-        if (features.tempoBpm > 1f) add("${features.tempoBpm.roundToInt()} BPM")
-        add("${(features.energy * 100).roundToInt()}% energy")
-        tf.monochrome.android.data.analysis.AudioFeatureAnalyzer
-            .keyLabel(features.musicalKey, features.mode)?.let { add(it) }
-        if (features.loudnessDb < 0f) add("${features.loudnessDb.roundToInt()} dB")
-        if (features.brightnessHz >= 1000f) add("${(features.brightnessHz / 1000f).roundToInt()}k Hz bright")
-        else if (features.brightnessHz > 1f) add("${features.brightnessHz.roundToInt()} Hz bright")
-    }
-    Text(
-        text = parts.joinToString("   ·   "),
-        style = MaterialTheme.typography.labelMedium,
-        color = accent.copy(alpha = 0.9f),
-        textAlign = TextAlign.Center,
-        modifier = Modifier.fillMaxWidth(),
-    )
 }
 
 @Composable

@@ -44,10 +44,13 @@ import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import kotlinx.coroutines.delay
 import tf.monochrome.android.domain.model.NowPlayingViewMode
 import tf.monochrome.android.domain.model.SourceType
+import tf.monochrome.android.radio.RadioSeed
+import tf.monochrome.android.radio.RadioViewModel
 import tf.monochrome.android.ui.navigation.Screen
 import tf.monochrome.android.ui.navigation.openArtist
 import java.util.Locale
@@ -62,9 +65,10 @@ fun MainPlayerRoute(
     navController: NavController,
     playerViewModel: PlayerViewModel,
 ) {
+    val radioViewModel: RadioViewModel = hiltViewModel()
+    val radioState by radioViewModel.radioState.collectAsState()
     val currentTrack by playerViewModel.currentTrack.collectAsState()
     val currentUnified by playerViewModel.currentUnifiedTrack.collectAsState()
-    val audioFeatures by playerViewModel.currentTrackFeatures.collectAsState()
     val queue by playerViewModel.queue.collectAsState()
     val currentIndex by playerViewModel.currentIndex.collectAsState()
     val isPlaying by playerViewModel.isPlaying.collectAsState()
@@ -196,7 +200,6 @@ fun MainPlayerRoute(
         shuffleEnabled = shuffleEnabled,
         repeatMode = repeatMode,
         viewMode = viewMode,
-        audioQuality = currentTrack?.audioQuality,
         outputLabel = "Default",
         soundLabel = "AutoEQ",
         speedLabel = String.format(Locale.US, "%.2fx", playbackSpeed),
@@ -207,7 +210,6 @@ fun MainPlayerRoute(
         waveformActive = showNpSpectrum,
         compressorEnabled = compressorEnabled,
         inflatorEnabled = inflatorEnabled,
-        audioFeatures = audioFeatures,
     )
 
     MainPlayerScreen(
@@ -338,6 +340,8 @@ fun MainPlayerRoute(
                 },
                 onEnterVisualizer = { playerViewModel.setNowPlayingViewMode(NowPlayingViewMode.VISUALIZER) },
                 onExitVisualizer = { playerViewModel.setNowPlayingViewMode(NowPlayingViewMode.COVER_ART) },
+                radioState = radioState,
+                onStartRadio = { radioViewModel.startRadio(RadioSeed.FromCurrentTrack) },
             )
             }
             }

@@ -29,6 +29,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -59,6 +61,9 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import kotlinx.coroutines.launch
+import tf.monochrome.android.radio.RadioEvent
+import tf.monochrome.android.radio.RadioSeed
+import tf.monochrome.android.radio.RadioViewModel
 import tf.monochrome.android.ui.components.MiniPlayer
 import tf.monochrome.android.ui.detail.AlbumDetailScreen
 import tf.monochrome.android.ui.detail.ArtistDetailScreen
@@ -148,6 +153,16 @@ fun MonochromeNavHost() {
     val currentDestination = navBackStackEntry?.destination
 
     val playerViewModel: PlayerViewModel = hiltViewModel()
+    val radioViewModel: RadioViewModel = hiltViewModel()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(radioViewModel) {
+        radioViewModel.events.collect { event ->
+            when (event) {
+                is RadioEvent.Snackbar -> snackbarHostState.showSnackbar(event.message)
+            }
+        }
+    }
 
     val currentTrack by playerViewModel.currentTrack.collectAsState()
     val isPlaying by playerViewModel.isPlaying.collectAsState()
@@ -471,6 +486,7 @@ fun MonochromeNavHost() {
                         onSkipNextClick = { playerViewModel.skipToNext() },
                         onSkipPreviousClick = { playerViewModel.skipToPrevious() },
                         onClick = { navController.navigate(Screen.NowPlaying.route) },
+                        onStartSessionRadio = { radioViewModel.startRadio(RadioSeed.FromListeningSession) },
                         modifier = Modifier.padding(horizontal = 8.dp),
                         hazeState = hazeState
                     )
@@ -494,10 +510,19 @@ fun MonochromeNavHost() {
                     onSkipNextClick = { playerViewModel.skipToNext() },
                     onSkipPreviousClick = { playerViewModel.skipToPrevious() },
                     onClick = { navController.navigate(Screen.NowPlaying.route) },
+                    onStartSessionRadio = { radioViewModel.startRadio(RadioSeed.FromListeningSession) },
                     hazeState = hazeState
                 )
             }
         }
+
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = navBarHeight + if (showMiniPlayer) 88.dp else 16.dp)
+                .padding(horizontal = 16.dp),
+        )
 
         // ── Layer 3: Download progress pill + monitor (global chrome) ──
         val downloadCenter: tf.monochrome.android.ui.downloads.DownloadCenterViewModel = hiltViewModel()

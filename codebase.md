@@ -2,23 +2,30 @@
 
 > A deep, audiophile-grade Android music player and visualizer. Streams from self-hosted TIDAL-/Qobuz-style "HiFi" backends, indexes on-device audio, and renders a native projectM (MilkDrop) GL visualizer. Includes a parametric/AutoEQ equalizer, a node-based DSP mixer, native USB-Audio-Class bit-perfect output, encrypted "collections", cloud sync, and Android Auto / car mode.
 
-**Document status:** Generated 2026-06-28 by a multi-agent codebase audit, then updated by the remediation pass on 2026-06-28. Subsystems marked **[deep audit]** received a full agent deep-read of their source; subsystems marked **[focused pass]** were documented from a single targeted read (the multi-agent run was interrupted by a session usage cap before those agents and the four cross-cutting agents finished). Every original claim was grounded in files actually read; the risk-register status table reflects the current worktree after fixes. Re-run the deep audit on the [focused pass] subsystems to reach full depth.
+**Document status:** Generated 2026-06-28 by a multi-agent codebase audit, updated by the remediation pass on 2026-06-28, updated on 2026-06-29 for the `spotifyrecbeta` worktree diff, then updated on 2026-06-30 for the System LLM planner toggle, player tag cleanup, and Railway model-backed `Tryptify-Playlist` deployment. Subsystems marked **[deep audit]** received a full agent deep-read of their source; subsystems marked **[focused pass]** were documented from a single targeted read (the multi-agent run was interrupted by a session usage cap before those agents and the four cross-cutting agents finished). The new Spotify/radio material is a **[focused current-diff pass]** based on the changed and untracked files in this branch. Every original claim was grounded in files actually read; the risk-register status table reflects the post-remediation baseline plus the branch-local Spotify/radio changes. Re-run the deep audit on the [focused pass] subsystems to reach full depth.
 
 ---
 
 ## Executive summary
 
-Tryptify (internal name **Monochrome**, applicationId `tf.monotrypt.android`, Kotlin namespace `tf.monochrome.android`, v1.6.4 / versionCode 164) is a single-module Android app of ~57,000 lines of Kotlin across 259 files, plus three native C++ engines reached over JNI. It is unusually deep for an Android app: it ships its own **SIMD DSP engine**, a **libusb USB-Audio-Class isochronous driver**, and the **projectM** MilkDrop visualizer, all built from source via CMake/NDK alongside a modern Compose/MVVM/Hilt Kotlin layer.
+Tryptify (internal name **Monochrome**, applicationId `tf.monotrypt.android`, Kotlin namespace `tf.monochrome.android`, v1.6.5 / versionCode 165) is a single-module Android app of ~57k+ lines of Kotlin across the main app plus the current `spotifyrecbeta` additions, with three native C++ engines reached over JNI. It is unusually deep for an Android app: it ships its own **SIMD DSP engine**, a **libusb USB-Audio-Class isochronous driver**, and the **projectM** MilkDrop visualizer, all built from source via CMake/NDK alongside a modern Compose/MVVM/Hilt Kotlin layer.
 
 Top takeaways:
 
 1. **Engineering ambition is high and the modern Android stack is used well** — Compose + Material3, Hilt, Room, Media3 (+ FFmpeg via NextLib), Coil3, WorkManager, Glance, a performance-tier system that sizes thread pools and caches per device, and a baseline profile. The native integration (three `.so` targets, a custom AudioProcessor chain, a bit-perfect USB path) is genuinely sophisticated.
-2. **Automated tests now exist, but coverage is still thin.** The remediation pass added a JUnit harness and AES-GCM regression tests; playback resolution, Room/local scanning, network parsing, and JNI still need targeted coverage.
-3. **Several "load-bearing but fragile" couplings remain worth documenting** — dual playback drivers that can drift, same-process singleton sharing between the UI and playback service, and a native `DEBUG_POSTFIX=""` hack so `System.loadLibrary` names match.
-4. **The source-level security rough edges were cleaned up.** Supabase and Last.fm secrets now come from build configuration, backup is disabled, the unused `security-crypto` dependency is gone, and encrypted-looking URL decryption failures no longer fall back silently. Supabase RLS/rotation still must be confirmed server-side.
-5. **The original medium/high bug list is now mostly cleared in code.** File watching, measurement upload, Car Mode EQ, search routing, destructive migrations, PocketBase scaffolding, and local-tag population were addressed; remaining work is broader QA, tests, and maintainability cleanup.
+2. **The current `spotifyrecbeta` branch adds a Spotify-backed radio/autoplay layer plus a toggle-gated Railway LLM planner.** It introduces Spotify OAuth PKCE, encrypted token storage, a Spotify Web API wrapper, seed building from the current track/listening session, Qobuz/local resolution of Spotify candidates, queue tail refills, UI entry points, and `RADIO_PLANNER_URL` / `RADIO_PLANNER_API_KEY` wiring for the repaired `Tryptify-Playlist` FastAPI planner. The new System-tab switch gates only this Railway planner path; it does not use the old Gemini AI code.
+3. **Automated tests now exist, but coverage is still thin.** The remediation pass added a JUnit harness and AES-GCM regression tests; this branch adds a Spotify model/target test file, but playback resolution, Room/local scanning, network parsing, Spotify/radio behavior, and JNI still need targeted coverage.
+4. **Several "load-bearing but fragile" couplings remain worth documenting** — dual playback drivers that can drift, same-process singleton sharing between the UI and playback service, radio state depending on the same singleton `QueueManager`, and a native `DEBUG_POSTFIX=""` hack so `System.loadLibrary` names match.
+5. **The source-level security rough edges were mostly cleaned up, with a new Spotify token surface.** Supabase and Last.fm secrets now come from build configuration, backup is disabled, collection URL decryption failures no longer fall back silently, and `security-crypto` is now intentionally used for Spotify OAuth tokens. Supabase RLS/rotation and Spotify app redirect/client-id configuration still must be confirmed outside this repository.
+6. **The original medium/high bug list is now mostly cleared in code.** File watching, measurement upload, Car Mode EQ, search routing, destructive migrations, PocketBase scaffolding, and local-tag population were addressed; remaining work is broader QA, tests, Spotify/radio hardening, and maintainability cleanup.
 
-Overall health: **a strong, feature-rich app with solid architecture bones. The immediate risk-register bugs are now addressed locally, while broader confidence still depends on server-side Supabase verification, manual QA, and more automated coverage.**
+Overall health: **a strong, feature-rich app with solid architecture bones. The immediate risk-register bugs are now addressed locally; the `spotifyrecbeta` branch adds useful radio functionality but also new auth, API, matching, and test/build surfaces that need validation before release.**
+
+Current 2026-06-30 build/deploy state:
+- Android debug build and unit tests pass after the LLM toggle, player tag cleanup, and planner-timeout changes.
+- Final APK path: `/sdcard/Download/Tryptify-spotifyrecbeta-radio-debug.apk` after copying the current `app/build/outputs/apk/debug/app-debug.apk`.
+- `Tryptify-Playlist` is pushed through `f96e7a2` on `main` and deployed to Railway service `4bc06f28-9dd6-48a3-ad3e-e4f637dfec1e` with public domain `https://tryptify-playlist-production.up.railway.app`.
+- Railway health has been verified with `planner=model`, `model_loaded=true`, `model_exists=true`; authenticated `/api/radio/plan` returns within the Android timeout and falls back deterministically if the model exceeds its 8 s budget.
 
 ---
 
@@ -44,12 +51,16 @@ Overall health: **a strong, feature-rich app with solid architecture bones. The 
 | Color | AndroidX Palette | 1.0.0 |
 | Cast | Google Cast framework | 22.0.0 |
 | Auth | Credential Manager + Google ID | 1.5.0-beta01 / 1.1.1 |
+| Spotify auth/radio | Spotify OAuth 2.0 PKCE + Spotify Web API | client id via `BuildConfig.SPOTIFY_CLIENT_ID` |
+| Radio planner service | `Tryptify-Playlist` FastAPI planner, llama.cpp GGUF on Railway/local | URL/key via `BuildConfig.RADIO_PLANNER_*`; Railway currently uses Qwen2.5 0.5B Q4_K_M |
+| Secure token storage | AndroidX Security Crypto | 1.1.0-alpha06 |
+| Text similarity | Apache Commons Text | 1.12.0 |
 | Perms | Accompanist Permissions | 0.36.0 |
 | Glass FX | Haze (glassmorphism blur) | 1.7.1 |
 | Startup | ProfileInstaller (baseline profile) | 1.4.1 |
 | Native libs | projectM visualizer / libusb | submodules (v4.1.6 / master) |
 
-Dependency notes: `credentials 1.5.0-beta01` is a pre-release pin. The Compose BOM (2024.12) trails the Kotlin 2.1.0 / AGP 9.0.0 pairing somewhat; verify Compose-compiler compatibility on AGP upgrades. The native FFmpeg extension is an LGPL build.
+Dependency notes: `credentials 1.5.0-beta01` and `security-crypto 1.1.0-alpha06` are pre-release pins. `commons-text` is present only for radio candidate matching (`JaroWinklerSimilarity`). The external radio planner is optional and HTTP-only from the Android side; the service keeps deterministic fallback behavior but the Railway Docker path now installs `llama-cpp-python` by default and loads a small GGUF model. The Compose BOM (2024.12) trails the Kotlin 2.1.0 / AGP 9.0.0 pairing somewhat; verify Compose-compiler compatibility on AGP upgrades. The native FFmpeg extension is an LGPL build.
 
 ---
 
@@ -82,6 +93,8 @@ Tryptify/
 │           ├── domain/                     # shared models + use cases
 │           ├── audio/                      # dsp / eq / usb (Kotlin side of native audio)
 │           ├── player/                     # Media3 playback service + queue + resolver
+│           ├── radio/                      # Spotify-seeded radio queue + Qobuz/local resolver + planner client
+│           ├── spotify/                    # OAuth PKCE, Spotify Web API, repository, Hilt module
 │           ├── visualizer/                 # projectM Kotlin bridge + GL view
 │           ├── di/                         # 6 Hilt modules (graph also extended elsewhere)
 │           ├── devedit/                    # in-app live layout editor overlay
@@ -112,7 +125,7 @@ git submodule update --init --recursive   # MANDATORY — native build + visuali
 ./gradlew testDebugUnitTest                # JVM unit tests
 ./gradlew lint                             # static analysis
 ```
-The current unit-test harness is intentionally small (`AesGcmDecryptorTest`); treat it as a seed, not full project coverage.
+The current unit-test harness is intentionally small (`AesGcmDecryptorTest`, plus the branch-local Spotify model/target tests); treat it as a seed, not full project coverage.
 
 **Signing model:**
 - **Debug** uses the committed `app/monotrypt-debug.keystore` (store/key password `monotrypt`, alias `monotrypt-debug`). It is committed *on purpose* so every machine and CI run produce the same signature and `installDebug` upgrades in place instead of failing on a signature mismatch.
@@ -145,7 +158,7 @@ ABIs built: `arm64-v8a`, `armeabi-v7a`, `x86_64`. The projectM subproject is add
 - `data/` — repositories, the Ktor `HiFiApiClient`, Room DB + DAOs, sync, auth, collections, downloads, preferences.
 - `audio/`, `player/`, `visualizer/` — the audio + native engines, sitting beside the data layer.
 
-**DI.** Hilt with `@HiltAndroidApp` on `MonochromeApp`. Six modules under `di/` (`AppModule`, `ApiModule`, `DatabaseModule`, `NetworkModule`, `DspModule`, `PerformanceModule`), **plus two feature modules outside `di/`** (`data/collections/di/CollectionModule`, `data/local/di/LocalMediaModule`). The central `di/` folder is therefore *not* the whole graph.
+**DI.** Hilt with `@HiltAndroidApp` on `MonochromeApp`. Six modules under `di/` (`AppModule`, `ApiModule`, `DatabaseModule`, `NetworkModule`, `DspModule`, `PerformanceModule`), **plus feature modules outside `di/`** (`data/collections/di/CollectionModule`, `data/local/di/LocalMediaModule`, `spotify/di/SpotifyModule`). The central `di/` folder is therefore *not* the whole graph.
 
 **Same-process coupling is load-bearing.** `QueueManager`, `UnifiedTrackRegistry`, `StreamResolver`, and the audio `AudioProcessor`s are `@Singleton`s shared between the UI and `PlaybackService` because the `<service>` has **no `android:process`**. Introducing a separate service process would silently break queue/registry sharing.
 
@@ -183,8 +196,12 @@ Notes that matter for editing this path:
 flowchart TD
   UI[ui/* screens + ViewModels] --> DOM[domain: models + use cases]
   UI --> PLAYER[player: PlaybackService, QueueManager, StreamResolver]
+  UI --> RADIO[radio: RadioViewModel, RadioQueueManager]
   DOM --> DATA[data: repositories]
   PLAYER --> DATA
+  RADIO --> PLAYER
+  RADIO --> SPOTIFY[spotify: OAuth + Web API]
+  RADIO --> DATA
   DATA --> API[data/api: HiFiApiClient Ktor]
   DATA --> DB[(Room DB)]
   DATA --> SYNC[data/sync: Supabase]
@@ -207,33 +224,35 @@ The app bootstrap and shell: the Hilt `Application` (`MonochromeApp`), the singl
 |---|---|
 | `MonochromeApp.kt` | `@HiltAndroidApp`, `Configuration.Provider` (HiltWorkerFactory), `SingletonImageLoader.Factory` (Coil), perf bootstrap |
 | `ui/main/MainActivity.kt` | sole `@AndroidEntryPoint` Activity; splash; deep-link/OAuth handling; volume-key bypass |
-| `ui/navigation/MonochromeNavHost.kt` | hybrid HorizontalPager (Home/Library) + NavHost (all other screens) + mini-player + download pill |
+| `ui/navigation/MonochromeNavHost.kt` | hybrid HorizontalPager (Home/Library) + NavHost (all other screens) + mini-player + download pill + radio snackbar host |
+| `spotify/auth/SpotifyAuthActivity.kt` | exported Spotify OAuth launcher/callback activity for `tryptify://spotify-callback` |
 | `di/` | `AppModule`, `ApiModule`, `DatabaseModule`, `NetworkModule`, `DspModule`, `PerformanceModule` |
+| `spotify/di/SpotifyModule.kt` | feature Hilt module for Spotify API/repository and `RadioQueueManager` |
 
 Notable patterns: **static performance bootstrap** — `MonochromeApp` companion `init` sets `kotlinx.coroutines.scheduler.{core,max}.pool.size` via `System.setProperty` during class load (the scheduler reads these exactly once, before first dispatch); changing this ordering silently breaks thread-pool sizing. **Hybrid pager+NavHost** — the two tabs are a HorizontalPager while their NavHost destinations are empty stubs; a single `rememberSaveableStateHolder` keyed by route preserves tab state. **DevEdit wrapping** — every destination is wrapped in `DevEditScreen("<name>")`; adding a screen means adding the wrapper. **Notification channel coupling** — `PLAYBACK_CHANNEL_ID = "default_channel_id"` is hardcoded to match Media3's internal default channel id.
 
-Remediation notes: destructive Room fallback is removed, cold-start deep links are handled through the same path as `onNewIntent`, and backup is disabled. Remaining watch items: Supabase auth lifecycle should still be kept simple, dead bottom-nav scaffolding can be deleted when safe, and the DI graph is split across packages.
+Remediation notes: destructive Room fallback is removed, cold-start deep links are handled through the same path as `onNewIntent`, and backup is disabled. The `spotifyrecbeta` diff adds a second exported deep-link/OAuth activity plus app-wide radio snackbars collected from `RadioViewModel`. Remaining watch items: Supabase auth lifecycle should still be kept simple, Spotify redirect/client-id setup must match the developer dashboard, dead bottom-nav scaffolding can be deleted when safe, and the DI graph is split across packages.
 
 ### playback-engine **[deep audit]**
 
-Wraps a single Media3 ExoPlayer inside `PlaybackService` (a `MediaSessionService`), driving the custom AudioProcessor chain and the optional libusb sink, with FFmpeg fallback decoders from NextLib. `StreamResolver` maps four `PlaybackSource` types (LocalFile, CollectionDirect, HiFiApi/TIDAL, QobuzCached) plus a legacy `Track` path to `MediaItem`s, including an ISRC-based TIDAL→Qobuz fallback.
+Wraps a single Media3 ExoPlayer inside `PlaybackService` (a `MediaSessionService`), driving the custom AudioProcessor chain and the optional libusb sink, with FFmpeg fallback decoders from NextLib. `StreamResolver` maps four `PlaybackSource` types (LocalFile, CollectionDirect, HiFiApi/TIDAL, QobuzCached) plus a legacy `Track` path to `MediaItem`s, including an ISRC-based TIDAL→Qobuz fallback. The `spotifyrecbeta` diff adds radio metadata propagation for tracks tagged with `radio_source:spotify`.
 
 | Key file | Role |
 |---|---|
 | `player/PlaybackService.kt` | builds player/renderers/sink chain/MediaSession; auto-advance + media-button resolution |
-| `player/StreamResolver.kt` | `PlaybackSource` → `MediaItem`; DASH special-casing; ISRC cross-source fallback |
-| `player/QueueManager.kt` | `@Singleton` source-of-truth queue (ExoPlayer holds one item) |
+| `player/StreamResolver.kt` | `PlaybackSource` → `MediaItem`; DASH special-casing; ISRC cross-source fallback; preserves Spotify-radio extras |
+| `player/QueueManager.kt` | `@Singleton` source-of-truth queue (ExoPlayer holds one item); keeps last 20 played tracks for session radio |
 | `player/QueueForwardingPlayer.kt` | routes notification/lock-screen next/prev back through QueueManager |
 
-Remediation notes: the direct DASH playback, now-playing update, ReplayGain coverage, queue-resumption, and preload issues from the original audit have been addressed. Remaining watch items: two playback-driver paths still need discipline to avoid future drift, and the hi-res buffer sizing deserves a separate performance pass.
+Remediation notes: the direct DASH playback, now-playing update, ReplayGain coverage, queue-resumption, and preload issues from the original audit have been addressed. The `spotifyrecbeta` diff adds `QueueManager.playHistory` and radio extras in `MediaMetadata`, which means queue mutations now affect both playback and radio seed quality. Remaining watch items: two playback-driver paths still need discipline to avoid future drift, radio-added `UnifiedTrack`s must always be registered in `UnifiedTrackRegistry`, and the hi-res buffer sizing deserves a separate performance pass.
 
 ### player-ui (Now-Playing + Car Mode) **[deep audit]**
 
-`PlayerViewModel` is the single Hilt controller — it binds a `MediaController` to `PlaybackService`, mirrors playback state, and exposes track/queue/lyrics/visualizer/EQ/download flows. `MainPlayerRoute` collects ~30 flows into a `MainPlayerUiState` and delegates to the pure `MainPlayerScreen`. The hero slot crossfades album art, a progress ring, a live spectrum overlay, an in-player projectM visualizer (via `AndroidView`), and synced/karaoke lyrics.
+`PlayerViewModel` is the single Hilt controller — it binds a `MediaController` to `PlaybackService`, mirrors playback state, and exposes track/queue/lyrics/visualizer/EQ/download flows. `MainPlayerRoute` collects ~30 flows into a `MainPlayerUiState`, now also reads `RadioViewModel.radioState`, and delegates to the pure `MainPlayerScreen`. The hero slot crossfades album art, a progress ring, a live spectrum overlay, an in-player projectM visualizer (via `AndroidView`), synced/karaoke lyrics, and a radio action button.
 
-Notable patterns: album-derived theming via `androidx.palette` (256×256, hardware-bitmap off, on `Dispatchers.Default`); reference-counted `SpectrumAnalyzerTap.acquire/release` and `ProjectMAudioBus.acquire/release` (forgetting the release leaks the analyzer); per-frame `Canvas` invalidation via `withFrameNanos` + a tick `mutableIntStateOf` with no per-frame allocation; lyrics auto-scroll via `derivedStateOf` firing once per line.
+Notable patterns: album-derived theming via `androidx.palette` (256×256, hardware-bitmap off, on `Dispatchers.Default`); reference-counted `SpectrumAnalyzerTap.acquire/release` and `ProjectMAudioBus.acquire/release` (forgetting the release leaks the analyzer); per-frame `Canvas` invalidation via `withFrameNanos` + a tick `mutableIntStateOf` with no per-frame allocation; lyrics auto-scroll via `derivedStateOf` firing once per line; radio controls are thin UI triggers over the singleton `RadioQueueManager` rather than a second playback controller.
 
-Remediation notes: Car Mode EQ now reaches the shared EQ path, Car Mode uses the shared player controller, and media-controller reconnect/backoff behavior exists. Remaining cleanup: `PlayerViewModel.progress`, pre-redesign composables (`ModePill`, `QueueHero`), and divergent synced-lyrics implementations should be removed or consolidated.
+Remediation notes: Car Mode EQ now reaches the shared EQ path, Car Mode uses the shared player controller, and media-controller reconnect/backoff behavior exists. The branch adds radio entry points in `PlayerHero`, `MiniPlayer`, and `TrackContextMenu`, plus app-wide snackbar feedback in `MonochromeNavHost`. Player-facing taste/data tags were removed: the now-playing screen no longer renders the measured audio-feature strip, the progress label no longer falls back to audio quality, and the album-art quality pill was removed while internal playback metadata remains intact. Remaining cleanup: `PlayerViewModel.progress`, pre-redesign composables (`ModePill`, `QueueHero`), divergent synced-lyrics implementations, and the `TrackContextMenu` direct `hiltViewModel<RadioViewModel>()` coupling should be reviewed or consolidated.
 
 ### hifi-api-data **[deep audit]**
 
@@ -243,13 +262,38 @@ Notable patterns: **no authentication anywhere** — `HiFiApiClient` attaches no
 
 Remediation notes: negative search caching, request timeout coverage, serialized sub-searches, and Qobuz ReplayGain mapping were addressed. Remaining watch items: per-key lock lifetime, `slug.hashCode().toLong()` collision risk, and over-defensive Qobuz envelope parsing because the real field name was never confirmed.
 
+### spotify-radio beta **[focused current-diff pass]**
+
+The `spotifyrecbeta` branch adds a Spotify-backed radio layer without playing Spotify streams. Spotify is used only as a taste/metadata graph; every candidate is resolved back to a playable local or Qobuz track before it is appended to Tryptify's queue. The branch introduces `SPOTIFY_CLIENT_ID` as a build-configured value, `SpotifyAuthActivity` for OAuth launch/callback, encrypted token storage with refresh-token expiry handling, a Spotify Web API wrapper hardened for current endpoint limits, a toggle-gated `Tryptify-Playlist` planner client (`RADIO_PLANNER_URL` / `RADIO_PLANNER_API_KEY`), and a `RadioQueueManager` that appends and refills similar tracks near the queue tail.
+
+| Key file | Role |
+|---|---|
+| `spotify/auth/SpotifyAuthManager.kt` | OAuth authorization-code + PKCE, encrypted prefs, token refresh, profile label |
+| `spotify/auth/SpotifyAuthActivity.kt` | launches Custom Tabs and handles `tryptify://spotify-callback` redirects |
+| `spotify/auth/SpotifyTokenRefreshWorker.kt` | Hilt WorkManager refresh task (`spotify_token_refresh`) |
+| `spotify/api/SpotifyApi.kt` | authorized Spotify Web API calls with one 401 refresh retry, 429 `Retry-After`, 204 handling, search clamp/pagination, and sanitized errors |
+| `spotify/repository/SpotifyRepository.kt` | best-effort wrapper for search, artist metadata, recent/top/saved tracks, owned/collaborative playlist items, and current playback; emits radio failure categories |
+| `radio/RadioSeedBuilder.kt` | builds seeds from current track, selected track, or listening session history; merges optional planner query hints |
+| `radio/planner/*.kt` | typed request/response contract and Ktor client for `Tryptify-Playlist` (`RADIO_PLANNER_URL` + bearer key) |
+| `radio/TrackResolver.kt` | resolves Spotify candidates to Qobuz/local playable tracks using ISRC, query, and Jaro-Winkler matching |
+| `radio/RadioQueueManager.kt` | owns radio state/events, disables shuffle/repeat, appends batches, and refills near queue tail |
+| `radio/RadioViewModel.kt` | thin Hilt VM exposing radio state/events and `startRadio(seed)` |
+
+Flow: a UI action starts `RadioSeed.FromCurrentTrack`, `FromTrack`, or `FromListeningSession`. `RadioSeedBuilder` sends seed/local/history metadata to the optional planner only when the new `llm_playlist_radio_recommendations` DataStore switch is enabled and `RADIO_PLANNER_URL` / `RADIO_PLANNER_API_KEY` are configured. Planner hints are advisory only: they add local/Spotify/Qobuz search terms and small source/scoring boosts, while Android still owns fetching, matching, duplicate filtering, and playability validation. `RadioSeedBuilder` maps local `Track`s to Spotify seed tracks via structured/broad search; for session radio it uses `QueueManager.playHistory` and can optionally include Spotify's current playback when `spotifySyncCurrentPlaying` is enabled. Artist top-tracks, related artists, recommendations, audio-features, audio-analysis, browse, and user-playlists endpoints are not load-bearing in radio. Candidate collection is now discovery-heavy: paged Spotify search and planner queries fill the pool first, saved/owned playlist tracks are fallback taste signals, and Spotify recently played/top tracks are treated as already heard instead of being boosted into the queue. Persistent Tryptify history (`LibraryRepository.getHistory()`), current queue, and in-memory play history are all used as duplicate blockers so radio avoids replaying tracks the user already listened to.
+
+The repaired `Tryptify-Playlist` service keeps local Neuron support (`/sdcard/gguf neuron/gemma-4-E2B-it-Q4_K_M.gguf`, avoiding the multimodal `mmproj` sidecar) and now runs model-backed on Railway. The pushed service commits are `58432c6` (repair), `e970479` (model-backed Railway), `33b6329` (bounded model latency), and `f96e7a2` (8 s model timeout tuning). Railway variables are set for `ENABLE_MODEL=1`, `SKIP_MODEL_DOWNLOAD=0`, `MODEL_DIR=/tmp/tryptify-models`, `MODEL_FILENAME=qwen2.5-0.5b-instruct-q4_k_m.gguf`, `MAX_TOKENS=180`, and `MODEL_GENERATION_TIMEOUT_SECONDS=8.0`; `/health` reports `planner=model`, `model_loaded=true`, and `model_exists=true`. Model hints are compact and normalized back into the exact planner schema; if Railway CPU inference is too slow or busy, the service returns a deterministic schema with a fallback reason instead of blocking Android radio.
+
+Resolution is deliberately local-to-Tryptify and now local-first: `TrackResolver` tries local ISRC, local exact artist/title, Qobuz ISRC, Qobuz fuzzy text scored with `JaroWinklerSimilarity` (`MATCH_THRESHOLD=0.88`), then local fuzzy search. Qobuz results pass through a single registration point that records Qobuz track/artist ids and inserts the resulting `UnifiedTrack` into `UnifiedTrackRegistry`; local results also register the unified mapping. Resolved tracks are tagged with `radio_source:spotify`, get Spotify radio extras in `MediaMetadata`, then their legacy `Track` form is queued. Skips are logged as `RadioSkipEvent`; high skip ratios and auth/API failures surface as snackbars instead of silently producing empty radio.
+
+Watch items: `RadioQueueManager` still launches its own `CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)` and is singleton-provided manually from `SpotifyModule`; cancellation/lifecycle is therefore app-process lifetime, not ViewModel lifetime. Refill concurrency is guarded by the queue mutex plus `refillRunning`, and duplicate filtering uses ISRC/text radio keys against seeds, the current queue, recent play history, seen Spotify ids, and failed resolution keys. Spotify API calls remain UI-resilient, but important failures now emit typed `SpotifyRadioFailure` events for snackbars (`reauth`, premium/scope, rate limit, endpoint unavailable, no resolvable tracks). Planner calls are time-boxed to 12 s on Android and the Railway model path is bounded to 8 s, so radio still works with local/Spotify/Qobuz heuristics when the LLM planner is disabled, unconfigured, unreachable, or too slow.
+
 ### local-library **[deep audit]**
 
-Indexes on-device audio into Room and renders it. `MediaStoreSource` enumerates audio (`IS_MUSIC=1`, duration ≥ 30 s), `TagReader` reads tags + artwork via `MediaMetadataRetriever` (with sidecar/folder-cover fallback plus lightweight FLAC/ID3 extended tags), and `MediaScanner` persists `LocalTrackEntity` rows then rebuilds album/artist/genre/folder groupings in Room. Scanning can be manual (refresh/add-folder) or incremental through the app-wired `FileObserverService`.
+Indexes on-device audio into Room and renders it. `MediaStoreSource` enumerates audio (`IS_MUSIC=1`, duration ≥ 30 s), `TagReader` reads tags + artwork via `MediaMetadataRetriever` (with sidecar/folder-cover fallback plus lightweight FLAC/ID3 extended tags), and `MediaScanner` persists `LocalTrackEntity` rows then rebuilds album/artist/genre/folder groupings in Room. Scanning can be manual (refresh/add-folder) or incremental through the app-wired `FileObserverService`. The Spotify radio diff adds an artist/title lookup path for local candidate resolution.
 
-Notable patterns: a **single Room DB holds both the HiFi-catalog cache and all local tables**; groupings use stable keys for navigation-critical identity; synthetic "unknown" buckets are refused cover art; rich self-healing re-read triggers (`artworkMissing`, `derivableArtist`) mean the refresh button always uses `fullScan`.
+Notable patterns: a **single Room DB holds both the HiFi-catalog cache and all local tables**; groupings use stable keys for navigation-critical identity; synthetic "unknown" buckets are refused cover art; rich self-healing re-read triggers (`artworkMissing`, `derivableArtist`) mean the refresh button always uses `fullScan`; radio matching now uses `LocalMediaDao.findByArtistTitle` before falling back to title search.
 
-Remediation notes: the large-library delete overflow, unstable grouping ids, excluded-path wiring, dead watcher path, local extended tags, and folder-flow recomposition issues from the original audit were addressed. Remaining watch item: local scanning still needs an in-memory Room regression suite.
+Remediation notes: the large-library delete overflow, unstable grouping ids, excluded-path wiring, dead watcher path, local extended tags, and folder-flow recomposition issues from the original audit were addressed. The branch also replaces Java 9-style `InputStream.readNBytes` calls with a local `readUpTo` helper in `TagReader`, and the radio artist/title DAO query now uses SQLite `ESCAPE '\'` with repository-side escaping for `%`, `_`, and backslash. Remaining watch item: local scanning still needs an in-memory Room regression suite.
 
 ### eq-ui **[deep audit]**
 
@@ -286,7 +330,7 @@ JNI surface: `nativeInit`, `nativeOpen(fd)` (opens the USB device from an Androi
 
 ### auth-sync-cloud-ai **[focused pass]**
 
-Authentication, cloud sync, scrobbling, and AI. Supabase is now the only cloud sync backend in source: `SupabaseAuthManager`/`AuthRepository` handle auth (Google sign-in via Credential Manager; `SharedPrefsCodeVerifierCache` for PKCE), and `SupabaseSyncRepository` uses `postgrest`. The old PocketBase scaffolding was removed. The Supabase row models (`SbFavoriteTrack`, `SbPlaylist`, `SbPlayEvent`, `SbEqPreset`, `SbMixPreset`, …) enumerate what syncs. AI: `GeminiClient` calls Google Gemini using a **user-supplied** API key (from DataStore), with `AudioSnippetFetcher` providing audio context. Scrobbling: `ScrobblingService` targets Last.fm/ListenBrainz and reads Last.fm credentials from build configuration, no-oping Last.fm when they are absent.
+Authentication, cloud sync, scrobbling, Spotify radio auth, and AI. Supabase is now the only cloud sync backend in source: `SupabaseAuthManager`/`AuthRepository` handle auth (Google sign-in via Credential Manager; `SharedPrefsCodeVerifierCache` for PKCE), and `SupabaseSyncRepository` uses `postgrest`. The old PocketBase scaffolding was removed. Spotify auth is separate: `SpotifyAuthManager` performs OAuth PKCE against Spotify, stores access/refresh tokens in `EncryptedSharedPreferences`, and schedules `SpotifyTokenRefreshWorker`. The radio planner bearer key is a build-configured secret (`RADIO_PLANNER_API_KEY`) and should match the `API_KEY` configured on Railway or the local planner service. The Supabase row models (`SbFavoriteTrack`, `SbPlaylist`, `SbPlayEvent`, `SbEqPreset`, `SbMixPreset`, …) enumerate what syncs. AI: `GeminiClient` calls Google Gemini using a **user-supplied** API key (from DataStore), with `AudioSnippetFetcher` providing audio context. The new LLM playlist/radio recommendation switch does **not** use this old Gemini path; it gates only the Railway `Tryptify-Playlist` planner client. Scrobbling: `ScrobblingService` targets Last.fm/ListenBrainz and reads Last.fm credentials from build configuration, no-oping Last.fm when they are absent.
 
 ### downloads-collections-share **[focused pass]**
 
@@ -294,7 +338,7 @@ Authentication, cloud sync, scrobbling, and AI. Supabase is now the only cloud s
 
 ### settings / preferences / stats / home / search **[focused pass]**
 
-`PreferencesManager` is the central DataStore wrapper — a very large single preferences surface (audio output mode `SourceMode`, EQ namespaces, Gemini key, sync, performance, theming…). `SettingsScreen` (~1,988 lines, the largest file in the app) + `SettingsViewModel` render it. `StatsViewModel`/`ListeningStatsViewModel` + `StatsScreen` show listening stats over a `StatsRange`. `HomeViewModel`/`HomeScreen` is the discovery dashboard; `SearchViewModel` + `SearchUi` (with `SearchSourceFilter`/`SearchTypeFilter`/`RecommendationRow`) provide multi-source search, and the search route is now registered in the navigation graph.
+`PreferencesManager` is the central DataStore wrapper — a very large single preferences surface (audio output mode `SourceMode`, EQ namespaces, Gemini key, sync, performance, theming, and `spotifySyncCurrentPlaying`). `SettingsScreen` (~2k lines, the largest file in the app) + `SettingsViewModel` render it. The branch adds a System-tab Integrations group for Spotify connect/disconnect, a switch allowing session radio to include Spotify currently playing metadata, and a separate `LLM playlist & radio recommendations` switch that gates the Railway planner. `StatsViewModel`/`ListeningStatsViewModel` + `StatsScreen` show listening stats over a `StatsRange`. `HomeViewModel`/`HomeScreen` is the discovery dashboard; `SearchViewModel` + `SearchUi` (with `SearchSourceFilter`/`SearchTypeFilter`/`RecommendationRow`) provide multi-source search, and the search route is now registered in the navigation graph.
 
 ### platform-integrations (theme, components, widget, auto, devedit, debug, performance, util) **[focused pass]**
 
@@ -309,30 +353,31 @@ The cross-app glue. **Theme:** `DynamicColorExtractor`/`DynamicPalette`/`MonoDim
 ### Security & privacy
 
 - **Supabase configuration moved out of source.** `SupabaseAuthManager` now reads `SUPABASE_URL` and `SUPABASE_ANON_KEY` from Gradle properties, `local.properties`, or environment-backed `BuildConfig`; blank config disables auth/sync calls instead of shipping a baked project URL/JWT. **Action: confirm RLS on every table and rotate the old anon key server-side.**
-- **Collection crypto dependency/comment cleaned up.** The unused `security-crypto` dependency was removed. Collection keys are still handled as plain base64 from the server manifest (`AesGcmDecryptor.decryptBase64`, `DecryptingDataSource`), and encrypted-looking URL decryption failures now fail instead of silently returning plaintext.
-- **Backups are disabled** with `android:allowBackup="false"` because auth tokens and encrypted-collection state live in app storage.
+- **Collection crypto behavior was cleaned up.** Collection keys are still handled as plain base64 from the server manifest (`AesGcmDecryptor.decryptBase64`, `DecryptingDataSource`), and encrypted-looking URL decryption failures now fail instead of silently returning plaintext.
+- **Spotify OAuth tokens and the planner bearer key are new secret surfaces.** `SpotifyAuthManager` intentionally reintroduces `androidx.security:security-crypto` and stores access/refresh tokens in `EncryptedSharedPreferences`; `SPOTIFY_CLIENT_ID`, `RADIO_PLANNER_URL`, and `RADIO_PLANNER_API_KEY` come from Gradle/local/env `BuildConfig` and must not be hardcoded elsewhere. Refresh-token `invalid_grant` clears stored tokens and sends the user back through auth instead of retrying forever; original authorization time is recorded as `spotify_authorized_at_ms`.
+- **Backups are disabled** with `android:allowBackup="false"` because auth tokens, Spotify tokens, and encrypted-collection state live in app storage.
 - **Last.fm scrobbling credentials are build-configured.** `ScrobblingService` reads `LASTFM_API_KEY` / `LASTFM_API_SECRET` from Gradle/local/env `BuildConfig` and no-ops Last.fm when they are absent.
 - **Gemini API key is correctly user-supplied** via DataStore (`GEMINI_API_KEY`), passed as a query param to the Gemini endpoint — no embedded key. Good.
 - **HiFi backends are fully unauthenticated** by design (user supplies the instance URL). Acceptable for a self-hosted model; document it so it isn't "fixed" accidentally.
-- Cleartext is globally disabled (`usesCleartextTraffic="false"`); there is **no** `network_security_config.xml`, so all `http://` is blocked app-wide (verify the self-hosted instances are HTTPS). `FileProvider` is `exported=false` with scoped `file_paths.xml`. Exported components (`MainActivity`, `PlaybackService`, `MonochromeMediaBrowserService`, widget receiver) are the expected media-app set.
+- Cleartext is globally disabled (`usesCleartextTraffic="false"`); there is **no** `network_security_config.xml`, so all `http://` is blocked app-wide (verify the self-hosted instances are HTTPS). `FileProvider` is `exported=false` with scoped `file_paths.xml`. Exported components now include `SpotifyAuthActivity` for the `tryptify://spotify-callback` browser redirect; PKCE verifier + OAuth `state` are the security boundary, not secrecy of the custom scheme.
 
 ### Performance & concurrency
 
-Strengths: per-device `PerformanceProfile` scales thread pools and Coil cache; a baseline profile AOT-compiles hot Compose paths; spectrum/visualizer overlays render per-frame via `withFrameNanos` with zero per-frame allocation; album-color extraction is off the main thread. The original resumption/preload and folder-flow issues were fixed in the remediation pass. Remaining concerns: up to 120 s of hi-res audio buffered with `targetBufferBytes` unset; Oxford polls meters at 60 Hz for both effects regardless of the visible tab; the HiFi `LruCache` is bounded by entry count, not memory. On the audio thread, the native DSP path is `-O3`/NEON and exception-free, but the audio-thread allocation/locking behavior of the snap-ins and the USB iso pump was not deep-audited — recommend a dedicated pass.
+Strengths: per-device `PerformanceProfile` scales thread pools and Coil cache; a baseline profile AOT-compiles hot Compose paths; spectrum/visualizer overlays render per-frame via `withFrameNanos` with zero per-frame allocation; album-color extraction is off the main thread. The original resumption/preload and folder-flow issues were fixed in the remediation pass. Remaining concerns: up to 120 s of hi-res audio buffered with `targetBufferBytes` unset; Oxford polls meters at 60 Hz for both effects regardless of the visible tab; the HiFi `LruCache` is bounded by entry count, not memory. Spotify radio adds bursts of concurrent Spotify/Qobuz/local lookups (`RADIO_BATCH_SIZE=20`, up to 3 pulls) and tail refills from a process-lifetime singleton scope; watch API rate limits, duplicate queue scans, and cancellation behavior. On the audio thread, the native DSP path is `-O3`/NEON and exception-free, but the audio-thread allocation/locking behavior of the snap-ins and the USB iso pump was not deep-audited — recommend a dedicated pass.
 
 ### Architecture & code quality
 
-Strengths: clean `data`/`domain`/`ui` layering, consistent MVVM with `StateFlow`, a shared unified domain model across two streaming backends, and disciplined `@Singleton` sharing for the audio/queue state. Concerns: **god files** — `SettingsScreen.kt`, `HiFiApiClient.kt`, `EqViewModel.kt`, `PreferencesManager.kt`; **routing correctness depends on side-effectful registry population** (`QobuzIdRegistry`) with no choke point; **dual playback drivers** that must be kept synchronized; and some remaining dead/pre-redesign code. The remediation pass removed PocketBase scaffolding and added a seed unit-test harness, but broader coverage is still needed.
+Strengths: clean `data`/`domain`/`ui` layering, consistent MVVM with `StateFlow`, a shared unified domain model across two streaming backends, and disciplined `@Singleton` sharing for the audio/queue state. Concerns: **god files** — `SettingsScreen.kt`, `HiFiApiClient.kt`, `EqViewModel.kt`, `PreferencesManager.kt`; **routing correctness depends on side-effectful registry population** (`QobuzIdRegistry`, now also `UnifiedTrackRegistry` for radio-resolved tracks) with no choke point; **dual playback drivers** that must be kept synchronized; and some remaining dead/pre-redesign code. The Spotify/radio feature currently crosses UI, player, local DB, Qobuz search, Spotify API, and settings; keep that orchestration tested so it does not become another hidden routing path. The remediation pass removed PocketBase scaffolding and added a seed unit-test harness, but broader coverage is still needed.
 
 ### Build & dependencies
 
-Mostly current and coherent. Watch items: `credentials 1.5.0-beta01` is a pre-release pin; the native build hard-depends on three submodules and the `DEBUG_POSTFIX` hack; destructive Room fallback is gone, so missing future migrations should fail closed during development instead of wiping production data; ProGuard/R8 is on for release with `isMinifyEnabled`/`isShrinkResources` — verify keep-rules cover Ktor/kotlinx-serialization/Room/Supabase reflective paths (a deep proguard review was not completed). JUnit is now present for local unit tests.
+Mostly current and coherent. Watch items: `credentials 1.5.0-beta01` and `security-crypto 1.1.0-alpha06` are pre-release pins; `commons-text` is a new dependency for radio matching; `SPOTIFY_CLIENT_ID` must be supplied through Gradle/local/env config for the Spotify auth surface to launch; the native build hard-depends on three submodules and the `DEBUG_POSTFIX` hack; destructive Room fallback is gone, so missing future migrations should fail closed during development instead of wiping production data; ProGuard/R8 is on for release with `isMinifyEnabled`/`isShrinkResources` — verify keep-rules cover Ktor/kotlinx-serialization/Room/Supabase/Spotify reflective paths (a deep proguard review was not completed). JUnit is now present for local unit tests, but the branch-local Spotify test file should be compiled before treating it as green coverage.
 
 ---
 
 ## Risk register
 
-Status after the remediation pass on 2026-06-28. The table keeps the original issue numbers for traceability. All locally verifiable code items have been addressed; Supabase RLS/rotation remains a server-side follow-up because it cannot be proven from this repository.
+Status after the remediation pass on 2026-06-28, with `spotifyrecbeta` notes folded in on 2026-06-29. The table keeps the original issue numbers for traceability. All original locally verifiable code items have been addressed; Supabase RLS/rotation remains a server-side follow-up because it cannot be proven from this repository. Spotify/radio items are branch-local beta risks, not part of the original numbered audit.
 
 | # | Former severity | Area | Status | Verification / note |
 |---|---|---|---|---|
@@ -357,11 +402,11 @@ Status after the remediation pass on 2026-06-28. The table keeps the original is
 | 19 | Medium | eq-ui | **Resolved** | The advanced measurement upload screen is reachable from the EQ screen. |
 | 20 | Medium | player-ui | **Resolved** | Car Mode uses the shared player controller instead of creating a second `PlayerViewModel`. |
 | 21 | Medium | player-ui | **Resolved** | `PlayerViewModel` now has real media-controller reconnect/backoff behavior. |
-| 22 | Medium | Security | **Resolved** | Unused `security-crypto` dependency was removed, and encrypted-looking URL decryption failures are no longer silently treated as plaintext. |
+| 22 | Medium | Security | **Resolved / superseded** | Encrypted-looking collection URL failures are no longer silently treated as plaintext. `security-crypto` was later reintroduced intentionally for Spotify token storage in `spotifyrecbeta`. |
 | 23 | Medium | Security | **Resolved** | `android:allowBackup` is now `false`. |
 | 24 | Medium | Architecture | **Resolved** | PocketBase sync scaffolding was removed; Supabase is the only cloud sync backend in source. |
 
-Project-wide testing risk: **reduced, not broad yet**. The project now has a JUnit harness and `AesGcmDecryptorTest`, so it no longer has zero tests. Coverage is still thin for playback resolution, local scanning, network parsing, Room, and JNI.
+Project-wide testing risk: **reduced, not broad yet**. The project now has a JUnit harness and `AesGcmDecryptorTest`, plus branch-local tests for Spotify model tolerance/search clamping, local LIKE escaping, and radio duplicate-key generation. `./gradlew testDebugUnitTest` and `./gradlew assembleDebug` pass after the radio hardening, discovery-heavy radio retune, player tag cleanup, LLM toggle, and planner-wiring pass. Coverage is still thin for full playback resolution, Spotify/radio integration behavior, local scanning, network parsing, Room, and JNI.
 
 ---
 
@@ -370,15 +415,19 @@ Project-wide testing risk: **reduced, not broad yet**. The project now has a JUn
 Current automated coverage:
 
 1. **`AesGcmDecryptorTest`** — AES-GCM decrypt round-trip with prepended IV, tampered-tag rejection, and plaintext URL passthrough.
+2. **`SpotifyModelTest`** — tolerant Spotify track models, primary artist helpers, and `/search` limit/offset clamps. Planner response models currently rely on Kotlin serialization defaults and compile coverage; add direct planner decode tests next.
+3. **`LocalMediaRepositoryTest`** — SQLite `LIKE` escaping for `%`, `_`, and backslash.
+4. **`RadioKeyTest`** — ISRC-first and normalized text radio duplicate keys.
 
 Highest-value next tests, ordered by risk × tractability:
 
-1. **`StreamResolver` / `ResolvePlaybackUseCase`** — mapping of `PlaybackSource` → `MediaItem`, including DASH and ISRC-fallback branches.
-2. **`QobuzIdRegistry` routing** — register/lookup/slug mapping and round-trip through DataStore.
-3. **`MediaScanner` grouping** — grouping-key stability, synthetic-bucket suppression, and artist-from-title recovery against an in-memory Room DB.
-4. **`HiFiApiClient` parsing** — captured JSON fixtures for model defaults, lenient envelopes, and `{"data": null}` handling.
-5. **`LocalMediaDao.deleteTracksNotIn`** — a Robolectric/instrumented test with > 1,000 paths to lock the large-library fix.
-6. A minimal **JNI smoke test** that loads each `.so` and calls create/destroy entry points in CI.
+1. **`StreamResolver` / `ResolvePlaybackUseCase`** — mapping of `PlaybackSource` → `MediaItem`, including DASH and ISRC-fallback branches plus Spotify-radio extras.
+2. **`RadioSeedBuilder` / `TrackResolver`** — fake Spotify/Qobuz/local repositories covering seed failure, genre expansion, ISRC hit, fuzzy Qobuz hit, local fallback, duplicate filtering, and high skip ratio behavior.
+3. **`QobuzIdRegistry` routing** — register/lookup/slug mapping and round-trip through DataStore.
+4. **`MediaScanner` grouping** — grouping-key stability, synthetic-bucket suppression, and artist-from-title recovery against an in-memory Room DB.
+5. **`HiFiApiClient` parsing** — captured JSON fixtures for model defaults, lenient envelopes, and `{"data": null}` handling.
+6. **`LocalMediaDao.deleteTracksNotIn` / `findByArtistTitle`** — Robolectric/instrumented tests for > 1,000 paths and `LIKE` wildcard escaping.
+7. A minimal **JNI smoke test** that loads each `.so` and calls create/destroy entry points in CI.
 
 ---
 
@@ -386,17 +435,19 @@ Highest-value next tests, ordered by risk × tractability:
 
 **P0 — remaining release blockers**
 - Confirm Supabase RLS on every table touched by the anon role, then rotate the old anon key that was previously committed.
+- Configure and verify Spotify developer-app settings: `SPOTIFY_CLIENT_ID`, redirect URI `tryptify://spotify-callback`, and the requested scopes. Configure `RADIO_PLANNER_URL` / `RADIO_PLANNER_API_KEY` when using Railway or the local Neuron planner, then enable `Settings > System > Integrations > LLM playlist & radio recommendations` only when planner calls should leave the device.
 - Add explicit Room migrations before the next schema version bump; destructive fallback is gone, so missing migrations should be caught before release.
-- Run manual QA for the fixed playback, local-library scan, EQ, Car Mode, and deep-link flows on a device.
+- Run manual QA for the fixed playback, local-library scan, EQ, Car Mode, deep-link, Spotify auth, and radio queue flows on a device.
 
 **P1 — test and observability depth**
-- Add the next unit tests listed above, starting with `StreamResolver` and `MediaScanner`.
+- Add the next unit tests listed above, starting with `StreamResolver`, `TrackResolver`, `RadioSeedBuilder`, and `MediaScanner`.
 - Add an instrumented JNI smoke test for the three native libraries.
-- Keep scrobbling behavior visible in logs/settings when Last.fm credentials are absent from build config.
+- Keep scrobbling and Spotify auth/radio failure modes visible in logs/settings when credentials, scopes, premium access, or API calls fail.
 
 **P2 — maintainability**
 - Split the god files (`SettingsScreen`, `HiFiApiClient`, `EqViewModel`, `PreferencesManager`); separating TIDAL and Qobuz clients is still the cleanest future boundary.
 - Collapse or document the two playback driver paths so future stream-resolution changes do not drift again.
+- Add focused decode/client tests for `radio/planner` and consider moving radio action dispatch out of generic UI components.
 - Delete remaining dead UI/code scaffolding (`ModePill`, `QueueHero`, `ui/eq/SpectrumAnalyzer.kt`, removed bottom-nav remnants) when no longer needed.
 
 ---
@@ -406,4 +457,6 @@ Highest-value next tests, ordered by risk × tractability:
 - Have Supabase Row-Level-Security policies been verified for every table exposed to the anon key?
 - Are the self-hosted HiFi/Qobuz instances guaranteed HTTPS, given cleartext is globally disabled and there is no per-domain network security config?
 - The Qobuz `/api/download-music` field name was "never confirmed" per inline comments — is there a real API spec to narrow the defensive parsing?
+- Is Spotify radio expected to work for non-premium Spotify users? The code detects Spotify's premium-required 403 wording but the repository generally squashes API failures to null/empty results.
+- Should session radio depend on Spotify's currently playing state by default, or remain opt-in through `spotifySyncCurrentPlaying` for privacy and predictability?
 - **[focused-pass subsystems]** The native DSP snap-ins, projectM GL/ring-buffer model, and USB iso pump were documented from signatures + CMake, not a full read. A deep audit pass on `audio-dsp-native`, `visualizer`, and `usb-audio` is still owed to characterize real-time behavior.

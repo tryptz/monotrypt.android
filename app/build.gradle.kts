@@ -69,6 +69,9 @@ android {
         buildConfigField("String", "SUPABASE_ANON_KEY", buildConfigString(configValue("SUPABASE_ANON_KEY")))
         buildConfigField("String", "LASTFM_API_KEY", buildConfigString(configValue("LASTFM_API_KEY")))
         buildConfigField("String", "LASTFM_API_SECRET", buildConfigString(configValue("LASTFM_API_SECRET")))
+        buildConfigField("String", "SPOTIFY_CLIENT_ID", buildConfigString(configValue("SPOTIFY_CLIENT_ID")))
+        buildConfigField("String", "RADIO_PLANNER_URL", buildConfigString(configValue("RADIO_PLANNER_URL")))
+        buildConfigField("String", "RADIO_PLANNER_API_KEY", buildConfigString(configValue("RADIO_PLANNER_API_KEY")))
 
         externalNativeBuild {
             cmake {
@@ -199,12 +202,18 @@ dependencies {
     // DataStore
     implementation(libs.datastore.preferences)
 
+    // Security
+    implementation(libs.security.crypto)
+
     // WorkManager
     implementation(libs.work.runtime)
 
     // Kotlin
     implementation(libs.kotlinx.coroutines)
     implementation(libs.kotlinx.serialization)
+
+    // Text similarity
+    implementation(libs.commons.text)
 
     // Supabase
     implementation(platform(libs.supabase.bom))

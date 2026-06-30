@@ -1596,6 +1596,41 @@ private fun SystemTab(viewModel: SettingsViewModel, navController: NavController
         LinkItem("Website", "https://monochrome.tf", context)
 
         Spacer(modifier = Modifier.height(20.dp))
+        SettingsGroupHeader("Integrations")
+        val spotifyAuth by viewModel.spotifyAuthState.collectAsState()
+        val spotifySyncCurrentPlaying by viewModel.spotifySyncCurrentPlaying.collectAsState()
+        val llmPlaylistRadioRecommendationsEnabled by
+            viewModel.llmPlaylistRadioRecommendationsEnabled.collectAsState()
+        if (spotifyAuth.isAuthenticated) {
+            SettingItem(
+                title = "Spotify",
+                subtitle = spotifyAuth.accountEmail ?: "Connected",
+                onClick = {}
+            )
+            OutlinedButton(onClick = { viewModel.disconnectSpotify() }) {
+                Text("Disconnect Spotify")
+            }
+        } else {
+            SettingItem(
+                title = "Spotify",
+                subtitle = "Connect to use Spotify radio recommendations",
+                onClick = { viewModel.startSpotifyAuth() }
+            )
+        }
+        SettingSwitchItem(
+            title = "Sync Spotify current listening",
+            subtitle = "Allow session radio to include Spotify currently playing metadata",
+            checked = spotifySyncCurrentPlaying,
+            onCheckedChange = { viewModel.setSpotifySyncCurrentPlaying(it) }
+        )
+        SettingSwitchItem(
+            title = "LLM playlist & radio recommendations",
+            subtitle = "Use the Railway planner for playlist and radio recommendation hints",
+            checked = llmPlaylistRadioRecommendationsEnabled,
+            onCheckedChange = { viewModel.setLlmPlaylistRadioRecommendationsEnabled(it) }
+        )
+
+        Spacer(modifier = Modifier.height(20.dp))
         SettingsGroupHeader("Account & Sync")
         val isLoggedIn by viewModel.isLoggedIn.collectAsState()
         val userEmail by viewModel.userEmail.collectAsState()

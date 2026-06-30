@@ -1,6 +1,7 @@
 package tf.monochrome.android.player
 
 import android.net.Uri
+import android.os.Bundle
 import android.util.Base64
 import androidx.annotation.OptIn
 import androidx.core.net.toUri
@@ -20,6 +21,9 @@ import tf.monochrome.android.domain.model.TrackStream
 import tf.monochrome.android.domain.model.UnifiedTrack
 import tf.monochrome.android.domain.model.buildCoverUrl
 import tf.monochrome.android.domain.usecase.CrossSourceMatcher
+import tf.monochrome.android.radio.RADIO_QUALITY_TAG
+import tf.monochrome.android.radio.RADIO_SOURCE_EXTRA_KEY
+import tf.monochrome.android.radio.RADIO_SOURCE_SPOTIFY
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -44,6 +48,13 @@ class StreamResolver @Inject constructor(
     private val qobuzCache: QobuzStreamCacheManager,
     private val qobuzIdRegistry: QobuzIdRegistry,
 ) {
+    private fun MediaMetadata.Builder.applyRadioExtras(track: UnifiedTrack): MediaMetadata.Builder {
+        if (track.qualityTags.orEmpty().contains(RADIO_QUALITY_TAG)) {
+            setExtras(Bundle().apply { putString(RADIO_SOURCE_EXTRA_KEY, RADIO_SOURCE_SPOTIFY) })
+        }
+        return this
+    }
+
     private fun normalizeArtworkUri(raw: String?): Uri? {
         if (raw.isNullOrBlank()) return null
         val parsed = raw.toUri()
@@ -123,6 +134,7 @@ class StreamResolver @Inject constructor(
             .setArtworkUri(normalizeArtworkUri(track.artworkUri))
             .setTrackNumber(track.trackNumber)
             .setDiscNumber(track.discNumber)
+            .applyRadioExtras(track)
             .build()
 
         val mediaItem = MediaItem.Builder()
@@ -163,6 +175,7 @@ class StreamResolver @Inject constructor(
             .setArtworkUri(normalizeArtworkUri(track.artworkUri))
             .setTrackNumber(track.trackNumber)
             .setDiscNumber(track.discNumber)
+            .applyRadioExtras(track)
             .build()
 
         val mediaItem = MediaItem.Builder()
@@ -190,6 +203,7 @@ class StreamResolver @Inject constructor(
             .setArtworkUri(normalizeArtworkUri(track.artworkUri))
             .setTrackNumber(track.trackNumber)
             .setDiscNumber(track.discNumber)
+            .applyRadioExtras(track)
             .build()
 
         val mediaItem = MediaItem.Builder()
@@ -248,6 +262,7 @@ class StreamResolver @Inject constructor(
             .setArtworkUri(normalizeArtworkUri(track.artworkUri))
             .setTrackNumber(track.trackNumber)
             .setDiscNumber(track.discNumber)
+            .applyRadioExtras(track)
             .build()
 
         val mediaItem = MediaItem.Builder()

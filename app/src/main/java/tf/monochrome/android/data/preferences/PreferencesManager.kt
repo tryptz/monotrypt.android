@@ -84,6 +84,7 @@ class PreferencesManager @Inject constructor(
         private val CROSSFADE_DURATION = intPreferencesKey("crossfade_duration")
         // Spotify-style autoplay: extend a dry queue with similar tracks.
         private val AUTOPLAY_SIMILAR = booleanPreferencesKey("autoplay_similar")
+        private val SPOTIFY_SYNC_CURRENT_PLAYING = booleanPreferencesKey("spotify_sync_current_playing")
         // On-device audio-feature analysis (tempo/energy/key/…) of the library.
         private val ANALYZE_AUDIO_FEATURES = booleanPreferencesKey("analyze_audio_features")
         private val AUDIO_ANALYSIS_TARGET = intPreferencesKey("audio_analysis_target")
@@ -129,6 +130,8 @@ class PreferencesManager @Inject constructor(
         // AI
         private val GEMINI_API_KEY = stringPreferencesKey("gemini_api_key")
         private val AI_RADIO_ENABLED = booleanPreferencesKey("ai_radio_enabled")
+        private val LLM_PLAYLIST_RADIO_RECOMMENDATIONS =
+            booleanPreferencesKey("llm_playlist_radio_recommendations")
 
         // EQ / AutoEQ
         private val EQ_TUTORIAL_SEEN = booleanPreferencesKey("eq_tutorial_seen")
@@ -467,6 +470,20 @@ class PreferencesManager @Inject constructor(
     }
     suspend fun setAutoplaySimilar(enabled: Boolean) {
         dataStore.edit { it[AUTOPLAY_SIMILAR] = enabled }
+    }
+
+    val spotifySyncCurrentPlaying: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[SPOTIFY_SYNC_CURRENT_PLAYING] ?: false
+    }
+    suspend fun setSpotifySyncCurrentPlaying(enabled: Boolean) {
+        dataStore.edit { it[SPOTIFY_SYNC_CURRENT_PLAYING] = enabled }
+    }
+
+    val llmPlaylistRadioRecommendationsEnabled: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[LLM_PLAYLIST_RADIO_RECOMMENDATIONS] ?: false
+    }
+    suspend fun setLlmPlaylistRadioRecommendationsEnabled(enabled: Boolean) {
+        dataStore.edit { it[LLM_PLAYLIST_RADIO_RECOMMENDATIONS] = enabled }
     }
 
     // On-device audio-feature analysis of the library; on by default.

@@ -35,6 +35,18 @@ interface LocalMediaDao {
     @Query("SELECT * FROM local_tracks WHERE isrc = :isrc LIMIT 1")
     suspend fun findByIsrc(isrc: String): LocalTrackEntity?
 
+    @Query("""
+        SELECT * FROM local_tracks
+        WHERE (
+            artist LIKE '%' || :artistQuery || '%' ESCAPE '\'
+            OR albumArtist LIKE '%' || :artistQuery || '%' ESCAPE '\'
+        )
+        AND title LIKE '%' || :titleQuery || '%' ESCAPE '\'
+        ORDER BY title
+        LIMIT 5
+    """)
+    suspend fun findByArtistTitle(artistQuery: String, titleQuery: String): List<LocalTrackEntity>
+
     @Query("SELECT * FROM local_tracks WHERE filePath = :path LIMIT 1")
     suspend fun findByPath(path: String): LocalTrackEntity?
 

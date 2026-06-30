@@ -59,6 +59,18 @@
 
 
         <activity
+            android:name=".spotify.auth.SpotifyAuthActivity"
+            android:exported="true"
+            android:launchMode="singleTop">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="tryptify" android:host="spotify-callback" />
+            </intent-filter>
+        </activity>
+
+        <activity
             android:name=".ui.main.MainActivity"
             android:exported="true"
             android:theme="@style/Theme.Monochrome.Splash"

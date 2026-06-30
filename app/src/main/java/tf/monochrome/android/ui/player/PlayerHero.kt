@@ -68,9 +68,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import tf.monochrome.android.domain.model.Track
+import tf.monochrome.android.radio.RadioState
 import tf.monochrome.android.domain.model.VisualizerEngineStatus
 import tf.monochrome.android.domain.model.VisualizerPreset
 import tf.monochrome.android.ui.components.CoverImage
+import tf.monochrome.android.ui.components.RadioButton
 import tf.monochrome.android.ui.components.liquidGlass
 import tf.monochrome.android.visualizer.ProjectMEngineRepository
 
@@ -114,6 +116,8 @@ fun PlayerHero(
     onToggleShowSpectrum: () -> Unit = {},
     onEnterVisualizer: () -> Unit = {},
     onExitVisualizer: () -> Unit = {},
+    radioState: RadioState = RadioState.Idle,
+    onStartRadio: () -> Unit = {},
 ) {
     if (style == PlayerHeroStyle.Visualizer) {
         VisualizerHero(
@@ -159,6 +163,8 @@ fun PlayerHero(
                 progress = progress,
                 accent = albumColors.vibrant,
                 onEnterVisualizer = onEnterVisualizer,
+                radioState = radioState,
+                onStartRadio = onStartRadio,
             )
             else -> SquareArtHero(
                 track = track,
@@ -168,6 +174,8 @@ fun PlayerHero(
                 showSpectrum = showSpectrum,
                 onToggleShowSpectrum = onToggleShowSpectrum,
                 onEnterVisualizer = onEnterVisualizer,
+                radioState = radioState,
+                onStartRadio = onStartRadio,
             )
         }
     }
@@ -182,6 +190,8 @@ private fun SquareArtHero(
     showSpectrum: Boolean,
     onToggleShowSpectrum: () -> Unit,
     onEnterVisualizer: () -> Unit,
+    radioState: RadioState,
+    onStartRadio: () -> Unit,
 ) {
     Surface(
         modifier = Modifier
@@ -203,8 +213,9 @@ private fun SquareArtHero(
             spectrumColor = spectrumColor,
             showSpectrum = showSpectrum,
             onToggleShowSpectrum = onToggleShowSpectrum,
-            quality = track?.audioQuality,
             onEnterVisualizer = onEnterVisualizer,
+            radioState = radioState,
+            onStartRadio = onStartRadio,
         )
     }
 }
@@ -215,6 +226,8 @@ private fun CircularProgressHero(
     progress: Float,
     accent: Color,
     onEnterVisualizer: () -> Unit,
+    radioState: RadioState,
+    onStartRadio: () -> Unit,
 ) {
     Box(
         modifier = Modifier.fillMaxWidth().aspectRatio(1f).padding(8.dp),
@@ -258,6 +271,14 @@ private fun CircularProgressHero(
                 size = Size(size.width - stroke, size.height - stroke),
                 style = Stroke(width = stroke, cap = StrokeCap.Round),
             )
+        }
+        AnimatedVisibility(
+            visible = track != null,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
+        ) {
+            RadioButton(state = radioState, onClick = onStartRadio)
         }
     }
 }
@@ -537,8 +558,9 @@ private fun HeroCoverArt(
     spectrumColor: Color = PlayerGlowBlue,
     showSpectrum: Boolean = true,
     onToggleShowSpectrum: () -> Unit = {},
-    quality: String? = null,
     onEnterVisualizer: (() -> Unit)? = null,
+    radioState: RadioState = RadioState.Idle,
+    onStartRadio: () -> Unit = {},
 ) {
     val spectrumEnabled = showSpectrum
     var spectrumSpeed by remember { mutableStateOf(SpectrumSpeed.NORMAL) }
@@ -603,6 +625,15 @@ private fun HeroCoverArt(
             }
         }
 
+        AnimatedVisibility(
+            visible = track != null,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
+        ) {
+            RadioButton(state = radioState, onClick = onStartRadio)
+        }
+
         Box(modifier = Modifier.fillMaxSize().graphicsLayer { alpha = controlsAlpha }) {
             // Small, icon-only controls (top-left): spectrum toggle + speed.
             Row(
@@ -619,29 +650,6 @@ private fun HeroCoverArt(
                         icon = Icons.Default.Speed,
                         enabled = interactive,
                         onClick = { spectrumSpeed = spectrumSpeed.next(); controlsVisible = true },
-                    )
-                }
-            }
-
-            // Quality badge (top-right) — also fades out when idle.
-            if (quality != null) {
-                Surface(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(10.dp)
-                        .liquidGlass(
-                            shape = RoundedCornerShape(999.dp),
-                            tintAlpha = 0.18f,
-                            borderAlpha = 0.12f,
-                        ),
-                    shape = RoundedCornerShape(999.dp),
-                    color = Color.Transparent,
-                    contentColor = Color.White,
-                ) {
-                    Text(
-                        text = quality,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        style = MaterialTheme.typography.labelSmall,
                     )
                 }
             }

@@ -9,6 +9,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import tf.monochrome.android.domain.model.AudioCodec
 import java.io.File
 import java.io.FileOutputStream
+import java.io.InputStream
 import java.nio.charset.Charset
 import java.security.MessageDigest
 import javax.inject.Inject
@@ -285,7 +286,7 @@ class TagReader @Inject constructor(
                 }
 
                 if (type == 4) {
-                    val block = input.readNBytes(length)
+                    val block = input.readUpTo(length)
                     return@use parseVorbisCommentBlock(block)
                 }
 
@@ -332,7 +333,7 @@ class TagReader @Inject constructor(
 
     private fun readId3v2Tags(file: File): Map<String, String> = runCatching<Map<String, String>> {
         file.inputStream().use { input ->
-            val header = input.readNBytes(10)
+            val header = input.readUpTo(10)
             if (header.size < 10 || header[0] != 'I'.code.toByte() ||
                 header[1] != 'D'.code.toByte() || header[2] != '3'.code.toByte()
             ) {
@@ -342,7 +343,7 @@ class TagReader @Inject constructor(
             val majorVersion = header[3].toInt() and 0xFF
             if (majorVersion !in 3..4) return@use emptyMap<String, String>()
             val tagSize = syncSafeInt(header, 6).coerceAtMost(1_048_576)
-            val data = input.readNBytes(tagSize)
+            val data = input.readUpTo(tagSize)
             parseId3Frames(data, majorVersion)
         }
     }.getOrDefault(emptyMap())
@@ -381,7 +382,7 @@ class TagReader @Inject constructor(
     }
 
     private fun readVisibleKeyValueTags(file: File): Map<String, String> = runCatching {
-        val bytes = file.inputStream().use { it.readNBytes(1_048_576) }
+        val bytes = file.inputStream().use { it.readUpTo(1_048_576) }
         val text = bytes.toString(Charsets.ISO_8859_1)
         val keys = listOf(
             "REPLAYGAIN_TRACK_GAIN", "REPLAYGAIN_ALBUM_GAIN",
@@ -431,6 +432,18 @@ class TagReader @Inject constructor(
             else -> Charsets.UTF_8
         }
         return runCatching { data.toString(charset) }.getOrNull()
+    }
+
+    private fun InputStream.readUpTo(length: Int): ByteArray {
+        if (length <= 0) return ByteArray(0)
+        val output = ByteArray(length)
+        var offset = 0
+        while (offset < length) {
+            val read = read(output, offset, length - offset)
+            if (read < 0) break
+            offset += read
+        }
+        return if (offset == length) output else output.copyOf(offset)
     }
 
     private fun syncSafeInt(bytes: ByteArray, offset: Int): Int =

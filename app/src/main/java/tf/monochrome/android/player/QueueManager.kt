@@ -22,6 +22,9 @@ class QueueManager @Inject constructor(
     private val _currentTrack = MutableStateFlow<Track?>(null)
     val currentTrack: StateFlow<Track?> = _currentTrack.asStateFlow()
 
+    private val _playHistory = MutableStateFlow<List<Track>>(emptyList())
+    val playHistory: StateFlow<List<Track>> = _playHistory.asStateFlow()
+
     private val _shuffleEnabled = MutableStateFlow(false)
     val shuffleEnabled: StateFlow<Boolean> = _shuffleEnabled.asStateFlow()
 
@@ -173,6 +176,7 @@ class QueueManager @Inject constructor(
         originalQueue = emptyList()
         _currentIndex.value = -1
         _currentTrack.value = null
+        _playHistory.value = emptyList()
     }
 
     fun hasNext(): Boolean {
@@ -192,6 +196,14 @@ class QueueManager @Inject constructor(
     private fun updateCurrentTrack() {
         val index = _currentIndex.value
         val queue = _queue.value
-        _currentTrack.value = if (index in queue.indices) queue[index] else null
+        val nextTrack = if (index in queue.indices) queue[index] else null
+        _currentTrack.value = nextTrack
+        if (nextTrack != null && _playHistory.value.lastOrNull()?.id != nextTrack.id) {
+            _playHistory.value = (_playHistory.value + nextTrack).takeLast(MAX_PLAY_HISTORY)
+        }
+    }
+
+    private companion object {
+        const val MAX_PLAY_HISTORY = 20
     }
 }
