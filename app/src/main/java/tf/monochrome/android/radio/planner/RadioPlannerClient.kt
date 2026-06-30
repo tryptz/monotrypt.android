@@ -87,7 +87,7 @@ class RadioPlannerClient @Inject constructor(
 
     private companion object {
         const val TAG = "RadioPlanner"
-        const val REQUEST_TIMEOUT_MS = 12_000L
+        const val REQUEST_TIMEOUT_MS = 24_000L
     }
 }
 
