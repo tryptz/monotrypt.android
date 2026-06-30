@@ -140,4 +140,21 @@ class RadioPlannerWeightsTest {
         assertEquals("Portishead - Roads", response.songs.first().displayTitle)
         assertTrue(response.safety.modelBacked)
     }
+
+    @Test
+    fun songListAuthorizationFailureExplainsBearerKeyIssue() {
+        val response = songListAuthorizationFailure("dark trip hop")
+
+        assertEquals("dark trip hop", response.query)
+        assertEquals("Tryptify-Playlist authorization failed", response.message)
+        assertTrue(response.safety.fallbackReason.orEmpty().contains("Bearer key"))
+    }
+
+    @Test
+    fun songListHttpFailureIncludesStatusSummary() {
+        val response = songListHttpFailure("dark trip hop", "HTTP 503: service unavailable")
+
+        assertEquals("Tryptify-Playlist request failed", response.message)
+        assertEquals("HTTP 503: service unavailable", response.safety.fallbackReason)
+    }
 }
