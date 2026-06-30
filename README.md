@@ -220,9 +220,3 @@ A few deliberate choices keep a real-time audio app from failing silently on rea
 - **Bypass watchdog** — if the USB iso pump stalls, a watchdog with a short grace window automatically falls back to the standard Android audio sink so playback never dead-ends.
 - **Categorised errors** — USB start-up failures map to specific, actionable causes surfaced in Settings rather than a generic message.
 - **Source isolation** — optional/secondary subsystems are wrapped so a single failure (a dead measurement host, a missing tag) is logged and dropped without taking down playback.
-
----
-
-## Author
-
-Built by **[tryptz](https://github.com/tryptz)** — self-taught Android / audio-systems developer (Kotlin · Jetpack Compose · C++/JNI DSP).
